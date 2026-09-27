@@ -960,34 +960,32 @@
       },
       "posture": "DEMANDING_VS_GROWTH"
     },
-    "LTIM": {
+    "LTM": {
+      "posture": "REASONABLE",
+      "confidence": "low",
       "branch": "non-financial",
-      "confidence": "none",
-      "guards_triggered": [
-        "H3-missing-metric"
-      ],
+      "guards_triggered": [],
       "inputs": {
-        "eps_cagr": null,
-        "eps_cagr_points": 0,
-        "eps_cagr_span_years": null,
-        "eps_cagr_start_value": null,
-        "fcf": null,
-        "fcf_capex_caveat": false,
-        "is_financial": false,
-        "is_psu": false,
-        "is_regulated_utility": false,
-        "net_income": null,
-        "operating_cash_flow": null,
-        "pb": null,
-        "pe": null,
-        "revenue_cagr": null,
-        "roce": null,
-        "roe": null,
-        "roe_averaged": false,
         "sector_group": "IT Services",
-        "total_equity": null
-      },
-      "posture": "INSUFFICIENT_EVIDENCE"
+        "is_financial": false,
+        "fcf_capex_caveat": false,
+        "pe": 23.15,
+        "pb": 4.93,
+        "roce": 25.39,
+        "roe": 20.89,
+        "roe_averaged": true,
+        "eps_cagr": -6.9,
+        "revenue_cagr": 12.8,
+        "eps_cagr_span_years": 4.01,
+        "eps_cagr_points": 14,
+        "eps_cagr_start_value": 225.27,
+        "net_income": 50181000000.0,
+        "total_equity": 240250000000.0,
+        "operating_cash_flow": 47988000000.0,
+        "fcf": 3868.2,
+        "is_psu": false,
+        "is_regulated_utility": false
+      }
     },
     "MARICO": {
       "branch": "non-financial",

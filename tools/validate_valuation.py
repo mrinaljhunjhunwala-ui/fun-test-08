@@ -16,7 +16,7 @@ Usage:
 Output (stdout):
     PASS  62/62 unchanged
     DRIFT HDFCBANK: was DEMANDING_VS_ROE/high, now REASONABLE/medium
-    FAIL  LTIM: fetch error (known Yahoo gap)
+    FAIL  <TICKER>: fetch error
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ SEED_TICKERS = [
     # Consumer
     "NESTLEIND", "BRITANNIA", "DABUR", "MARICO", "TATACONSUM", "COLPAL",
     # IT
-    "WIPRO", "HCLTECH", "TECHM", "LTIM", "PERSISTENT", "COFORGE",
+    "WIPRO", "HCLTECH", "TECHM", "LTM", "PERSISTENT", "COFORGE",
     # Midcap
     "SRF", "DEEPAKNITR", "POLYCAB", "DIXON", "TATAELXSI", "TATASTEEL", "HINDALCO",
 ]
