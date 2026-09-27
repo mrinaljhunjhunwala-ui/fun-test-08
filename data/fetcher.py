@@ -23,6 +23,7 @@ Warm Top Picks GitHub Actions job's time budget in production.
 import http.cookiejar
 import io
 import logging
+import os
 import threading
 import time
 import datetime
@@ -157,6 +158,18 @@ _STOOQ_BREAKER_THRESHOLD = 5      # consecutive failures before tripping
 _STOOQ_BREAKER_COOLDOWN  = 300    # seconds — matches _FETCH_CACHE_TTL
 _STOOQ_BREAKER: dict = {"consecutive_failures": 0, "tripped_until": 0.0}
 _STOOQ_BREAKER_LOCK = threading.Lock()  # batch fetches hit this from 16 workers
+
+
+def _stooq_enabled() -> bool:
+    """FIX STOOQ-OFF (2026-09-27): Stooq is OFF unless NSE_ENABLE_STOOQ is set.
+
+    Since 2026-09-06 stooq.com answers every CSV request with a JavaScript
+    browser-verification page, so the tier can never succeed from a script
+    and only cost a 0.6-4 s round-trip (plus 5 breaker-tripping failures
+    every 5 min per process) before falling through to Yahoo. Read per call
+    so tests and operators can flip it without a restart.
+    """
+    return os.environ.get("NSE_ENABLE_STOOQ", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _stooq_breaker_is_tripped() -> bool:
@@ -617,7 +630,7 @@ def fetch_single(ticker: str, period: str = "2y", interval: str = "1d") -> pd.Da
                                     reason=f"{type(e).__name__}: {e}")
 
     # ── Tier 1: Stooq CSV (daily bars only — no intraday support) ────────────
-    if (df is None or df.empty) and interval == "1d":
+    if (df is None or df.empty) and interval == "1d" and _stooq_enabled():
         if _stooq_breaker_is_tripped():
             _log.debug("Stooq circuit breaker open — skipping Stooq for symbol=%s", ticker)
         else:
@@ -632,7 +645,7 @@ def fetch_single(ticker: str, period: str = "2y", interval: str = "1d") -> pd.Da
                 _fail("Stooq", e)
                 _record_provider_diagnostic("Stooq", ok=False, symbol=ticker,
                                             reason=f"{type(e).__name__}: {e}")
-    elif (df is None or df.empty) and served is None:
+    elif (df is None or df.empty) and served is None and interval != "1d":
         _log.debug("intraday %s for %s — skipping Stooq (daily-only)", interval, ticker)
 
     # ── Tier 2: Yahoo Finance v8 chart API (cookie+crumb auth) ───────────────

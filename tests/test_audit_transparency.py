@@ -34,6 +34,7 @@ def test_fallback_logs_failed_provider_and_served(monkeypatch, caplog):
     exception type) and the provider that ultimately served the data."""
     from data import fetcher, angel_fetcher
     monkeypatch.setattr(angel_fetcher, "is_configured", lambda: False)   # skip Angel tier
+    monkeypatch.setenv("NSE_ENABLE_STOOQ", "1")                          # Stooq is opt-in
     monkeypatch.setattr(fetcher, "_fetch_stooq", _boom)                  # Tier 1 fails
     monkeypatch.setattr(fetcher, "_fetch_yahoo_direct",
                         lambda t, period, interval: _good_df())          # Tier 2 serves

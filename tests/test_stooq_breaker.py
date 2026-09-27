@@ -32,9 +32,14 @@ def _boom(*a, **k):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_breaker():
-    """Every test in this file starts and ends with a fresh, untripped breaker."""
+def _isolate_breaker(request, monkeypatch):
+    """Every test in this file starts and ends with a fresh, untripped breaker.
+    Stooq is off by default (FIX STOOQ-OFF); the breaker tests enable it."""
     from data import fetcher
+    if "stooq_off" not in request.keywords:
+        monkeypatch.setenv("NSE_ENABLE_STOOQ", "1")
+    else:
+        monkeypatch.delenv("NSE_ENABLE_STOOQ", raising=False)
     fetcher._reset_stooq_breaker()
     fetcher._FETCH_CACHE.clear()
     yield
@@ -128,3 +133,22 @@ def test_success_resets_consecutive_failure_count(monkeypatch):
 
     # 2 fails, 1 success (reset), 2 fails = only 2 consecutive at the end — not tripped.
     assert not fetcher._stooq_breaker_is_tripped()
+
+
+@pytest.mark.stooq_off
+def test_stooq_skipped_by_default(monkeypatch):
+    """FIX STOOQ-OFF: with NSE_ENABLE_STOOQ unset, Stooq is never called."""
+    from data import fetcher, angel_fetcher
+    calls = {"n": 0}
+
+    def _counting(*a, **k):
+        calls["n"] += 1
+        return _good_df()
+
+    monkeypatch.setattr(angel_fetcher, "is_configured", lambda: False)
+    monkeypatch.setattr(fetcher, "_fetch_stooq", _counting)
+    monkeypatch.setattr(fetcher, "_fetch_yahoo_direct", lambda *a, **k: _good_df())
+    df = fetcher.fetch_single("FAKEOFF.NS", period="1y")
+    assert not df.empty
+    assert calls["n"] == 0
+    assert fetcher._stooq_enabled() is False

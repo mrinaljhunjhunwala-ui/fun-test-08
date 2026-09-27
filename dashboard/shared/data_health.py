@@ -130,10 +130,13 @@ def probe_angel() -> ProviderCheck:
 def probe_stooq() -> ProviderCheck:
     """Stooq: circuit-breaker state from fetcher module."""
     try:
-        from data.fetcher import _STOOQ_BREAKER, _STOOQ_BREAKER_COOLDOWN
+        from data.fetcher import _STOOQ_BREAKER, _stooq_enabled
     except ImportError:
         return ProviderCheck("Stooq CSV", "market", STATUS_UNAVAILABLE,
                              note="diagnostic getter unavailable")
+    if not _stooq_enabled():
+        return ProviderCheck("Stooq CSV", "market", STATUS_UNAVAILABLE,
+                             note="disabled: behind a JS browser check (set NSE_ENABLE_STOOQ=1 to retry)")
     fails = int(_STOOQ_BREAKER.get("consecutive_failures", 0))
     tripped_until = float(_STOOQ_BREAKER.get("tripped_until", 0.0))
     now = time.time()
