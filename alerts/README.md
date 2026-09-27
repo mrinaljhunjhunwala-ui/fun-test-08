@@ -104,6 +104,15 @@ GitHub → Settings → Developer settings → **Fine-grained tokens** → Gener
 - Schedule: every 15 minutes, 09:00–15:45, Mon–Fri, timezone **Asia/Kolkata**
   (the script itself guards the exact 09:15–15:30 window and NSE holidays).
 
+### 3. Second cron job: pre-open scan + Morning Delivery Digest
+Same token, headers and body; only the URL and schedule differ:
+- URL: `https://api.github.com/repos/mrinaljhunjhunwala-ui/nse-smart-investor/actions/workflows/warm-preopen-scan.yml/dispatches`
+- Schedule: **08:40 IST**, Mon–Fri
+
+This job refreshes the Top Picks snapshot and sends the Morning Delivery
+Digest as soon as it's written (~2–3 min). GitHub's own 08:50 IST cron for it
+was starting as late as 14:00 IST.
+
 A successful call returns **HTTP 204**. Check the Actions tab for a
 `workflow_dispatch` run of **Market Alerts** within a minute.
 
