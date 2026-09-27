@@ -46,6 +46,7 @@ _SQUAREOFF_CUT = time(15, 20)   # intraday auto square-off deadline (conservativ
 # ── NSE Holiday Calendar ── moved to utils/nse_holidays.py (pure, importable
 # from analysis/). Re-exported here so existing importers keep working.
 from utils.nse_holidays import NSE_HOLIDAYS  # noqa: E402,F401
+from utils.nse_holidays import is_trading_day as _pure_is_trading_day  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -63,9 +64,7 @@ def is_trading_day(d: date | None = None) -> bool:
     """
     if d is None:
         d = _now_ist().date()
-    if d.weekday() >= 5:          # Saturday=5, Sunday=6
-        return False
-    return d.isoformat() not in NSE_HOLIDAYS
+    return _pure_is_trading_day(d)
 
 
 def is_market_open(dt: datetime | None = None) -> bool:
