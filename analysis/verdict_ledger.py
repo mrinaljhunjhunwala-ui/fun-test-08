@@ -56,6 +56,7 @@ import numpy as np
 import pandas as pd
 
 import trade_store as _store
+from utils.nse_holidays import NSE_HOLIDAYS, is_trading_day
 from utils.sql import read_sql_df
 
 _log = logging.getLogger("analysis.verdict_ledger")
@@ -66,16 +67,21 @@ _log = logging.getLogger("analysis.verdict_ledger")
 # FIX LEDGER-TD (2026-09-24) — these used to be added as CALENDAR days
 # (logged + timedelta(days=h)) while the UI labelled them like trading
 # periods, so "20d (1 mo)" was really ~14 sessions and "250d (~1 yr)" was
-# ~8 months. Targets are now logged_date + h business days (weekday offset;
-# NSE holidays are absorbed by _find_bar's "first bar on-or-after").
+# ~8 months. Targets are now logged_date + h NSE sessions (weekends and
+# utils.nse_holidays skipped; years not yet in that calendar fall back to
+# weekdays, and _find_bar's "first bar on-or-after" absorbs any miss).
 # Rows back-filled before this fix keep their calendar-day values.
 HORIZONS_DAYS = (1, 5, 20, 60, 250)
 NIFTY_BENCH = "^NSEI"
 
 
+_NSE_BDAY = pd.offsets.CustomBusinessDay(holidays=sorted(NSE_HOLIDAYS))
+
+
 def horizon_target_date(logged: _dt.date, h: int) -> _dt.date:
-    """logged_date + h trading (business) days."""
-    return (pd.Timestamp(logged) + pd.offsets.BDay(int(h))).date()
+    """logged_date + h NSE sessions (weekends and NSE holidays skipped —
+    plain BDay counted a holiday as a session, ending the window a day early)."""
+    return (pd.Timestamp(logged) + _NSE_BDAY * int(h)).date()
 
 
 # ── Session dating (FIX LEDGER-IST, 2026-09-27) ──────────────────────────────
@@ -83,9 +89,8 @@ def horizon_target_date(logged: _dt.date, h: int) -> _dt.date:
 # UTC, so a scan between 00:00 and 05:30 IST was dated the previous day — and
 # even an IST wall-clock date is wrong before the open: a scan at 08:00 IST
 # prices off the PREVIOUS session's close. logged_date is now the NSE session
-# the entry price belongs to. Weekends roll back; exchange holidays don't (the
-# canonical calendar lives in dashboard/, off-limits to analysis/) — a
-# holiday-dated row just anchors to the next bar via _find_bar.
+# the entry price belongs to — weekends and NSE holidays (utils.nse_holidays)
+# roll back to the previous trading day.
 _IST = _dt.timezone(_dt.timedelta(hours=5, minutes=30))
 _NSE_OPEN = _dt.time(9, 15)
 _NSE_CLOSE = _dt.time(15, 30)
@@ -95,21 +100,21 @@ def _now_ist() -> _dt.datetime:
     return _dt.datetime.now(_IST)
 
 
-def _prev_weekday(d: _dt.date) -> _dt.date:
+def _prev_session(d: _dt.date) -> _dt.date:
     d -= _dt.timedelta(days=1)
-    while d.weekday() >= 5:
+    while not is_trading_day(d):
         d -= _dt.timedelta(days=1)
     return d
 
 
 def session_date(now: Optional[_dt.datetime] = None) -> _dt.date:
     """The NSE session whose prices a scan run at `now` sees: today (IST) once
-    the market has opened on a weekday, else the previous weekday."""
+    the market has opened on a trading day, else the previous trading day."""
     n = (now or _now_ist()).astimezone(_IST)
     d = n.date()
-    if d.weekday() < 5 and n.time() >= _NSE_OPEN:
+    if is_trading_day(d) and n.time() >= _NSE_OPEN:
         return d
-    return _prev_weekday(d)
+    return _prev_session(d)
 
 
 def last_closed_session(now: Optional[_dt.datetime] = None) -> _dt.date:
@@ -118,9 +123,9 @@ def last_closed_session(now: Optional[_dt.datetime] = None) -> _dt.date:
     would otherwise read an intraday, still-moving bar)."""
     n = (now or _now_ist()).astimezone(_IST)
     d = n.date()
-    if d.weekday() < 5 and n.time() >= _NSE_CLOSE:
+    if is_trading_day(d) and n.time() >= _NSE_CLOSE:
         return d
-    return _prev_weekday(d)
+    return _prev_session(d)
 
 _schema_ready_for: Optional[str] = None
 

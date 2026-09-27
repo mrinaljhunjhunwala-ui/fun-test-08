@@ -75,3 +75,36 @@ def test_evening_and_next_preopen_scan_dedup_to_one_row(monkeypatch):
         vl.log_verdict(ticker="INFY.NS", final_verdict=fv, entry_price=1500.0,
                        source="tomorrow_watchlist")
     assert len(vl.load_ledger()) == 1
+
+
+# ── NSE holidays (utils.nse_holidays) ────────────────────────────────────────
+# 2026-09-14 (Mon) is Ganesh Chaturthi; 2026-10-02 (Fri) is Gandhi Jayanti.
+
+@pytest.mark.parametrize("now, expected", [
+    (_ist(2026, 9, 14, 11, 0),  dt.date(2026, 9, 11)),   # holiday Mon → Fri before
+    (_ist(2026, 9, 15, 8, 0),   dt.date(2026, 9, 11)),   # Tue pre-open → skips holiday
+    (_ist(2026, 9, 15, 10, 0),  dt.date(2026, 9, 15)),   # Tue after open → Tue
+    (_ist(2026, 10, 3, 10, 0),  dt.date(2026, 10, 1)),   # Sat after Fri holiday → Thu
+])
+def test_session_date_skips_holidays(now, expected):
+    assert vl.session_date(now) == expected
+
+
+def test_last_closed_session_skips_holidays():
+    assert vl.last_closed_session(_ist(2026, 9, 15, 11, 0)) == dt.date(2026, 9, 11)
+
+
+def test_horizon_counts_sessions_not_holidays():
+    # Fri 09-11 + 1 session → Tue 09-15 (Mon is a holiday); plain BDay said Mon.
+    assert vl.horizon_target_date(dt.date(2026, 9, 11), 1) == dt.date(2026, 9, 15)
+    # 5 sessions from Thu 09-10: Fri, Tue, Wed, Thu, Fri → 09-18.
+    assert vl.horizon_target_date(dt.date(2026, 9, 10), 5) == dt.date(2026, 9, 18)
+    # No holiday in the window → unchanged from weekday counting.
+    assert vl.horizon_target_date(dt.date(2026, 9, 21), 5) == dt.date(2026, 9, 28)
+
+
+def test_market_hours_reexports_the_same_calendar():
+    from dashboard.shared.market_hours import NSE_HOLIDAYS as dash
+    from utils.nse_holidays import NSE_HOLIDAYS as pure
+    assert dash is pure
+    assert "2026-09-14" in pure

@@ -43,72 +43,9 @@ _CLOSING_START = time(15, 30)   # closing session / call auction
 _CLOSING_END   = time(15, 40)
 _SQUAREOFF_CUT = time(15, 20)   # intraday auto square-off deadline (conservative)
 
-# ── NSE Holiday Calendar ─────────────────────────────────────────────────────
-# Source: NSE India official holiday list.
-# ADD new years at the bottom.  Format: "YYYY-MM-DD".
-NSE_HOLIDAYS: frozenset[str] = frozenset({
-    # ── 2024 ──
-    "2024-01-22",   # Ram Mandir Consecration (special closure)
-    "2024-01-26",   # Republic Day
-    "2024-03-08",   # Mahashivratri
-    "2024-03-25",   # Holi
-    "2024-03-29",   # Good Friday
-    "2024-04-11",   # Id-Ul-Fitr (Ramadan Eid)
-    "2024-04-14",   # Dr. Ambedkar Jayanti
-    "2024-04-17",   # Ram Navami
-    "2024-04-21",   # Mahavir Jayanti
-    "2024-05-23",   # Buddha Purnima
-    "2024-06-17",   # Bakri Id
-    "2024-07-17",   # Muharram
-    "2024-08-15",   # Independence Day
-    "2024-10-02",   # Mahatma Gandhi Jayanti
-    "2024-10-24",   # Dussehra (Vijaya Dashami)
-    "2024-11-01",   # Diwali Laxmi Puja
-    "2024-11-15",   # Gurunanak Jayanti
-    "2024-12-25",   # Christmas
-
-    # ── 2025 ──
-    "2025-01-26",   # Republic Day
-    "2025-02-26",   # Mahashivratri
-    "2025-03-14",   # Holi
-    "2025-03-31",   # Id-Ul-Fitr (Eid)
-    "2025-04-10",   # Shri Ram Navami
-    "2025-04-14",   # Dr. Ambedkar Jayanti
-    "2025-04-18",   # Good Friday
-    "2025-05-12",   # Buddha Purnima
-    "2025-06-07",   # Bakri Eid
-    "2025-06-27",   # Muharram
-    "2025-08-15",   # Independence Day
-    "2025-08-27",   # Ganesh Chaturthi
-    "2025-10-02",   # Mahatma Gandhi Jayanti
-    "2025-10-02",   # Dussehra (same day — only 1 closure)
-    "2025-10-21",   # Diwali Laxmi Puja
-    "2025-10-22",   # Diwali Balipratipada
-    "2025-11-05",   # Gurunanak Jayanti
-    "2025-12-25",   # Christmas
-
-    # ── 2026 ── (FIX MH1: corrected against NSE's published 2026 equity
-    # holiday list — 15 full-day closures. Independence Day 2026 falls on a
-    # Saturday, already a non-trading day via the weekday check, but kept
-    # here for completeness/consistency with is_trading_day()'s direct
-    # date-string lookup.)
-    "2026-01-26",   # Republic Day
-    "2026-03-03",   # Holi
-    "2026-03-26",   # Shri Ram Navami
-    "2026-03-31",   # Shri Mahavir Jayanti
-    "2026-04-03",   # Good Friday
-    "2026-04-14",   # Dr. Baba Saheb Ambedkar Jayanti
-    "2026-05-01",   # Maharashtra Day
-    "2026-05-28",   # Bakri Id
-    "2026-06-26",   # Muharram
-    "2026-08-15",   # Independence Day (falls on a Saturday in 2026)
-    "2026-09-14",   # Ganesh Chaturthi
-    "2026-10-02",   # Mahatma Gandhi Jayanti
-    "2026-10-20",   # Dussehra
-    "2026-11-10",   # Diwali — Balipratipada
-    "2026-11-24",   # Prakash Gurpurb Sri Guru Nanak Dev
-    "2026-12-25",   # Christmas
-})
+# ── NSE Holiday Calendar ── moved to utils/nse_holidays.py (pure, importable
+# from analysis/). Re-exported here so existing importers keep working.
+from utils.nse_holidays import NSE_HOLIDAYS  # noqa: E402,F401
 
 
 # ─────────────────────────────────────────────────────────────────────────────
