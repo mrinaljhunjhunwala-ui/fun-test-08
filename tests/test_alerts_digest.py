@@ -108,6 +108,35 @@ def test_delivery_digest_respects_max_picks(_silence_dispatch, monkeypatch):
     assert "TICK5" not in msg
 
 
+@pytest.mark.parametrize("gen_at", [
+    (datetime.datetime.now() - datetime.timedelta(days=3)).isoformat(),  # Friday's scan on Monday
+    "unknown",
+    None,
+])
+def test_delivery_digest_skips_stale_snapshot(_silence_dispatch, monkeypatch, gen_at):
+    """An old or undated snapshot must not go out as "today's scan", and must
+    not stamp state — a later run with a fresh snapshot still sends."""
+    snap = _mk_snapshot(3)
+    snap["generated_at"] = gen_at
+    fake_store = SimpleNamespace(kv_get=lambda k, user_id: snap)
+    monkeypatch.setitem(sys.modules, "trade_store", fake_store)
+
+    state = {}
+    assert ca.check_delivery_digest(state, "2026-09-08") == 0
+    assert "delivery_digest" not in state
+    _silence_dispatch.assert_not_called()
+
+
+def test_delivery_digest_accepts_last_evening_snapshot(_silence_dispatch, monkeypatch):
+    """Post-close scan (~13.5h before a 09:00 digest) is still today's data."""
+    snap = _mk_snapshot(3)
+    snap["generated_at"] = (datetime.datetime.now() - datetime.timedelta(hours=13.5)).isoformat()
+    fake_store = SimpleNamespace(kv_get=lambda k, user_id: snap)
+    monkeypatch.setitem(sys.modules, "trade_store", fake_store)
+
+    assert ca.check_delivery_digest({}, "2026-09-08") == 1
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # check_momentum_opportunities
 # ─────────────────────────────────────────────────────────────────────────────

@@ -73,6 +73,38 @@ jobs:
           # timeout; the last scans without them finished in ~31-35 s.
         run: python scripts/warm_top_picks.py
 
+      # Send the Morning Delivery Digest HERE, straight after the fresh
+      # snapshot is written, instead of relying on market-digest.yml's 09:00
+      # IST cron (which fired before this job finished, or not at all, and
+      # found no snapshot). That cron stays as a fallback; both share the
+      # alert-state cache, so the digest still goes out at most once a day.
+      - name: Restore alert state
+        id: restore_state
+        uses: actions/cache/restore@v4
+        with:
+          path: data/alert_state.json
+          key: alert-state-${{ github.run_id }}
+          restore-keys: |
+            alert-state-
+
+      - name: Send Morning Delivery Digest
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN:       ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:         ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERT_GMAIL_ADDRESS:      ${{ secrets.ALERT_GMAIL_ADDRESS }}
+          ALERT_GMAIL_APP_PASSWORD: ${{ secrets.ALERT_GMAIL_APP_PASSWORD }}
+          ALERT_GMAIL_TO:           ${{ secrets.ALERT_GMAIL_TO }}
+          DATABASE_URL:             ${{ secrets.DATABASE_URL }}
+        run: python alerts/check_alerts.py --mode=morning-digest
+
+      - name: Save alert state
+        if: always() && steps.restore_state.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: data/alert_state.json
+          key: alert-state-${{ github.run_id }}
+
       - name: Warm Tomorrow's Watchlist (pre-open refresh)
         # continue-on-error: the two warmers are independent. If Top Picks
         # succeeded and this one fails on a transient network issue, the app

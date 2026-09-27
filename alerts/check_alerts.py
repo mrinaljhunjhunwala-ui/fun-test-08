@@ -361,9 +361,13 @@ def check_nifty_trend(state: dict, today: str) -> int:
 #
 # Reads the ~745-ticker top-picks scan that scripts/warm_top_picks.py already
 # writes every 15 min to trade_store KV, so this check does NOT rescan the
-# universe. It only formats and sends. Fires ONCE per day (pre-market at
-# 09:00 IST via the market-digest workflow), so the state key is date-only.
+# universe. It only formats and sends. Fires ONCE per day, so the state key
+# is date-only. Primary sender: warm-preopen-scan.yml, right after it writes
+# a fresh snapshot. The 09:00 IST market-digest cron is a fallback only.
 # ─────────────────────────────────────────────────────────────────────────────
+
+_DIGEST_MAX_SNAPSHOT_AGE_H = 16
+
 
 def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int:
     """Read persisted Top Picks snapshot and email/Telegram the top delivery
@@ -388,12 +392,26 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
         print("[digest] no persisted top-picks snapshot yet — skipping")
         return 0
 
+    gen_at = snap.get("generated_at", "unknown")
+    # Don't present an old scan as "today's". warm_top_picks stamps a naive
+    # datetime.now() in the runner's clock, so compare the same way. 16h still
+    # accepts last evening's post-close scan (same closing prices a pre-open
+    # scan would see) but rejects Friday's snapshot on Monday. Not marked
+    # fired, so a later run with a fresh snapshot can still send.
+    try:
+        _age_h = (datetime.datetime.now()
+                  - datetime.datetime.fromisoformat(gen_at)).total_seconds() / 3600
+    except (TypeError, ValueError):
+        _age_h = None
+    if _age_h is None or _age_h > _DIGEST_MAX_SNAPSHOT_AGE_H:
+        print(f"[digest] snapshot is stale (generated_at={gen_at}) — skipping")
+        return 0
+
     buys = snap["data"].get("buys") or []
     if not buys:
         print("[digest] snapshot has 0 buys — nothing to send")
         return 0
 
-    gen_at = snap.get("generated_at", "unknown")
     lines = [
         "📈 <b>Morning Delivery Digest</b>",
         f"<i>Top {min(max_picks, len(buys))} positional candidates from today's scan "
