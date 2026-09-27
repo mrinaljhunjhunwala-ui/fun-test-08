@@ -408,6 +408,10 @@ def _fetch_history(ticker: str) -> Optional[pd.DataFrame]:
         return None
 
 
+# Upper bound on candidate rows pulled per backfill call (ids + dates only).
+_BACKFILL_CANDIDATE_CAP = 20000
+
+
 def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
     """
     Fill missing forward-return columns for eligible log rows.
@@ -426,23 +430,47 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
         ensure_schema()
         today = last_closed_session()
 
-        # Load rows needing work: any horizon column still None.
+        # Load rows needing work: any horizon column still None, logged before
+        # the last closed session (a row from that session can't have reached
+        # even the 1-session horizon).
+        #
+        # FIX LEDGER-STARVE (2026-09-28): this used to take the max_rows
+        # NEWEST rows needing work. Scan pages log 30-60 rows a day, so the
+        # newest 200 were always too recent for any horizon — every page load
+        # updated 0 rows while ~430 eligible older rows never got 1d/5d
+        # returns. max_rows now applies only AFTER keeping rows with at least
+        # one missing horizon that has actually been reached.
         sql = _store._q("""
             SELECT v.id, v.ticker, v.logged_date, v.entry_price,
                    r.price_1d, r.price_5d, r.price_20d, r.price_60d, r.price_250d
             FROM verdict_log v
             LEFT JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
-            WHERE r.verdict_log_id IS NULL
+            WHERE v.logged_date < ?
+              AND (r.verdict_log_id IS NULL
                OR r.price_1d   IS NULL
                OR r.price_5d   IS NULL
                OR r.price_20d  IS NULL
                OR r.price_60d  IS NULL
-               OR r.price_250d IS NULL
+               OR r.price_250d IS NULL)
             ORDER BY v.logged_at DESC
             LIMIT ?
         """)
         with _store._get_conn() as conn:
-            rows = read_sql_df(sql, conn, params=(max_rows,))
+            rows = read_sql_df(sql, conn, params=(today.isoformat(), _BACKFILL_CANDIDATE_CAP))
+        if rows.empty:
+            return stats
+
+        def _has_reached_gap(r) -> bool:
+            try:
+                logged = _dt.date.fromisoformat(str(r["logged_date"]))
+            except ValueError:
+                return False
+            return any(
+                pd.isna(r.get(f"price_{h}d")) and horizon_target_date(logged, h) <= today
+                for h in HORIZONS_DAYS
+            )
+
+        rows = rows[rows.apply(_has_reached_gap, axis=1)].head(max_rows)
         if rows.empty:
             return stats
         stats["scanned"] = len(rows)
