@@ -236,3 +236,12 @@ def test_latest_stored_dates_reads_sqlite_and_caches(monkeypatch, tmp_path, fres
     with sqlite3.connect(db) as c:
         c.execute("INSERT INTO fii_dii_daily VALUES ('2026-09-26')")
     assert dh._latest_stored_dates()["fii_dii_daily"] == "2026-09-25"   # served from cache
+
+
+
+def test_probe_stooq_reports_disabled_by_default(monkeypatch):
+    """FIX STOOQ-OFF: the panel says 'disabled', not 'degraded'."""
+    monkeypatch.delenv("NSE_ENABLE_STOOQ", raising=False)
+    c = dh.probe_stooq()
+    assert c.status == dh.STATUS_UNAVAILABLE
+    assert "disabled" in c.note
