@@ -1212,6 +1212,12 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
     # so threshold overlap drift is visible in logs.
     _multi_match_count = 0
 
+    # Breakout funnel — how many names survive each breakout gate in order,
+    # so an empty Breakout tab says WHICH gate emptied it (market tone vs. a
+    # threshold that no longer fits the delivery-aware volume split).
+    _funnel = {"eligible": 0, "buy_action": 0, "score_ge_52": 0,
+               "momentum_ge_8": 0, "volume_ge_5": 0}
+
     for s in results:
         act, sc = s.get("action", ""), s.get("score", 0)
         if sc <= 0 or act in ("UNAVAILABLE", "DATA_UNAVAILABLE"):
@@ -1222,6 +1228,16 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
         tech = s.get("technical", 0)   # out of 40
         mom  = s.get("momentum",  0)   # out of 25
         vol  = s.get("volume",    0)   # out of 15
+
+        _funnel["eligible"] += 1
+        if act in ("STRONG BUY", "BUY"):
+            _funnel["buy_action"] += 1
+            if sc >= 52:
+                _funnel["score_ge_52"] += 1
+                if mom >= 8:
+                    _funnel["momentum_ge_8"] += 1
+                    if vol >= 5:
+                        _funnel["volume_ge_5"] += 1
 
         ent = s.get("entry", 0)
         kl  = f"₹{ent:,.0f}" if ent else "—"
@@ -1270,6 +1286,7 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
     # how many it actually scored. Older persisted snapshots lack these keys.
     out["n_universe"] = len(_UNIV)
     out["n_scored"]   = len(results)
+    out["breakout_funnel"] = dict(_funnel)
 
     # FIX C7: log per-bucket counts and warn on empty buckets, so a silently-
     # empty bucket (the original threshold bug) is visible in logs going
@@ -1292,6 +1309,12 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
                 "scans, thresholds may need recalibration.",
                 _bucket, len(results),
             )
+    if _counts["breakout_candidates"] == 0:
+        _log.warning(
+            "cache._tomorrow_watchlist breakout funnel: eligible=%d → BUY/STRONG BUY=%d "
+            "→ score>=52=%d → momentum>=8=%d → volume>=5=%d",
+            *_funnel.values(),
+        )
 
     # Task 4.2 F1 (audit docs/TOMORROW_WATCHLIST_AUDIT_2026-09.md): log every
     # shortlisted pick to verdict_ledger with source="tomorrow_watchlist" so

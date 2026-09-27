@@ -34,7 +34,11 @@ concurrency:
 jobs:
   warm:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # 20, not 8 (2026-09-28): the full-universe scan regularly ran past 8 min
+    # (runs on 2026-09-25 and 09-27 were cancelled before persisting anything),
+    # e.g. when Angel One's breaker trips and every ticker goes to Yahoo.
+    # Matches warm_tomorrow_watchlist.yml.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,7 +59,9 @@ jobs:
       - name: Run Top Picks warm-up
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          # No ANGEL_* here on purpose: angel_fetcher serialises candle calls at
-          # 1 req/s, so a ~745-ticker x 2-window scan needs ~25 min and hit the
-          # job timeout every weekday since mid-Sep. Yahoo does it in ~75 s.
+          # Angel One credentials deliberately NOT passed (2026-09-28): from GitHub's
+          # runners Angel's candle API answers 403 for every ticker, and each
+          # rejection costs time before the Yahoo fallback. Since the ANGEL_* secrets
+          # were added (2026-09-08 17:55 UTC) every scan here ran past the job
+          # timeout; the last scans without them finished in ~31-35 s.
         run: python scripts/warm_top_picks.py

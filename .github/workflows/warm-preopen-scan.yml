@@ -66,9 +66,11 @@ jobs:
       - name: Warm Top Picks (pre-open refresh)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          # No ANGEL_* here on purpose: angel_fetcher serialises candle calls at
-          # 1 req/s, so a ~745-ticker x 2-window scan needs ~25 min and hit the
-          # job timeout every weekday since mid-Sep. Yahoo does it in ~75 s.
+          # Angel One credentials deliberately NOT passed (2026-09-28): from GitHub's
+          # runners Angel's candle API answers 403 for every ticker, and each
+          # rejection costs time before the Yahoo fallback. Since the ANGEL_* secrets
+          # were added (2026-09-08 17:55 UTC) every scan here ran past the job
+          # timeout; the last scans without them finished in ~31-35 s.
         run: python scripts/warm_top_picks.py
 
       # Send the Morning Delivery Digest HERE, straight after the fresh
@@ -112,7 +114,9 @@ jobs:
         continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          # No ANGEL_* here on purpose: angel_fetcher serialises candle calls at
-          # 1 req/s, so a ~745-ticker x 2-window scan needs ~25 min and hit the
-          # job timeout every weekday since mid-Sep. Yahoo does it in ~75 s.
+          # Angel One credentials deliberately NOT passed (2026-09-28): from GitHub's
+          # runners Angel's candle API answers 403 for every ticker, and each
+          # rejection costs time before the Yahoo fallback. Since the ANGEL_* secrets
+          # were added (2026-09-08 17:55 UTC) every scan here ran past the job
+          # timeout; the last scans without them finished in ~31-35 s.
         run: python scripts/warm_tomorrow_watchlist.py
