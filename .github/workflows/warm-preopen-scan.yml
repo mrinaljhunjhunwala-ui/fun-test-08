@@ -66,10 +66,11 @@ jobs:
       - name: Warm Top Picks (pre-open refresh)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          ANGEL_API_KEY:      ${{ secrets.ANGEL_API_KEY }}
-          ANGEL_CLIENT_ID:    ${{ secrets.ANGEL_CLIENT_ID }}
-          ANGEL_PASSWORD:     ${{ secrets.ANGEL_PASSWORD }}
-          ANGEL_TOTP_SECRET:  ${{ secrets.ANGEL_TOTP_SECRET }}
+          # Angel One credentials deliberately NOT passed (2026-09-28): from GitHub's
+          # runners Angel's candle API answers 403 for every ticker, and each
+          # rejection costs time before the Yahoo fallback. Since the ANGEL_* secrets
+          # were added (2026-09-08 17:55 UTC) every scan here ran past the job
+          # timeout; the last scans without them finished in ~31-35 s.
         run: python scripts/warm_top_picks.py
 
       - name: Warm Tomorrow's Watchlist (pre-open refresh)
@@ -81,8 +82,9 @@ jobs:
         continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          ANGEL_API_KEY:      ${{ secrets.ANGEL_API_KEY }}
-          ANGEL_CLIENT_ID:    ${{ secrets.ANGEL_CLIENT_ID }}
-          ANGEL_PASSWORD:     ${{ secrets.ANGEL_PASSWORD }}
-          ANGEL_TOTP_SECRET:  ${{ secrets.ANGEL_TOTP_SECRET }}
+          # Angel One credentials deliberately NOT passed (2026-09-28): from GitHub's
+          # runners Angel's candle API answers 403 for every ticker, and each
+          # rejection costs time before the Yahoo fallback. Since the ANGEL_* secrets
+          # were added (2026-09-08 17:55 UTC) every scan here ran past the job
+          # timeout; the last scans without them finished in ~31-35 s.
         run: python scripts/warm_tomorrow_watchlist.py
