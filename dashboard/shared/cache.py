@@ -158,7 +158,7 @@ STOCK_SEARCH_MAP = {
     "Tata Power": "TATAPOWER.NS",
     "Adani Ports": "ADANIPORTS.NS",
     "Mahindra & Mahindra (M&M)": "M&M.NS",
-    "LTIMindtree": "LTIM.NS",
+    "LTIMindtree": "LTM.NS",
     "Shriram Finance": "SHRIRAMFIN.NS",
     # FIX C_VEDANTA: Vedanta Ltd demerged effective 15-Jun-2026 into a
     # residual entity (critical minerals / Hindustan Zinc) plus four newly

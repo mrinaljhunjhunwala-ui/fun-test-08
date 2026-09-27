@@ -738,7 +738,7 @@ def fetch_index(index: str = "^NSEI", period: str = "2y") -> pd.DataFrame:
 def get_sector_tickers(sector: str) -> List[str]:
     """Return a predefined list of NSE tickers for a given sector."""
     sectors = {
-        "it":      ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS"],
+        "it":      ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTM.NS"],
         "banking": BANKNIFTY_TICKERS,
         "pharma":  ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS"],
         "auto":    ["MARUTI.NS", "TMCV.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS", "HEROMOTOCO.NS"],
