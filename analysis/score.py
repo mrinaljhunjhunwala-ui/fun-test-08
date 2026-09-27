@@ -980,6 +980,7 @@ def _score_positioning(
     pcr:                    Optional[float] = None,
     max_pain_distance_pct:  Optional[float] = None,
     fii_deriv_net:          Optional[float] = None,
+    fii_deriv_pct:          Optional[float] = None,
 ) -> Tuple[float, Dict]:
     """Positioning pillar (10 pts) — F&O eligibility + opt-in flag only.
 
@@ -990,7 +991,8 @@ def _score_positioning(
                                  long_unwinding / short_buildup
       PCR               (2 pts)  extreme reads are contrarian
       Max pain distance (2 pts)  price near max pain = pinning risk
-      FII deriv (idx)   (3 pts)  sign of net index-futures position
+      FII deriv (idx)   (3 pts)  where today's FII net index-futures position
+                                 sits in its trailing ~1y range (percentile)
 
     Ships in this landing with all four sub-inputs default-None (data
     pipelines are queued as follow-ups per docs/POSITIONING_INTEGRATION_2026-09.md).
@@ -1020,23 +1022,24 @@ def _score_positioning(
     elif abs(max_pain_distance_pct) < 3.0:  pts["max_pain"] = 1.0
     else:                                    pts["max_pain"] = 1.5
 
-    # FII net index-futures position, in CONTRACTS (not rupees — NSE
-    # publishes contract counts; conversion to rupees would need lot-size
-    # + price and adds no signal). Positive = FII net long index futs
-    # (bullish); negative = net short (bearish). Thresholds calibrated to
-    # the typical 2023-26 range (~ -100k to +100k contracts); will be
-    # re-tuned after 60 days of production data.
-    if fii_deriv_net is None:
+    # FII net index-futures position. FIX FII-PCTL (2026-09-27): scored on
+    # its PERCENTILE within the trailing ~250 sessions (0-1), not on the raw
+    # contract count. The old fixed +/-30k bands assumed a -100k..+100k
+    # range; live 2026-09 values sit near -300k (lot-size changes shift
+    # contract counts), so the sub-score was pinned at 0. A raw net with no
+    # percentile (too little history) scores the neutral midpoint.
+    if fii_deriv_pct is None:
         pts["fii_deriv"] = 1.5
-    elif fii_deriv_net >  30_000:   pts["fii_deriv"] = 3.0
-    elif fii_deriv_net >       0:   pts["fii_deriv"] = 2.0
-    elif fii_deriv_net > -30_000:   pts["fii_deriv"] = 1.0
+    elif fii_deriv_pct >= 0.80:     pts["fii_deriv"] = 3.0
+    elif fii_deriv_pct >= 0.50:     pts["fii_deriv"] = 2.0
+    elif fii_deriv_pct >= 0.20:     pts["fii_deriv"] = 1.0
     else:                            pts["fii_deriv"] = 0.0
 
     pts["_oi_regime_input"]        = oi_regime
     pts["_pcr_input"]              = pcr
     pts["_max_pain_pct_input"]     = max_pain_distance_pct
     pts["_fii_deriv_net_input"]    = fii_deriv_net
+    pts["_fii_deriv_pct_input"]    = fii_deriv_pct
 
     total = pts["oi_regime"] + pts["pcr"] + pts["max_pain"] + pts["fii_deriv"]
     return round(min(total, 10.0), 2), pts
@@ -1562,7 +1565,7 @@ def score_dataframe(
     # the flag flips but before the data pipelines are online.
     _has_pos_data  = any(_pi.get(k) is not None for k in
                          ("oi_regime", "pcr", "max_pain_distance_pct",
-                          "fii_deriv_net"))
+                          "fii_deriv_net", "fii_deriv_pct"))
     _positioning_on  = _positioning_pillar_enabled() and _fno_flag and _has_pos_data
     positioning_pts: float = 0.0
     positioning_detail: Dict = {"pillar_active": False, "is_fno": _fno_flag}
@@ -1573,6 +1576,7 @@ def score_dataframe(
             pcr                   = _pi.get("pcr"),
             max_pain_distance_pct = _pi.get("max_pain_distance_pct"),
             fii_deriv_net         = _pi.get("fii_deriv_net"),
+            fii_deriv_pct         = _pi.get("fii_deriv_pct"),
         )
         positioning_detail["pillar_active"] = True
         positioning_detail["is_fno"]        = True
@@ -1803,10 +1807,13 @@ def score_stock(
             # tickers on a given day. Cheap to load per ticker (single
             # DB read + LRU-style cache implicit in the trade_store).
             try:
-                from data.nse_fii_deriv import get_latest_fut_idx_net
+                from data.nse_fii_deriv import get_latest_fut_idx_net, get_latest_fut_idx_pct
                 _fii_net = get_latest_fut_idx_net()
                 if _fii_net is not None:
                     _pi_acc["fii_deriv_net"] = _fii_net
+                _fii_pct = get_latest_fut_idx_pct()
+                if _fii_pct is not None:
+                    _pi_acc["fii_deriv_pct"] = _fii_pct
             except Exception as _fii_e:
                 _log.debug("FII deriv net unavailable: %s: %s",
                            type(_fii_e).__name__, _fii_e)
