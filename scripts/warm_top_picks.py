@@ -39,6 +39,7 @@ import datetime
 import logging
 import os
 import sys
+import threading
 
 _log = logging.getLogger("scripts.warm_top_picks")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -86,6 +87,17 @@ def main() -> int:
 
     _log.info("warm_top_picks: starting scan...")
     _t0 = datetime.datetime.now()
+    # FIX TP-HEARTBEAT (2026-09-28): the scan logs nothing until it finishes,
+    # so a run killed by the job timeout looked like a silent hang. Log the
+    # elapsed time every minute so the Actions log shows it was still working.
+    _hb_stop = threading.Event()
+
+    def _heartbeat() -> None:
+        while not _hb_stop.wait(60):
+            _log.info("warm_top_picks: scan still running (%.0fs elapsed)",
+                      (datetime.datetime.now() - _t0).total_seconds())
+
+    threading.Thread(target=_heartbeat, name="warm-heartbeat", daemon=True).start()
     try:
         _vix = get_vix_info()
         _sectors = _sector_ranks_tuple()
@@ -97,6 +109,8 @@ def main() -> int:
     except Exception as e:
         _log.error("warm_top_picks: scan failed, nothing persisted this run: %s", e)
         return 0
+    finally:
+        _hb_stop.set()
     _elapsed = (datetime.datetime.now() - _t0).total_seconds()
     # FIX TP-HEALTH1: include scan-health counts (n_scanned / n_scored_ok /
     # n_unavailable) and the vix_regime the scan ran under, so a degraded run
