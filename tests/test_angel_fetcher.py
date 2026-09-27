@@ -206,3 +206,58 @@ def test_searchscrip_rate_limit_trips_breaker(monkeypatch):
         af._TOKEN_CACHE.clear()
         _ = af._get_token("RELIANCE", {"jwt": "J", "api_key": "K"})
     assert af._breaker_tripped()
+
+
+# ── FIX AO-403: candle-API HTTP errors feed the breaker ─────────────────────
+class _CandleSession(FakeSession):
+    """Candle endpoint answers `status` (and `data`); everything else as FakeSession."""
+    def __init__(self, status=403, data=None):
+        super().__init__()
+        self.status, self.data, self.candle_calls = status, data, 0
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        if "getCandleData" in url:
+            self.candle_calls += 1
+            return FakeResponse(self.status, {"data": self.data} if self.status < 400 else {})
+        return super().post(url, json=json, headers=headers, timeout=timeout)
+
+
+def _candle_setup(monkeypatch, sess):
+    monkeypatch.setattr(af, "_http", sess)
+    monkeypatch.setattr(af, "_get_session", lambda: {"jwt": "J", "api_key": "K"})
+    monkeypatch.setattr(af, "_get_token", lambda sym, session: "123")
+    monkeypatch.setattr(af, "_hist_rate_limit", lambda: None)
+    af._BREAKER_FAILS[0] = 0
+    af._BREAKER_TRIPPED_AT[0] = 0.0
+
+
+def test_candle_403s_trip_breaker_and_stop_calls(monkeypatch):
+    sess = _CandleSession(status=403)
+    _candle_setup(monkeypatch, sess)
+    for i in range(af._BREAKER_THRESHOLD):
+        assert af.fetch_historical(f"T{i}.NS", period="1y") is None
+    assert af._breaker_tripped()
+    calls = sess.candle_calls
+    assert af.fetch_historical("MORE.NS", period="1y") is None
+    assert sess.candle_calls == calls          # tripped: no further candle requests
+    af._BREAKER_FAILS[0] = 0
+    af._BREAKER_TRIPPED_AT[0] = 0.0
+
+
+def test_empty_200_is_not_a_breaker_failure(monkeypatch):
+    sess = _CandleSession(status=200, data=[])
+    _candle_setup(monkeypatch, sess)
+    for i in range(af._BREAKER_THRESHOLD + 2):
+        assert af.fetch_historical(f"ILLQ{i}.NS", period="1y") is None
+    assert not af._breaker_tripped()
+
+
+def test_candle_success_resets_failures(monkeypatch):
+    sess = _CandleSession(status=403)
+    _candle_setup(monkeypatch, sess)
+    for i in range(af._BREAKER_THRESHOLD - 1):
+        af.fetch_historical(f"F{i}.NS", period="1y")
+    sess.status, sess.data = 200, [["2026-09-25T00:00:00+05:30", 1, 2, 0.5, 1.5, 100]]
+    df = af.fetch_historical("OK.NS", period="1y")
+    assert df is not None and not df.empty
+    assert af._BREAKER_FAILS[0] == 0
