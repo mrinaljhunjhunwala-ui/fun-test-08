@@ -1328,3 +1328,48 @@ def flow_bars(sessions: list) -> str:
                    for _, f, d in sessions)
     axis = "".join(f"<span>{lbl}</span>" for lbl, _, _ in sessions)
     return f'<div class="flow-bars">{cols}</div><div class="flow-axis">{axis}</div>'
+
+
+def level_strip(cells: list, highlight: int = -1) -> str:
+    """Six-cell key-levels ribbon: (label, value, sub) tuples.
+
+    Unlike gate_strip this allows six cells (the intraday artboard shows
+    open, prev close, VWAP, ORB high/low, day range); extra cells drop.
+    """
+    out = []
+    for i, (label, value, sub) in enumerate(list(cells)[:6]):
+        cls = "lc hi" if i == highlight else "lc"
+        sub_html = f'<div class="lc-s">{sub}</div>' if sub else ""
+        out.append(f'<div class="{cls}"><div class="lc-k">{label}</div>'
+                   f'<div class="lc-v">{value}</div>{sub_html}</div>')
+    return f'<div class="level-strip">{"".join(out)}</div>'
+
+
+def depth_ladder(depth: dict) -> str:
+    """Five-level bid/ask ladder from angel_fetcher.get_market_depth().
+
+    Sells print highest price first above the spread row, buys below.
+    Bar length is each level's qty relative to the largest level shown.
+    """
+    buys = [lv for lv in (depth.get("buys") or []) if lv.get("price")]
+    sells = [lv for lv in (depth.get("sells") or []) if lv.get("price")]
+    peak = max((lv.get("qty", 0) for lv in buys + sells), default=0) or 1
+
+    def _row(lv, side):
+        w = lv.get("qty", 0) / peak * 100
+        return (f'<div class="depth-row"><span class="d-bar {side}" style="width:{w / 2:.0f}%"></span>'
+                f'<span class="d-qty">{lv.get("qty", 0):,}</span>'
+                f'<span class="d-price {side}">{lv["price"]:,.2f}</span>'
+                f'<span class="d-ord">{lv.get("orders", 0)}</span></div>')
+
+    sells_html = "".join(_row(lv, "sell") for lv in sorted(sells, key=lambda x: -x["price"]))
+    buys_html = "".join(_row(lv, "buy") for lv in sorted(buys, key=lambda x: -x["price"]))
+    bid = max((lv["price"] for lv in buys), default=None)
+    ask = min((lv["price"] for lv in sells), default=None)
+    if bid is not None and ask is not None:
+        spread = (f'<div class="depth-spread">bid <b>{bid:,.2f}</b> · ask <b>{ask:,.2f}</b>'
+                  f' · spread <b>₹{ask - bid:,.2f}</b></div>')
+    else:
+        spread = '<div class="depth-spread">one side of the book is empty</div>'
+    return ('<div class="depth-ladder"><div class="depth-head"><span>Qty</span><span>Price</span>'
+            f'<span>Orders</span></div>{sells_html}{spread}{buys_html}</div>')

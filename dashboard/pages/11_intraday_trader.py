@@ -9,6 +9,7 @@ from dashboard.shared.nav import render_sidebar
 from dashboard.shared.chart_helpers import render_top_bar
 from dashboard.shared.tokens import COLORS as _TK, mix as _mix, rgba as _rgba  # noqa: E402
 # P3: explicit imports (was a dynamic shared-namespace injection)
+import logging  # noqa: E402
 import os
 import pandas as pd
 import plotly.graph_objects as go
@@ -31,6 +32,7 @@ from dashboard.shared.chart_helpers import (
     render_top_bar,
 )
 
+_log = logging.getLogger("dashboard.intraday")
 apply_design()
 render_sidebar(current="Intraday Trader")
 render_top_bar()
@@ -212,11 +214,12 @@ with tab_gap:
 
 # ── TAB 2: INTRADAY CHART ─────────────────────────────────────────────────
 with tab_chart:
-    st.markdown(
-        '<div class="t-h2" style="margin:14px 0 6px 0">'
-        '📈 Intraday Chart — CPR + ORB + AVWAP + Supertrend</div>',
-        unsafe_allow_html=True,
+    from dashboard.shared.ui_components import (
+        depth_ladder as _depth_ladder, empty_state as _ic_empty, fmt_inr as _ic_inr,
+        level_strip as _level_strip, section_header as _ic_hd,
     )
+    st.markdown(_ic_hd("Intraday chart", "CPR · ORB · AVWAP · Supertrend overlays"),
+                unsafe_allow_html=True)
 
     _ic_search_opts = sorted(
         f"{name}  ({sym.replace('.NS', '')})"
@@ -292,6 +295,126 @@ with tab_chart:
         df = add_anchored_vwap(df)
         return df
 
+    @st.cache_data(ttl=10, show_spinner=False)
+    def _ic_depth(sym: str):
+        """Angel One 5-level book; None when not connected or on any failure."""
+        try:
+            from data.angel_fetcher import get_market_depth
+            return get_market_depth(sym)
+        except Exception as _de:
+            _log.debug("intraday: market depth unavailable for %s: %s", sym, _de)
+            return None
+
+    def _ic_px(v):
+        return "—" if v is None or pd.isna(v) else f"{v:,.2f}"
+
+    def _ic_render_session(df, ticker, sym, interval, orb, pivot, cpr_tc, cpr_bc, fig, main, rail):
+        """Artboard 10 layout: toolbar + chart + level strip + descriptive
+        session read on the left; depth ladder + session stats on the right."""
+        _dates = pd.Index(df.index.date)
+        _last_day = _dates[-1]
+        today = df[_dates == _last_day]
+        prior = df[_dates < _last_day]
+        last = float(df["Close"].iloc[-1])
+        prev_close = float(prior["Close"].iloc[-1]) if not prior.empty else None
+        day_open = float(today["Open"].iloc[0])
+        day_hi, day_lo = float(today["High"].max()), float(today["Low"].min())
+        avwap = float(df["AVWAP"].iloc[-1]) if "AVWAP" in df.columns and pd.notna(df["AVWAP"].iloc[-1]) else None
+        orb_hi, orb_lo = orb.get("orb_high"), orb.get("orb_low")
+        has_orb = orb_hi is not None and not pd.isna(orb_hi)
+
+        if prev_close:
+            _chg = (last / prev_close - 1) * 100
+            chg_html = (f' <span class="{"ct-up" if _chg >= 0 else "ct-dn"}">'
+                        f'{"+" if _chg >= 0 else "−"}{abs(_chg):.2f}%</span>')
+        else:
+            chg_html = ""
+        tags = "".join(f'<span class="ct-tag on">{t}</span>' for t in ("CPR", "ORB", "AVWAP", "Supertrend"))
+        main.markdown(
+            f'<div class="chart-tools"><span class="ct-sym">{ticker.replace(".NS", "")}'
+            f'<span class="ct-co">₹{last:,.2f}{chg_html}</span></span>'
+            f'<span class="ct-tags">{tags}<span class="ct-tag">{interval}</span></span></div>',
+            unsafe_allow_html=True,
+        )
+        main.plotly_chart(fig, width="stretch")
+
+        avwap_sub = ""
+        if avwap is not None:
+            avwap_sub = "price above" if last > avwap else ("price below" if last < avwap else "price at")
+        if has_orb:
+            orb_pos = ("above the range" if last > orb_hi else
+                       "below the range" if last < orb_lo else "inside the range")
+        main.markdown(_level_strip([
+            ("Open", _ic_px(day_open), str(_last_day)),
+            ("Prev close", _ic_px(prev_close), "" if prev_close else "not in window"),
+            ("AVWAP", _ic_px(avwap), avwap_sub),
+            ("ORB high", _ic_px(orb_hi) if has_orb else "—", "first 15 min"),
+            ("ORB low", _ic_px(orb_lo) if has_orb else "—", orb_pos if has_orb else ""),
+            ("Day high · low", f"{day_hi:,.0f} / {day_lo:,.0f}", f"range ₹{day_hi - day_lo:,.2f}"),
+        ], highlight=2), unsafe_allow_html=True)
+
+        # Descriptive session read: where price sits vs AVWAP / ORB / CPR.
+        # States positions only; no trigger, stop or target is implied.
+        parts = []
+        if avwap is not None:
+            parts.append(f"{avwap_sub.replace('price ', 'Price ')} AVWAP")
+        if has_orb:
+            parts.append(orb_pos.replace("the range", "the opening range"))
+        headline = (", ".join(parts) + ".") if parts else "Session levels."
+        body, nums = [], []
+        if pivot and cpr_tc and cpr_bc:
+            cpr_w = float(df["CPR_Width_Pct"].iloc[-1]) if "CPR_Width_Pct" in df.columns else None
+            zone = str(df["Price_vs_CPR"].iloc[-1]) if "Price_vs_CPR" in df.columns else ""
+            zone_txt = {"above": "above", "below": "below"}.get(zone, "inside")
+            body.append(f"Price is {zone_txt} the central pivot range.")
+            if cpr_w is not None and pd.notna(cpr_w):
+                body.append("A narrow CPR (&lt;0.3%) has historically preceded more directional sessions; "
+                            "a wide one, more range-bound ones." if cpr_w < 0.3 else
+                            "A wide CPR has historically gone with more range-bound sessions.")
+                nums.append(("CPR width", f"{cpr_w:.2f}%"))
+            nums = [("Pivot", _ic_px(pivot)), ("CPR top", _ic_px(cpr_tc)), ("CPR bottom", _ic_px(cpr_bc))] + nums
+        if has_orb and pd.notna(orb.get("orb_range_pct")):
+            nums.append(("ORB range", f"{orb['orb_range_pct']:.2f}% · {'narrow' if orb.get('narrow') else 'normal'}"))
+        nums_html = "".join(f'<div><div class="sc-k">{k}</div><div class="sc-v">{v}</div></div>' for k, v in nums)
+        main.markdown(
+            '<div class="setup-card"><div class="sc-lbl">Session read · descriptive</div>'
+            f'<div class="sc-h" role="heading" aria-level="3">{headline}</div>'
+            f'<p class="sc-p">{" ".join(body)} Positions only; not a trade plan.</p>'
+            f'<div class="sc-nums">{nums_html}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        with rail:
+            depth = _ic_depth(sym)
+            if depth and (depth.get("buys") or depth.get("sells")):
+                st.markdown(_depth_ladder(depth), unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="depth-ladder">'
+                    + _ic_empty("Market depth needs Angel One",
+                                "Connect under Tools › Angel One. Yahoo intraday bars carry no order book.")
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+            vol = float(today["Volume"].sum()) if "Volume" in today.columns else 0.0
+            atr = df["ATR"].iloc[-1] if "ATR" in df.columns else None
+            st_dir = df["ST_Direction"].iloc[-1] if "ST_Direction" in df.columns else None
+            st_txt = {1: "up", -1: "down"}.get(int(st_dir) if st_dir is not None and pd.notna(st_dir) else 0, "—")
+            stats = [
+                ("Volume", _ic_inr(vol) if vol else "—"),
+                ("Bars today", f"{len(today)}"),
+                (f"ATR ({interval})", f"₹{atr:,.2f}" if atr is not None and pd.notna(atr) else "—"),
+                ("Supertrend", st_txt),
+            ]
+            st.markdown(
+                '<div class="kit-panel"><div class="kit-panel-hd"><span class="kit-panel-t">Session stats</span>'
+                f'<span class="kit-panel-s">{_last_day}</span></div><div class="sess-stats">'
+                + "".join(f'<div><div class="b-stat-k">{k}</div><div class="b-stat-v">{v}</div></div>'
+                          for k, v in stats)
+                + "</div></div>",
+                unsafe_allow_html=True,
+            )
+
     if _ic_load or st.session_state.get("ic_last") == _ic_ticker:
         st.session_state["ic_last"] = _ic_ticker
         _sym = _ic_ticker if _ic_ticker.endswith(".NS") else _ic_ticker + ".NS"
@@ -314,6 +437,7 @@ with tab_chart:
                 _r2      = float(_ic_df["R2"].iloc[-1])      if "R2"      in _ic_df.columns else None
                 _s2      = float(_ic_df["S2"].iloc[-1])      if "S2"      in _ic_df.columns else None
 
+                _ic_main, _ic_rail = st.columns([1, 0.32])
                 fig_ic = make_subplots(
                     rows=2, cols=1, shared_xaxes=True,
                     vertical_spacing=0.05, row_heights=[0.75, 0.25]
@@ -426,39 +550,14 @@ with tab_chart:
                 ), row=2, col=1)
 
                 fig_ic.update_layout(
-                    template="nse_pro", height=680,
-                    title=f"{_ic_ticker} — {_ic_interval} Chart | CPR + ORB + AVWAP",
+                    template="nse_pro", height=560,
                     xaxis_rangeslider_visible=False,
                     showlegend=True,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                    margin=dict(l=0, r=80, t=60, b=0),
+                    margin=dict(l=0, r=80, t=30, b=0),
                 )
-                st.plotly_chart(fig_ic, width="stretch")
-
-                # CPR summary cards
-                if _pivot and _cpr_tc and _cpr_bc:
-                    _cur_price = float(_ic_df["Close"].iloc[-1])
-                    _cpr_zone  = str(_ic_df["Price_vs_CPR"].iloc[-1]) if "Price_vs_CPR" in _ic_df.columns else "unknown"
-                    _cpr_bias  = "🟢 Bullish (above CPR)" if _cpr_zone == "above" else ("🔴 Bearish (below CPR)" if _cpr_zone == "below" else "🟡 Inside CPR — wait for breakout")
-                    _cpr_w     = float(_ic_df["CPR_Width_Pct"].iloc[-1]) if "CPR_Width_Pct" in _ic_df.columns else 0
-                    _day_type  = "Narrow CPR (directional day expected)" if _cpr_w < 0.3 else "Wide CPR (sideways / volatile day)"
-
-                    _cc1, _cc2, _cc3, _cc4, _cc5 = st.columns(5)
-                    _cc1.metric("Pivot", f"₹{_pivot:.1f}")
-                    _cc2.metric("CPR Top", f"₹{_cpr_tc:.1f}")
-                    _cc3.metric("CPR Bottom", f"₹{_cpr_bc:.1f}")
-                    _cc4.metric("Price vs CPR", _cpr_bias)
-                    _cc5.metric("CPR Width", f"{_cpr_w:.2f}%", delta=_day_type)
-
-                # ORB summary
-                if not pd.isna(_orb.get("orb_high", float("nan"))):
-                    st.markdown("---")
-                    _oc1, _oc2, _oc3, _oc4 = st.columns(4)
-                    _oc1.metric("ORB High",  f"₹{_orb['orb_high']:.2f}")
-                    _oc2.metric("ORB Low",   f"₹{_orb['orb_low']:.2f}")
-                    _oc3.metric("ORB Range", f"{_orb['orb_range_pct']:.2f}%",
-                                delta="Narrow" if _orb.get("narrow") else "Normal")
-                    _oc4.metric("Open Price", f"₹{_orb.get('open_price',0):.2f}")
+                _ic_render_session(_ic_df, _ic_ticker, _sym, _ic_interval, _orb,
+                                   _pivot, _cpr_tc, _cpr_bc, fig_ic, _ic_main, _ic_rail)
 
         except Exception as _ic_err:
             st.error(f"Could not load intraday data: {_ic_err}")
