@@ -319,7 +319,10 @@ with tab_chart:
         prev_close = float(prior["Close"].iloc[-1]) if not prior.empty else None
         day_open = float(today["Open"].iloc[0])
         day_hi, day_lo = float(today["High"].max()), float(today["Low"].min())
-        avwap = float(df["AVWAP"].iloc[-1]) if "AVWAP" in df.columns and pd.notna(df["AVWAP"].iloc[-1]) else None
+        avwap = None
+        if "AVWAP" in df.columns:
+            _av_valid = df["AVWAP"].where(df["AVWAP"] > 0).dropna()
+            avwap = float(_av_valid.iloc[-1]) if not _av_valid.empty else None
         orb_hi, orb_lo = orb.get("orb_high"), orb.get("orb_low")
         has_orb = orb_hi is not None and not pd.isna(orb_hi)
 
@@ -627,7 +630,8 @@ with tab_orb:
                 _idf = add_anchored_vwap(_idf)
                 _orb_r = compute_orb(_idf, 15)
                 _cz = str(_idf["Price_vs_CPR"].iloc[-1]) if "Price_vs_CPR" in _idf.columns else "?"
-                _av = round(float(_idf["AVWAP"].iloc[-1]), 2) if "AVWAP" in _idf.columns else None
+                _av_s = _idf["AVWAP"].where(_idf["AVWAP"] > 0).dropna() if "AVWAP" in _idf.columns else None
+                _av = round(float(_av_s.iloc[-1]), 2) if _av_s is not None and not _av_s.empty else None
                 _cp = round(float(_idf["Close"].iloc[-1]), 2)
                 _orb_rows.append({
                     "Ticker":    _ot.replace(".NS",""),
