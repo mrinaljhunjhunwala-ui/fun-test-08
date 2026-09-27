@@ -59,10 +59,9 @@ jobs:
       - name: Run Top Picks warm-up
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          # Optional — set these only if you want the scan to use real-time
-          # Angel One prices instead of the free Stooq/Yahoo fallback chain:
-          ANGEL_API_KEY:      ${{ secrets.ANGEL_API_KEY }}
-          ANGEL_CLIENT_ID:    ${{ secrets.ANGEL_CLIENT_ID }}
-          ANGEL_PASSWORD:     ${{ secrets.ANGEL_PASSWORD }}
-          ANGEL_TOTP_SECRET:  ${{ secrets.ANGEL_TOTP_SECRET }}
+          # Angel One credentials deliberately NOT passed (2026-09-28): from GitHub's
+          # runners Angel's candle API answers 403 for every ticker, and each
+          # rejection costs time before the Yahoo fallback. Since the ANGEL_* secrets
+          # were added (2026-09-08 17:55 UTC) every scan here ran past the job
+          # timeout; the last scans without them finished in ~31-35 s.
         run: python scripts/warm_top_picks.py
