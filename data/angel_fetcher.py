@@ -479,6 +479,11 @@ def fetch_historical(
         return None
 
     symbol = ticker.replace(".NS", "").replace(".BO", "").upper()
+    # FIX AO-403 (2026-09-28): tokens usually come from the cached instrument
+    # master, which returns before _get_token ever consults the breaker, so a
+    # tripped breaker never stopped candle calls. Check it here.
+    if _breaker_tripped():
+        return None
     token = _get_token(symbol, session)
     if token is None:
         return None
@@ -510,6 +515,8 @@ def fetch_historical(
                 chunk = _fetch_candles_window(session, token, ao_interval, fd, td)
                 if chunk is not None and not chunk.empty:
                     frames.append(chunk)
+                elif _breaker_tripped():
+                    break          # FIX AO-403: stop paying for windows that will 403 too
                 # Advance past this window's end (no overlap needed — endpoint
                 # returns inclusive rows on both bounds; dedupe below handles
                 # any single-bar overlap defensively).
@@ -548,12 +555,18 @@ def _fetch_candles_window(
     if status and status >= 400:
         _log.warning("angel_fetcher._fetch_candles_window: API returned %s (%s -> %s)",
                      status, fromdate, todate)
+        # FIX AO-403 (2026-09-28): an HTTP error is a failure. It used to record
+        # nothing, so from GitHub's runners (403 on every call) the breaker
+        # tripped once in 333 rejections and every ticker kept paying for
+        # two failing calls before the Yahoo fallback.
+        _breaker_record_failure()
         return None
 
     parsed = _safe_parse_json_response(resp)
     candles = (parsed.get("data") if isinstance(parsed, dict) else None) or []
     if not candles:
-        return None
+        return None        # a 200 with no candles is legitimate (illiquid / new listing)
+    _breaker_record_success()
 
     df = pd.DataFrame(candles, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
     df["Date"] = pd.to_datetime(df["Date"])
