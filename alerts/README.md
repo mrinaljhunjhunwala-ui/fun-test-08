@@ -36,7 +36,8 @@ NSE market hours (Mon–Fri, 09:15–15:30 IST) and sends alerts via a Telegram 
 ### 4. Turn it on
 The workflow is already committed. To verify:
 - Go to the **Actions** tab → **Market Alerts** → **Run workflow**
-  (use the `--force`-equivalent manual trigger; it runs even outside market hours).
+  (it respects the market-hours guard, so outside 09:15–15:30 IST it logs
+  "outside NSE market hours" and sends nothing — test during market hours).
 - You should receive any currently-triggered alerts in Telegram within ~30 s.
 
 > **Note:** GitHub's free scheduled runs can be delayed a few minutes under load
@@ -76,6 +77,37 @@ every 15 minutes while the condition holds.
 | **Price alerts** | any enabled row in `alerts.csv` whose level is crossed |
 | **VIX regime** | India VIX enters `fear` (>22) or `panic` (>28) |
 | **Nifty trend** | Nifty closes below both SMA20 and SMA50 (downtrend) |
+
+---
+
+## Reliable 15-minute cadence (external trigger)
+
+GitHub's own `schedule:` cron is best-effort and in practice was firing only
+~2 of the ~26 daily slots (often after market close). The workflow now relies
+on an external scheduler calling GitHub's `workflow_dispatch` API instead.
+The GitHub cron is kept only as a fallback.
+
+### 1. Create a fine-grained GitHub token
+GitHub → Settings → Developer settings → **Fine-grained tokens** → Generate:
+- Repository access: **only** `nse-smart-investor`
+- Permissions: **Actions → Read and write** (nothing else)
+- Pick an expiry and set a reminder to rotate it.
+
+### 2. Create the cron job (cron-job.org, free)
+- URL: `https://api.github.com/repos/mrinaljhunjhunwala-ui/nse-smart-investor/actions/workflows/market-alerts.yml/dispatches`
+- Method: **POST**
+- Headers:
+  - `Authorization: Bearer <your token>`
+  - `Accept: application/vnd.github+json`
+  - `X-GitHub-Api-Version: 2022-11-28`
+- Body: `{"ref":"main"}`
+- Schedule: every 15 minutes, 09:00–15:45, Mon–Fri, timezone **Asia/Kolkata**
+  (the script itself guards the exact 09:15–15:30 window and NSE holidays).
+
+A successful call returns **HTTP 204**. Check the Actions tab for a
+`workflow_dispatch` run of **Market Alerts** within a minute.
+
+Cost: ~26 runs × ~1–2 min ≈ 1,100 Actions minutes/month.
 
 To run it yourself locally:
 ```bash

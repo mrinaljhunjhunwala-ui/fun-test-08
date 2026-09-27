@@ -12,11 +12,18 @@ name: Market Alerts
 # NSE hours 09:15–15:30 IST = 03:45–10:00 UTC. GitHub cron is UTC-only and
 # can't express :45, so we run 03–10 UTC and the script self-guards on the
 # exact IST window (and skips weekends).
+#
+# 2026-09-28: GitHub's cron was only firing ~2 of ~26 slots/day (often
+# after close). The primary trigger is now an EXTERNAL scheduler
+# (cron-job.org) calling workflow_dispatch every 15 min — see
+# alerts/README.md "Reliable 15-minute cadence". The schedule below is kept
+# only as a best-effort fallback; duplicate fires are harmless because the
+# concurrency group serialises runs and alert_state.json de-dups per day.
 
 on:
   schedule:
     - cron: "*/15 3-10 * * 1-5"   # every 15 min, 03:00–10:59 UTC, Mon–Fri
-  workflow_dispatch:               # allow manual "Run workflow" from the Actions tab
+  workflow_dispatch:               # external 15-min trigger + manual "Run workflow"
 
 # Avoid overlapping runs if one is slow
 concurrency:
@@ -36,8 +43,10 @@ jobs:
         with:
           python-version: "3.11"
 
+      # pyotp: Angel One TOTP login. Without it angel_fetcher fails with
+      # "No module named 'pyotp'" and every fetch falls back to Yahoo.
       - name: Install minimal deps
-        run: pip install --quiet pandas numpy requests
+        run: pip install --quiet pandas numpy requests "pyotp>=2.8.0,<3.0"
 
       # Persist the de-dup state file between runs so the same alert
       # isn't re-sent every 15 minutes. New cache each run, restore latest.
