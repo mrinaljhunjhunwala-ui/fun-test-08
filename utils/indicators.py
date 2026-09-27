@@ -342,15 +342,21 @@ def add_anchored_vwap(df: pd.DataFrame) -> pd.DataFrame:
         else:
             dates = pd.Series(idx, index=idx)
 
+        # Real feeds (Yahoo 5m) often print Volume=0 or NaN on the session's
+        # opening bar(s). NaN volume would poison the running sums for the whole
+        # day, and zero volume leaves cum_vol == 0 — either way the old zero-
+        # initialised arrays plotted AVWAP = 0 (vertical spikes to zero).
+        # Treat bad volume as 0 and leave undefined bars as NaN instead.
+        vol    = pd.to_numeric(df["Volume"], errors="coerce").fillna(0.0).clip(lower=0.0)
         tp     = (df["High"] + df["Low"] + df["Close"]) / 3
-        tp_vol = tp * df["Volume"]
-        tp_sq  = tp ** 2 * df["Volume"]
+        tp_vol = (tp * vol).fillna(0.0)
+        tp_sq  = (tp ** 2 * vol).fillna(0.0)
 
-        avwap_vals = np.zeros(len(df))
-        sd1u = np.zeros(len(df))
-        sd1l = np.zeros(len(df))
-        sd2u = np.zeros(len(df))
-        sd2l = np.zeros(len(df))
+        avwap_vals = np.full(len(df), np.nan)
+        sd1u = np.full(len(df), np.nan)
+        sd1l = np.full(len(df), np.nan)
+        sd2u = np.full(len(df), np.nan)
+        sd2l = np.full(len(df), np.nan)
 
         cum_tp_vol = 0.0
         cum_vol    = 0.0
@@ -366,7 +372,7 @@ def add_anchored_vwap(df: pd.DataFrame) -> pd.DataFrame:
                 prev_date  = date
 
             cum_tp_vol += float(tp_vol.iloc[i])
-            cum_vol    += float(df["Volume"].iloc[i])
+            cum_vol    += float(vol.iloc[i])
             cum_sq     += float(tp_sq.iloc[i])
 
             if cum_vol > 0:
