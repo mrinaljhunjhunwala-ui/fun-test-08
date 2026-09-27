@@ -28,15 +28,12 @@ we keep the raw signed contract count because (a) the SIGN is the primary
 signal, and (b) same-day contract-count comparability across days matches
 how retail dashboards render it.
 
-Threshold band for the 3-pt Positioning sub-score:
-
-  net > +30_000  =  3.0 pts  (heavy FII net long index futs)     bullish
-  net > 0        =  2.0 pts  (mild net long)                     mild bull
-  net > -30_000  =  1.0 pts  (mild net short)                    mild bear
-  net <= -30_000 =  0.0 pts  (heavy FII net short)               bearish
-
-Thresholds are calibrated to the typical FII net-index-futs range in
-Indian markets 2023-26 (roughly -100k to +100k contracts).
+Scoring (FIX FII-PCTL, 2026-09-27): the 3-pt Positioning sub-score uses the
+PERCENTILE of today's net within the trailing ~250 stored sessions
+(get_latest_fut_idx_pct): >=80th = 3, >=50th = 2, >=20th = 1, else 0;
+neutral 1.5 with < 60 sessions of history. The earlier fixed +/-30k
+contract bands assumed a -100k..+100k range; 2026-09 values sit near
+-300k, which pinned the sub-score at 0.
 
 MUST RUN FROM RESIDENTIAL IP — NSE WAF blocks cloud ranges. Same
 constraint as nse_delivery / nse_fno_bhavcopy / qualitative_flags.
@@ -301,3 +298,21 @@ def get_latest_fut_idx_net() -> Optional[float]:
     if v is None or pd.isna(v):
         return None
     return float(v)
+
+
+def get_latest_fut_idx_pct(lookback: int = 250, min_history: int = 60) -> Optional[float]:
+    """Percentile (0-1) of the latest FII net index-futures position within
+    the trailing `lookback` stored sessions (latest included). None when
+    fewer than `min_history` sessions are stored - too little history to
+    say what "heavy" or "light" means. Used by the Positioning sub-score
+    (FIX FII-PCTL): raw contract counts drift with lot-size changes, so
+    fixed thresholds go stale; a trailing percentile does not.
+    """
+    hist = load_history(days=lookback)
+    if hist is None or hist.empty or "fut_idx_net" not in hist:
+        return None
+    vals = pd.to_numeric(hist["fut_idx_net"], errors="coerce").dropna()
+    if len(vals) < min_history:
+        return None
+    latest = float(vals.iloc[0])            # load_history is newest-first
+    return float((vals <= latest).mean())

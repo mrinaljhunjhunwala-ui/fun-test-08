@@ -87,7 +87,8 @@ CASES: List[Dict] = [
     _case("steady_uptrend__positioning_on", "steady_uptrend", ticker="RELIANCE.NS",
           env={"NSE_USE_POSITIONING_PILLAR": "1"},
           positioning_info={"oi_regime": "long_buildup", "pcr": 1.25,
-                            "max_pain_distance_pct": -1.5, "fii_deriv_net": 8000.0}),
+                            "max_pain_distance_pct": -1.5, "fii_deriv_net": 8000.0,
+                            "fii_deriv_pct": 0.85}),
     # Same F&O ticker with the flag off → legacy 90 shape.
     _case("steady_uptrend__positioning_flag_off", "steady_uptrend", ticker="RELIANCE.NS",
           positioning_info={"oi_regime": "long_buildup", "pcr": 1.25}),
