@@ -559,6 +559,17 @@ def _render_bucket(items: list, kind: str, key_prefix: str) -> None:
         st.markdown(empty_state("No candidates in this bucket",
                                 "Today's scan found no setups that pass this bucket's gate."),
                     unsafe_allow_html=True)
+        # Breakout funnel: which gate emptied the bucket. Older persisted
+        # snapshots don't carry it — show nothing rather than zeros.
+        _f = _wl.get("breakout_funnel") if kind == "breakout" else None
+        if isinstance(_f, dict) and _f.get("eligible"):
+            st.caption(
+                "Where names dropped out: "
+                f"{_f.get('eligible', 0)} scored → {_f.get('buy_action', 0)} with a bullish "
+                f"composite label → {_f.get('score_ge_52', 0)} with score ≥ 52 → "
+                f"{_f.get('momentum_ge_8', 0)} with momentum ≥ 8 → "
+                f"{_f.get('volume_ge_5', 0)} with volume ≥ 5."
+            )
         return
     # Items arrive ranked by _tomorrow_watchlist (desc score for breakout /
     # reversal, asc for breakdown), so enumerate() from 1 is the rank.
