@@ -77,6 +77,51 @@ def horizon_target_date(logged: _dt.date, h: int) -> _dt.date:
     """logged_date + h trading (business) days."""
     return (pd.Timestamp(logged) + pd.offsets.BDay(int(h))).date()
 
+
+# ── Session dating (FIX LEDGER-IST, 2026-09-27) ──────────────────────────────
+# logged_date used to be the SERVER's wall-clock date. Streamlit Cloud runs on
+# UTC, so a scan between 00:00 and 05:30 IST was dated the previous day — and
+# even an IST wall-clock date is wrong before the open: a scan at 08:00 IST
+# prices off the PREVIOUS session's close. logged_date is now the NSE session
+# the entry price belongs to. Weekends roll back; exchange holidays don't (the
+# canonical calendar lives in dashboard/, off-limits to analysis/) — a
+# holiday-dated row just anchors to the next bar via _find_bar.
+_IST = _dt.timezone(_dt.timedelta(hours=5, minutes=30))
+_NSE_OPEN = _dt.time(9, 15)
+_NSE_CLOSE = _dt.time(15, 30)
+
+
+def _now_ist() -> _dt.datetime:
+    return _dt.datetime.now(_IST)
+
+
+def _prev_weekday(d: _dt.date) -> _dt.date:
+    d -= _dt.timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= _dt.timedelta(days=1)
+    return d
+
+
+def session_date(now: Optional[_dt.datetime] = None) -> _dt.date:
+    """The NSE session whose prices a scan run at `now` sees: today (IST) once
+    the market has opened on a weekday, else the previous weekday."""
+    n = (now or _now_ist()).astimezone(_IST)
+    d = n.date()
+    if d.weekday() < 5 and n.time() >= _NSE_OPEN:
+        return d
+    return _prev_weekday(d)
+
+
+def last_closed_session(now: Optional[_dt.datetime] = None) -> _dt.date:
+    """Most recent session whose closing bar is final. Forward-return targets
+    after this date aren't reached yet (a same-day target during market hours
+    would otherwise read an intraday, still-moving bar)."""
+    n = (now or _now_ist()).astimezone(_IST)
+    d = n.date()
+    if d.weekday() < 5 and n.time() >= _NSE_CLOSE:
+        return d
+    return _prev_weekday(d)
+
 _schema_ready_for: Optional[str] = None
 
 
@@ -191,7 +236,7 @@ def log_verdict(*,
         fv = final_verdict
         if fv is None:
             return None
-        now = _dt.datetime.now()
+        now = _now_ist()
         labels = getattr(fv, "subsystem_labels", {}) or {}
 
         # Extract the raw subsystem numbers from labels where the FinalVerdict
@@ -211,8 +256,8 @@ def log_verdict(*,
         # caller CAN pass it via subsystem_labels if desired; the ledger
         # doesn't require it for calibration to work.
         row = (
-            now.isoformat(timespec="seconds"),
-            now.date().isoformat(),
+            now.replace(tzinfo=None).isoformat(timespec="seconds"),   # IST, naive like old rows
+            session_date(now).isoformat(),
             ticker,
             float(entry_price) if entry_price is not None else None,
             str(getattr(fv, "verdict", "") or "") or None,
@@ -374,7 +419,7 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
     stats = {"scanned": 0, "updated": 0, "tickers_fetched": 0}
     try:
         ensure_schema()
-        today = _dt.date.today()
+        today = last_closed_session()
 
         # Load rows needing work: any horizon column still None.
         sql = _store._q("""

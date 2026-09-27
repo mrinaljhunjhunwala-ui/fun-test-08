@@ -44,7 +44,6 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-import datetime
 import html
 import math
 import time
@@ -363,8 +362,11 @@ def _render_follow_through() -> None:
     _hdr = "Previous picks · follow-through"
     _prior = None
     if _ledger is not None and not getattr(_ledger, "empty", True) and "logged_date" in _ledger.columns:
+        # logged_date is the NSE session (IST) the pick priced off — compare
+        # against the current session, not the server's UTC calendar date.
+        from analysis.verdict_ledger import session_date as _session_date
         _dates = _ledger["logged_date"].astype(str)
-        _prior = _ledger[_dates < datetime.date.today().isoformat()]
+        _prior = _ledger[_dates < _session_date().isoformat()]
     if _prior is None or _prior.empty:
         st.markdown(section_header(_hdr, "source: verdict_ledger"), unsafe_allow_html=True)
         st.caption("Appears once the ledger holds a previous session's picks. "
