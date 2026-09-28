@@ -83,3 +83,31 @@ Bear weeks per half: 40 in 2017–20 and 56 in 2021–26 (trend_down + risk_off)
   verdict-regression review.
 - `data/fetcher.py`: new `10y` period.
 - `data/composite_golden_snapshot.json`: only the three `__bear` cases changed.
+
+## Follow-up: trend_down vs risk_off, and Volume (2026-09-28, same data)
+
+The question was whether #198 should treat the two bear regimes differently, and whether
+neutralising Volume should be added. The table shows per-week IC, with t and the number of weeks
+in brackets.
+
+| Regime · variant | 20d 2017–20 | 20d 2021–26 | 60d 2017–20 | 60d 2021–26 |
+|---|---|---|---|---|
+| trend_down · before #198 | +0.035 (5 wk) | −0.003 (28) | +0.082 (5) | −0.001 (28) |
+| trend_down · **#198** | +0.060 | **+0.070** (t 4.2) | +0.057 | **+0.050** (t 3.0) |
+| trend_down · #198 + Volume neutral | +0.102 | +0.098 (t 5.2) | +0.074 | +0.067 |
+| risk_off · before #198 | −0.033 (32) | −0.007 (26) | −0.006 (32) | −0.021 (26) |
+| risk_off · **#198** | **+0.021** | **+0.052** (t 3.4) | **+0.024** | **+0.028** |
+| risk_off · #198 + Volume neutral | +0.031 | +0.048 | +0.002 | +0.037 |
+
+**Decisions: no code change.**
+- **Keep one rule for both regimes.** #198 improves every risk_off cell and three of four
+  trend_down cells. The one trend_down cell that drops (60d 2017–20) rests on 5 weeks, too thin to
+  justify a separate rule.
+- **Don't adopt Volume-neutral yet.**
+  - It helps every trend_down cell but is mixed in risk_off; 60d 2017–20 falls from +0.024 to
+    +0.002.
+  - It was found after seeing this data, and its only early-period trend_down evidence is 5 weeks.
+  - It is recorded here as a **pre-registered candidate**: "Volume neutral in trend_down only".
+    Evaluate it on bear weeks after 2026-07 (from the verdict ledger or a later efficacy run)
+    before adopting it.
+- **Flipping Technical stays rejected.** It hurts 60d 2017–20 in both regimes.
