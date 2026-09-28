@@ -59,7 +59,10 @@ with _tab_snapshot:
     with st.spinner("Loading VIX & Nifty…"):
         try:
             vix_df, nifty_df = load_vix_data()
-            curr_vix   = float(vix_df["Close"].iloc[-1])
+            if (vix_df is None or nifty_df is None or len(vix_df) < 2 or len(nifty_df) < 2
+                    or "Close" not in vix_df or "Close" not in nifty_df):
+                raise LookupError("India VIX / Nifty data unavailable right now — data providers unreachable.")
+            curr_vix  = float(vix_df["Close"].iloc[-1])
             prev_vix   = float(vix_df["Close"].iloc[-2])
             vix_chg    = (curr_vix / prev_vix - 1) * 100
             vix_52w_hi = float(vix_df["High"].max())
