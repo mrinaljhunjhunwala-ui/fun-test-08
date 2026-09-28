@@ -1,12 +1,16 @@
 # Handoff — 2026-09-28 · Bear-regime fix, warmers working, Stooq off, EOD pipeline
 
 ## Repo state
-- **`main` at `c590e14`**: CI passing. Local `main` is synced, and the only untracked item is `archive/`.
+- **`main` at `686364c`**: CI passing. Local `main` is synced, and the only untracked item is `archive/`.
 - **Canonical checkout:** `D:\Kashti Claude\nse-smart-investor`.
   - `E:\code\nse-smart-investor` is an **empty folder**. Nothing should point at it.
 - **Open PRs:** none from this work.
-- **Remote branches:** `main`, `alerts/consolidate-fresh-workflow` (has an open PR, not ours), and `ux2-ticker-hover-preview`.
-  - `ux2-ticker-hover-preview` is the closed #149 and is still waiting on the user's OK to delete.
+- **Remote branches:** `main`, plus two waiting on a user decision:
+  - `alerts/consolidate-fresh-workflow`: PR #93 is still open.
+  - `design/mockup-06-smart-screener`: PR #176 was closed without merging, but the branch has newer commits.
+  - Deleted on 2026-09-28: `ux2-ticker-hover-preview` (its feature shipped in #150 and #153) and 8 fully merged branches.
+- **Worktrees:** `sweet-cannon-bc10b5` belongs to another live session. `quizzical-faraday-f467bc` is no longer
+  registered with git, but its folder was locked by a running process; delete it by hand once that process exits.
 - **Other work merged in parallel** (not from this session):
   - #174: wide layout is re-asserted on every page.
   - #175 and #178–#182: pages moved onto the mockup layout.
@@ -18,6 +22,23 @@
     #192 (morning digest from the pre-open scan), #195 (bulk scans skip Angel One), #196 (every
     scheduled job has an external trigger), and verdict-ledger fixes (IST session dates, NSE holidays,
     backfill no longer starved).
+
+## What shipped 2026-09-28, later (#200 → #204)
+
+- **Bear follow-up (#202, docs only):** on the same 10y data, #198 improves every risk_off cell and 3 of 4
+  trend_down cells. The exception rests on 5 weeks, so both regimes keep one rule.
+  - "Volume neutral in trend_down only" is recorded as a **pre-registered candidate**: judge it on bear weeks
+    after 2026-07 before adopting it.
+  - Flipping Technical stays rejected.
+- **Regime notes (#204):** the badge notes now quote the current 10y per-week 20d IC: trend_up +0.044,
+  trend_down +0.069, risk_off +0.035, range ≈ 0. They used to say bear rankings were "weak" or "backwards".
+- **Hand checks done:**
+  - **Page 04 drift banner:** checked live at 15:00 IST with RELIANCE (down 2.2%). It works as designed. It
+    didn't fire because Yahoo's daily data includes today's partial bar during market hours, so entry already
+    equals the live price. It only fires when the daily data is a stale close.
+  - **Page 18 grade shades:** measured, not eyeballed. Adjacent grades are ΔE ≥ 20 apart, and contrast is at
+    least 5.7:1 on the dark background. The letter grade is always shown, so colour isn't the only cue.
+- **Parallel work:** #200 added price alerts for the 12 portfolio holdings (±10% and an avg-cost cross).
 
 ## What shipped 2026-09-28 (#189 → #198)
 
@@ -132,23 +153,25 @@ as disabled.
 1. **Watch scheduled runs** of `refresh-eod-data` (19:45 IST) and the warmers in the Data health
    panel. If NSE blocks the runner, set the `NSE_COOKIE` secret, or re-enable the relevant (disabled)
    Windows task after pointing it at the `D:\` checkout.
-2. **Bear regimes are fixed but modest.** Possible next steps:
-   - check risk_off and trend_down separately;
-   - consider neutralising Volume (it improved further in the 10y data, but wasn't pre-registered,
-     so it needs a fresh out-of-sample check);
-   - watch the verdict ledger's bear-regime rows.
+2. **Bear regimes:**
+   - Keep an eye on the verdict ledger's bear-regime rows.
+   - Evaluate the pre-registered "Volume neutral in trend_down" candidate once there are enough bear weeks
+     after 2026-07.
 3. **Validation gaps:** sector rank, flows, delivery % and positioning can't be replayed
    historically, and survivorship bias is not corrected. The positioning add-on stays opt-in until
    it's validated.
-4. **Still to check by hand:**
-   - mobile layout on a real phone;
-   - the page 04 drift banner, which only appears during market hours;
-   - page 18 grade shades on a real screen.
-5. **Branch:** the user still needs to OK deleting `ux2-ticker-hover-preview`.
+4. **Still to check by hand:** the mobile layout on a real phone.
+5. **Branches:** decide on `alerts/consolidate-fresh-workflow` (open PR #93) and
+   `design/mockup-06-smart-screener`.
 6. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
    monthly circular; the drift warning in `fetch_nse_fno_bhavcopy` names the candidates.
 
 ## Gotchas
+- **Running the app for a live check:** the Browser pane's `preview_start` by name looks in the session's
+  original scratch folder, not the repo. Start Streamlit yourself on a spare port (e.g. 8511, with the env vars
+  from `.claude/launch.json`) and open it with `preview_start url=http://localhost:8511/<page>`.
+  - Page slugs drop the number: `/analyze_stock`, `/tqs_scanner`.
+  - Dataframes render to a canvas, so read table colours from the code and tokens, not screenshots.
 - **Several Claude sessions work in this repo at once.** One ran `git reset --hard` in the main
   checkout and wiped another session's uncommitted edits. **Work in `.claude/worktrees/<name>` on
   your own branch and commit early.**
