@@ -52,19 +52,21 @@ REGIME_EMOJI = {
 }
 
 REGIME_NOTES = {
-    # Numbers from docs/SCORE_EFFICACY_2026-09-24.md (5y replay, 87.6k obs).
+    # 20-day per-week rank correlation (IC) of the composite with forward returns,
+    # 10y replay 2017-07 -> 2026-07 with current scoring (incl. #198's bear-regime
+    # Technical/RS neutral). docs/SCORE_EFFICACY_BEAR_2026-09-28.md
     "trend_up":
-        "Trending up. This is where the score has ranked stocks best "
-        "(20-day rank correlation ≈ +0.09)",
+        "Trending up. The score has ranked stocks best in this regime "
+        "(20-day rank correlation ≈ +0.04)",
     "trend_down":
-        "Trending down. Momentum scoring switches to a 5-day reversal read here; "
-        "rankings have still been weak in this regime",
+        "Trending down. Momentum reads a 5-day reversal here, and Technical and RS are "
+        "held neutral; rankings have been mildly positive (20-day rank correlation ≈ +0.07)",
     "range":
         "Range-bound. The score has had little ranking power in this regime "
         "(20-day rank correlation ≈ 0)",
     "risk_off":
-        "Risk-off (VIX ≥ 22). Forward returns have historically been strong across "
-        "the board, but the score's rankings have run backwards",
+        "Risk-off (VIX ≥ 22). Technical and RS are held neutral in this regime; rankings have "
+        "been mildly positive (20-day rank correlation ≈ +0.03)",
     "unknown":
         "Regime undetermined. Data unavailable",
 }
