@@ -110,3 +110,29 @@ def test_fetch_intraday_filters_market_hours(monkeypatch):
     # Market open is 09:15, so rows with hour >=9 and <=15:30 survive — from our times above,
     # only rows at 09:00..13:00 with 09:00 included; since we used 08:00..13:00, expect 09..13 -> 5 rows
     assert len(out) >= 1
+
+
+def test_fetch_single_angel_busy_falls_through_quietly(monkeypatch, caplog):
+    """FIX AO-BULK: AngelBusy is a skip, not a failure — no WARNING, next tier serves."""
+    import logging
+    import types
+    import pandas as pd
+    import data.fetcher as f
+
+    class _Busy(Exception):
+        pass
+
+    def _raise(*a, **k):
+        raise _Busy()
+
+    fake = types.SimpleNamespace(AngelBusy=_Busy, fetch_historical=_raise, is_configured=lambda: True)
+    monkeypatch.setitem(__import__("sys").modules, "data.angel_fetcher", fake)
+    monkeypatch.setattr(f, "_stooq_enabled", lambda: False)
+    yahoo_df = pd.DataFrame({"Open": [1.0], "High": [1.0], "Low": [1.0], "Close": [1.0], "Volume": [1]},
+                            index=pd.to_datetime(["2026-09-25"]))
+    monkeypatch.setattr(f, "_fetch_yahoo_direct", lambda *a, **k: yahoo_df)
+    monkeypatch.setattr(f, "_FETCH_CACHE", {})
+    with caplog.at_level(logging.WARNING, logger="data.fetcher"):
+        df = f.fetch_single("BUSYTEST.NS", period="1y")
+    assert df is not None and not df.empty
+    assert not [r for r in caplog.records if "AngelOne" in r.getMessage()]

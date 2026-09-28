@@ -585,6 +585,10 @@ def fetch_data(
     return combined
 
 
+class _SkipAngel(Exception):
+    """Internal: Angel tier skipped (busy), not failed."""
+
+
 def fetch_single(ticker: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
     """
     Fetch OHLCV for one ticker.
@@ -612,9 +616,19 @@ def fetch_single(ticker: str, period: str = "2y", interval: str = "1d") -> pd.Da
 
     # ── Tier 0: Angel One SmartAPI (only if credentials configured) ───────────
     try:
-        from .angel_fetcher import fetch_historical as _ao_fetch, is_configured as _ao_ok
+        import importlib
+        _af = importlib.import_module(".angel_fetcher", __package__)
+        _ao_fetch, _ao_ok = _af.fetch_historical, _af.is_configured
+        AngelBusy = getattr(_af, "AngelBusy", _SkipAngel)
         if _ao_ok():
-            df = _ao_fetch(ticker, period=period, interval=interval)
+            try:
+                df = _ao_fetch(ticker, period=period, interval=interval)
+            except AngelBusy:
+                # Bulk scan: another thread holds Angel's slot (see FIX AO-BULK
+                # in angel_fetcher). Not a failure — go straight to the next tier.
+                df = None
+                _log.debug("AngelOne busy — skipping to next tier for symbol=%s", ticker)
+                raise _SkipAngel from None
             if df is not None and not df.empty:
                 served = "AngelOne"
                 _record_provider_diagnostic("AngelOne", ok=True, symbol=ticker)
@@ -623,6 +637,8 @@ def fetch_single(ticker: str, period: str = "2y", interval: str = "1d") -> pd.Da
                              ticker)
                 _record_provider_diagnostic("AngelOne", ok=False, symbol=ticker,
                                             reason="returned no data")
+    except _SkipAngel:
+        pass
     except Exception as e:
         df = None
         _fail("AngelOne", e)
