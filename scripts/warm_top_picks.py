@@ -133,7 +133,7 @@ def main() -> int:
         _vix.get("regime", "?"),
     )
 
-    _gen_at = datetime.datetime.now().isoformat()
+    _gen_at = store.snapshot_timestamp()
 
     # FIX WL-SNAP1: pull the full-universe scored map out of the result and
     # persist it to a separate KV entry. This is what powers the watchlist

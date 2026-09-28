@@ -393,16 +393,14 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
         return 0
 
     gen_at = snap.get("generated_at", "unknown")
-    # Don't present an old scan as "today's". warm_top_picks stamps a naive
-    # datetime.now() in the runner's clock, so compare the same way. 16h still
-    # accepts last evening's post-close scan (same closing prices a pre-open
-    # scan would see) but rejects Friday's snapshot on Monday. Not marked
-    # fired, so a later run with a fresh snapshot can still send.
-    try:
-        _age_h = (datetime.datetime.now()
-                  - datetime.datetime.fromisoformat(gen_at)).total_seconds() / 3600
-    except (TypeError, ValueError):
-        _age_h = None
+    # Don't present an old scan as "today's". snapshot_age_seconds() is
+    # timezone-safe (warmer stamps aware UTC; legacy naive stamps read as UTC).
+    # 16h still accepts last evening's post-close scan (same closing prices a
+    # pre-open scan would see) but rejects Friday's snapshot on Monday. Not
+    # marked fired, so a later run with a fresh snapshot can still send.
+    from utils.snapshot_time import snapshot_age_seconds
+    _age_s = snapshot_age_seconds(gen_at)
+    _age_h = None if _age_s is None else _age_s / 3600
     if _age_h is None or _age_h > _DIGEST_MAX_SNAPSHOT_AGE_H:
         print(f"[digest] snapshot is stale (generated_at={gen_at}) — skipping")
         return 0

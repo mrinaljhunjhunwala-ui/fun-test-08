@@ -45,7 +45,7 @@ def _mk_snapshot(n_buys: int = 3):
         "sector": "IT",
     } for i in range(n_buys)]
     return {
-        "generated_at": datetime.datetime.now().isoformat(),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "data": {"buys": buys, "sells": [], "meta": {}},
     }
 
@@ -109,7 +109,7 @@ def test_delivery_digest_respects_max_picks(_silence_dispatch, monkeypatch):
 
 
 @pytest.mark.parametrize("gen_at", [
-    (datetime.datetime.now() - datetime.timedelta(days=3)).isoformat(),  # Friday's scan on Monday
+    (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=3)).isoformat(),  # Friday's scan on Monday
     "unknown",
     None,
 ])
@@ -130,7 +130,7 @@ def test_delivery_digest_skips_stale_snapshot(_silence_dispatch, monkeypatch, ge
 def test_delivery_digest_accepts_last_evening_snapshot(_silence_dispatch, monkeypatch):
     """Post-close scan (~13.5h before a 09:00 digest) is still today's data."""
     snap = _mk_snapshot(3)
-    snap["generated_at"] = (datetime.datetime.now() - datetime.timedelta(hours=13.5)).isoformat()
+    snap["generated_at"] = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=13.5)).isoformat()
     fake_store = SimpleNamespace(kv_get=lambda k, user_id: snap)
     monkeypatch.setitem(sys.modules, "trade_store", fake_store)
 

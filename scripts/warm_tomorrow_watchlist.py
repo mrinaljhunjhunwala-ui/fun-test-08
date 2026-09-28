@@ -82,7 +82,7 @@ def main() -> int:
 
     snapshot = {
         "data": result,
-        "generated_at": datetime.datetime.now().isoformat(),
+        "generated_at": store.snapshot_timestamp(),
         "scan_seconds": round(_elapsed, 1),
     }
     ok = store.kv_set(_KV_KEY, snapshot, user_id=_KV_USER)

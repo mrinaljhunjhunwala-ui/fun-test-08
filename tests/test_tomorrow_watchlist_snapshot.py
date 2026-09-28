@@ -25,7 +25,7 @@ def test_fresh_snapshot_is_used_without_live_scan(monkeypatch):
                   "breakdown_watch": [], "reversal_watch": [], "scan_time": "20 Jul 15:50"}
     snapshot = {
         "data": fresh_data,
-        "generated_at": datetime.datetime.now().isoformat(),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "scan_seconds": 42.0,
     }
     monkeypatch.setattr(cache_mod._store, "kv_get",
@@ -46,7 +46,7 @@ def test_stale_snapshot_falls_back_to_live_scan(monkeypatch):
     back to a live scan instead."""
     import dashboard.shared.cache as cache_mod
 
-    old_time = (datetime.datetime.now()
+    old_time = (datetime.datetime.now(datetime.timezone.utc)
                - datetime.timedelta(seconds=cache_mod._TW_MAX_AGE_SECONDS + 60))
     snapshot = {
         "data": {"breakout_candidates": [], "breakdown_watch": [],

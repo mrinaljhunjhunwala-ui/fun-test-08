@@ -344,10 +344,20 @@ st.markdown("---")
 # universe already built in data/universe.py.
 
 _PICKS_KEY = "_cc_top_picks"
+_IST = _mb_dt.timezone(_mb_dt.timedelta(hours=5, minutes=30))  # chip shows IST even on a UTC host
 _PICKS_TTL_SECONDS = 300  # matches _home_top_picks' own cache TTL
 
 
-def _picks_background_fetch(vix_regime: str, sector_ranks: tuple) -> None:
+def _gen_at_local(gen_at: str) -> _mb_dt.datetime:
+    """A snapshot's generated_at as naive local time, comparable with
+    datetime.now(). The warmer stamps UTC (older stamps are naive UTC), so a
+    bare fromisoformat() was 5.5 h off on an IST machine."""
+    import trade_store as _ts_store
+    _ts = _ts_store.parse_snapshot_timestamp(gen_at)
+    return _ts.astimezone().replace(tzinfo=None) if _ts else _mb_dt.datetime.now()
+
+
+def _picks_background_fetch(vix_regime: str, sector_ranks: tuple, force_live: bool = False) -> None:
     """Runs in a worker thread. Only touches st.session_state — never calls
     st.* UI functions, which are not safe off the main script thread.
 
@@ -368,7 +378,8 @@ def _picks_background_fetch(vix_regime: str, sector_ranks: tuple) -> None:
         # trade_store first (written every 15 min by scripts/warm_top_picks.py
         # via GitHub Actions) and only falls back to a live ~2-min scan
         # (_home_top_picks, unchanged) if that snapshot is missing or stale.
-        result = get_top_picks(vix_regime=vix_regime, sector_ranks=sector_ranks)
+        result = get_top_picks(vix_regime=vix_regime, sector_ranks=sector_ranks,
+                               force_live=force_live)
         st.session_state[_PICKS_KEY] = result
         # FIX TP-NOOP1: record the snapshot's generated_at (when available)
         # so the next fragment tick can detect "snapshot unchanged" and skip
@@ -381,11 +392,7 @@ def _picks_background_fetch(vix_regime: str, sector_ranks: tuple) -> None:
         # so the "Top Picks last updated" chip reflects when the scan
         # actually ran (not the round-trip time on this thread).
         if _gen_at:
-            try:
-                st.session_state[f"{_PICKS_KEY}_ts"] = (
-                    datetime.datetime.fromisoformat(_gen_at))
-            except Exception:
-                st.session_state[f"{_PICKS_KEY}_ts"] = datetime.datetime.now()
+            st.session_state[f"{_PICKS_KEY}_ts"] = _gen_at_local(_gen_at)
         else:
             st.session_state[f"{_PICKS_KEY}_ts"] = datetime.datetime.now()
         st.session_state[f"{_PICKS_KEY}_error"] = None
@@ -471,8 +478,11 @@ def _render_top_picks_section(vix_regime: str, sector_tuple: tuple) -> None:
     # 2-min scan on top of the one that would have succeeded. 300 s comfortably
     # brackets the real worst case while still self-healing a genuinely dead
     # thread within a fragment tick or two.
+    # 300 → 480 s (2026-09-28): the full scan now takes ~215-225 s even on
+    # GitHub's runners (warm_top_picks logs), and Streamlit Cloud is slower,
+    # so a healthy live scan was being reset as "stalled" and restarted.
     _fetch_started = st.session_state.get(f"{_PICKS_KEY}_fetch_started")
-    if _fetching and _fetch_started and (_now - _fetch_started).total_seconds() > 300:
+    if _fetching and _fetch_started and (_now - _fetch_started).total_seconds() > 480:
         st.session_state[f"{_PICKS_KEY}_fetching"] = False
         st.session_state[f"{_PICKS_KEY}_error"] = (
             "Previous scan attempt stalled and was reset automatically."
@@ -525,11 +535,7 @@ def _render_top_picks_section(vix_regime: str, sector_tuple: tuple) -> None:
             # Anchor _ts to the snapshot's real generation time (not local
             # render time) so the "Top Picks last updated" chip below shows
             # when the scan actually ran, not when we happened to read it.
-            try:
-                st.session_state[f"{_PICKS_KEY}_ts"] = (
-                    datetime.datetime.fromisoformat(_snap_gen))
-            except Exception:
-                st.session_state[f"{_PICKS_KEY}_ts"] = _now
+            st.session_state[f"{_PICKS_KEY}_ts"] = _gen_at_local(_snap_gen)
             st.session_state[f"{_PICKS_KEY}_error"] = None
             _last_ts = st.session_state[f"{_PICKS_KEY}_ts"]
             _is_stale = False
@@ -539,7 +545,7 @@ def _render_top_picks_section(vix_regime: str, sector_tuple: tuple) -> None:
         st.session_state[f"{_PICKS_KEY}_fetch_started"] = _now
         _bg_thread = threading.Thread(
             target=_picks_background_fetch,
-            args=(vix_regime, sector_tuple),
+            args=(vix_regime, sector_tuple, bool(_run_picks)),
             daemon=True,
         )
         # FIX (stuck-scanning bug): without this, st.session_state writes
@@ -611,7 +617,7 @@ def _render_top_picks_section(vix_regime: str, sector_tuple: tuple) -> None:
             f'padding:7px 14px;margin-bottom:10px;display:flex;justify-content:space-between;'
             f'align-items:center">'
             f'<span style="font-size:12px;color:var(--bull)">📊 Top Picks last scored: '
-            f'<b>{_last_ts.strftime("%H:%M:%S")}</b> '
+            f'<b>{_last_ts.astimezone(_IST).strftime("%H:%M:%S")} IST</b> '
             f'<span style="color:var(--dim)">({_src_label})</span>{_regime_html}</span>'
             f'<span style="font-size:11px;color:var(--faint)">Scan refreshes every ~15 min · '
             f'tap Scan Now to force a live rescan</span>'
@@ -703,11 +709,11 @@ def _render_top_picks_section(vix_regime: str, sector_tuple: tuple) -> None:
     # than a stale price label, so that boundary stays.
     #
     # FIX CC-LIVE1: price alone is reinstated, on the same bounded pattern
-    # already proven safe by the Top Picks ticker strip above — one tiered
+    # the old Top Picks ticker strip used (removed in #178) — one tiered
     # batch call (_picks_live_prices, cached 60s) for every ticker actually
     # on screen, not a fetch-per-card. This fragment reruns every 20s, but
     # the 60s cache means the live-price network cost only actually fires
-    # once every 3rd rerun, same cost profile as the strip.
+    # once every 3rd rerun, same cost profile that strip had.
     _pk_tickers = tuple(sorted({b["ticker"] for b in _picks["buys"]} |
                                {s["ticker"] for s in _picks["sells"]}))
     _pk_live = _picks_live_prices(_pk_tickers)

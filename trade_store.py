@@ -549,3 +549,14 @@ def kv_delete(key: str, user_id: str = "default") -> bool:
     except Exception as e:
         _log.warning("kv_delete(%r, user=%r) failed: %s", key, user_id, e)
         return False
+
+
+
+# Snapshot generated_at helpers — live in utils/snapshot_time.py (pure, so
+# callers that stub trade_store in tests can still use them); re-exported here
+# because every snapshot reader/writer already imports trade_store.
+from utils.snapshot_time import (  # noqa: E402,F401
+    parse_snapshot_timestamp,
+    snapshot_age_seconds,
+    snapshot_timestamp,
+)
