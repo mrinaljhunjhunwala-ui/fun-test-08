@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from typing import Callable, Dict, List, Optional
 
@@ -298,12 +298,10 @@ def _probe_warmer_snapshot(name: str, kv_key: str, kv_user: str,
     gen_at = snap.get("generated_at")
     if not gen_at:
         return ProviderCheck(name, group, STATUS_IDLE, note="snapshot present but no generated_at")
-    ts = _parse_iso(gen_at)
-    if ts is None:
+    age = _store.snapshot_age_seconds(gen_at)
+    if age is None:
         return ProviderCheck(name, group, STATUS_IDLE, gen_at, 0,
                              note=f"unparseable generated_at: {gen_at!r}")
-    ref = datetime.now(ts.tzinfo) if ts.tzinfo else datetime.now()
-    age = (ref - ts).total_seconds()
     if age <= max_age_seconds:
         return ProviderCheck(name, group, STATUS_HEALTHY, gen_at, 0,
                              note="warmer on schedule")

@@ -25,6 +25,15 @@ on:
     - cron: "*/30 1-2 * * 1-5"     # pre-open shoulder 06:30-08:29 IST, every 30 min
     - cron: "*/30 11-13 * * 1-5"   # post-close shoulder 16:30-19:29 IST, every 30 min
     - cron: "0 3 * * 6"            # Saturday 08:30 IST snapshot for weekend reads
+  # PRIMARY trigger (2026-09-28): cron-job.org calls the workflow_dispatch API
+  # every 15 min, Mon–Fri 09:00–15:45 IST. GitHub drops scheduled runs under
+  # load — on 2026-09-28 only 1 of ~17 market-hours ticks fired, so the app's
+  # 20-min freshness window lapsed and every visit paid a live scan. The
+  # schedule above stays as a backstop; the concurrency group below queues at
+  # most one extra run, and the script skips non-trading days on its own.
+  #   POST https://api.github.com/repos/mrinaljhunjhunwala-ui/nse-smart-investor/actions/workflows/warm-top-picks.yml/dispatches
+  #   Authorization: Bearer <fine-grained PAT, this repo only, Actions: read & write>
+  #   Accept: application/vnd.github+json      body: {"ref":"main"}      → 204
   workflow_dispatch:                # allow manual "Run workflow" from the Actions tab
 
 concurrency:

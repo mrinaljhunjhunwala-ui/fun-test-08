@@ -1023,12 +1023,9 @@ def _persisted_top_picks_snapshot() -> dict | None:
     _gen_at = snap.get("generated_at")
     if not _gen_at:
         return None
-    try:
-        _age = (datetime.datetime.now() -
-                datetime.datetime.fromisoformat(_gen_at)).total_seconds()
-    except Exception as _parse_e:
-        _log.debug("cache._persisted_top_picks_snapshot: bad generated_at %r: %s",
-                   _gen_at, _parse_e)
+    _age = _store.snapshot_age_seconds(_gen_at)
+    if _age is None:
+        _log.debug("cache._persisted_top_picks_snapshot: bad generated_at %r", _gen_at)
         return None
     if _age > _TOP_PICKS_MAX_AGE_SECONDS and not _ACCEPT_STALE:
         return None
@@ -1068,12 +1065,9 @@ def _persisted_all_scores_snapshot() -> dict | None:
     _gen_at = snap.get("generated_at")
     if not _gen_at:
         return None
-    try:
-        _age = (datetime.datetime.now() -
-                datetime.datetime.fromisoformat(_gen_at)).total_seconds()
-    except Exception as _parse_e:
-        _log.debug("cache._persisted_all_scores_snapshot: bad generated_at %r: %s",
-                   _gen_at, _parse_e)
+    _age = _store.snapshot_age_seconds(_gen_at)
+    if _age is None:
+        _log.debug("cache._persisted_all_scores_snapshot: bad generated_at %r", _gen_at)
         return None
     if _age > _TOP_PICKS_MAX_AGE_SECONDS and not _ACCEPT_STALE:
         return None
@@ -1083,7 +1077,8 @@ def _persisted_all_scores_snapshot() -> dict | None:
     return data
 
 
-def get_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple = ()) -> dict:
+def get_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple = (),
+                  force_live: bool = False) -> dict:
     """
     Fast-path wrapper around _home_top_picks().
 
@@ -1103,7 +1098,17 @@ def get_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple =
     _persisted_top_picks_snapshot); only if it's missing or older than
     _TOP_PICKS_MAX_AGE_SECONDS does it fall back to a live scan, so a
     missed/late cron run still degrades gracefully instead of breaking.
+
+    force_live=True is Command Centre's "Scan Now": skip the snapshot and the
+    5-min in-process cache and score the universe afresh. Without it the
+    button just handed back the snapshot already on screen.
     """
+    if force_live:
+        _home_top_picks.clear()
+        result = dict(_home_top_picks(vix_regime=vix_regime, n=n, sector_ranks=sector_ranks))
+        result["source"] = "live_scan"
+        return result
+
     snap = _persisted_top_picks_snapshot()
     if snap is not None:
         return snap
@@ -1398,14 +1403,9 @@ def get_tomorrow_watchlist(n: int = 15) -> dict:
         snap = _store.kv_get(_TW_KV_KEY, user_id=_TW_KV_USER)
         if snap and isinstance(snap, dict):
             _gen_at = snap.get("generated_at")
-            _age = None
-            if _gen_at:
-                try:
-                    _age = (datetime.datetime.now() -
-                            datetime.datetime.fromisoformat(_gen_at)).total_seconds()
-                except Exception as _parse_e:
-                    _log.debug("cache.get_tomorrow_watchlist: bad generated_at %r: %s",
-                              _gen_at, _parse_e)
+            _age = _store.snapshot_age_seconds(_gen_at)
+            if _gen_at and _age is None:
+                _log.debug("cache.get_tomorrow_watchlist: bad generated_at %r", _gen_at)
             if _age is not None and _age <= _TW_MAX_AGE_SECONDS:
                 data = snap.get("data")
                 if isinstance(data, dict) and "scan_time" in data:
