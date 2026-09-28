@@ -93,30 +93,46 @@ GitHub → Settings → Developer settings → **Fine-grained tokens** → Gener
 - Permissions: **Actions → Read and write** (nothing else)
 - Pick an expiry and set a reminder to rotate it.
 
-### 2. Create the cron job (cron-job.org, free)
-- URL: `https://api.github.com/repos/mrinaljhunjhunwala-ui/nse-smart-investor/actions/workflows/market-alerts.yml/dispatches`
-- Method: **POST**
+### 2. Create the cron jobs (cron-job.org, free)
+
+On 2026-09-28 (a Monday) GitHub's scheduler ran **one** warm-up and **zero**
+Market Alerts / digest / pre-open runs during market hours, so every job below
+needs an external trigger. All share the same settings:
+
+- Method: **POST**, timezone **Asia/Kolkata**, days **Mon–Fri** (except the weekly digest)
 - Headers:
   - `Authorization: Bearer <your token>`
   - `Accept: application/vnd.github+json`
   - `X-GitHub-Api-Version: 2022-11-28`
-- Body: `{"ref":"main"}`
-- Schedule: every 15 minutes, 09:00–15:45, Mon–Fri, timezone **Asia/Kolkata**
-  (the script itself guards the exact 09:15–15:30 window and NSE holidays).
+- URL: `https://api.github.com/repos/mrinaljhunjhunwala-ui/nse-smart-investor/actions/workflows/<workflow file>/dispatches`
 
-### 3. Second cron job: pre-open scan + Morning Delivery Digest
-Same token, headers and body; only the URL and schedule differ:
-- URL: `https://api.github.com/repos/mrinaljhunjhunwala-ui/nse-smart-investor/actions/workflows/warm-preopen-scan.yml/dispatches`
-- Schedule: **08:40 IST**, Mon–Fri
+| # | Workflow file | Body | Schedule (IST) | What it does |
+|---|---|---|---|---|
+| 1 | `warm-preopen-scan.yml` | `{"ref":"main"}` | 08:40 | Fresh Top Picks + Tomorrow's Watchlist, then sends the **Morning Delivery Digest** |
+| 2 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"intraday-watchlist","force":"false"}}` | 09:20 | Intraday framing of the top picks |
+| 3 | `market-alerts.yml` | `{"ref":"main"}` | every 15 min, 09:00–15:45 | Price alerts, India VIX regime, Nifty trend |
+| 4 | `warm-top-picks.yml` | `{"ref":"main"}` | every 30 min, 09:15–15:45 | Keeps the dashboard's Top Picks snapshot fresh |
+| 5 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"momentum","force":"false"}}` | every 30 min, 10:00–15:00 | Momentum-scan digest (max one AM + one PM) |
+| 6 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"portfolio-posture","force":"false"}}` | 14:00 | Angel One holdings posture |
+| 7 | `warm_tomorrow_watchlist.yml` | `{"ref":"main"}` | 15:50 | Tomorrow's Watchlist after close |
+| 8 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"weekly-digest","force":"false"}}` | Sunday 09:00 | Week-ahead summary |
 
-This job refreshes the Top Picks snapshot and sends the Morning Delivery
-Digest as soon as it's written (~2–3 min). GitHub's own 08:50 IST cron for it
-was starting as late as 14:00 IST.
+`"force":"false"` matters for `market-digest.yml`: without it a dispatched run
+is treated as a manual test (skips the market-hours guard **and** the
+once-per-day dedup), and you'd get a digest on every trigger.
 
-A successful call returns **HTTP 204**. Check the Actions tab for a
-`workflow_dispatch` run of **Market Alerts** within a minute.
+Start with #1 and #3 — they carry the alerts. The scripts guard the exact
+market window and NSE holidays themselves, so triggering on a holiday is a
+harmless no-op.
 
-Cost: ~26 runs × ~1–2 min ≈ 1,100 Actions minutes/month.
+A successful call returns **HTTP 204**; a `workflow_dispatch` run should appear
+in the Actions tab within a minute. The GitHub `schedule:` crons stay in the
+workflow files as a fallback — duplicates are serialised by concurrency groups
+and de-duplicated by `alert_state.json`.
+
+Cost (private repo): roughly 130 runner-minutes per trading day ≈ 2,900
+Actions minutes/month with all eight; #1–#3 alone ≈ 1,200. The free plan
+includes 2,000/month (Pro: 3,000).
 
 To run it yourself locally:
 ```bash

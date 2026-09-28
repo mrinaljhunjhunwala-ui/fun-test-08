@@ -58,6 +58,11 @@ on:
           - momentum
           - portfolio-posture
           - weekly-digest
+      force:
+        description: "Bypass market-hours guard + dedup (manual tests). External schedulers send false."
+        required: false
+        default: true
+        type: boolean
       clear_today:
         description: "Wipe today's dedup state before running (fixes 'scheduled runs skipped because a manual test polluted state')"
         required: false
@@ -148,7 +153,9 @@ jobs:
           # produce nothing" diagnosed 2026-09-09. --clear-today wipes
           # any lingering dedup entries for today when the input is set.
           FLAGS="--mode=${{ steps.pick.outputs.mode }}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          # force=false is how the external cron-job.org trigger (alerts/README.md)
+          # gets scheduled-run semantics: guard + dedup respected.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" != "false" ]; then
             FLAGS="$FLAGS --force"
             if [ "${{ github.event.inputs.clear_today }}" = "true" ]; then
               FLAGS="$FLAGS --clear-today"
