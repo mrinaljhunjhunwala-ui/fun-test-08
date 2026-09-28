@@ -97,6 +97,10 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 import trade_store as _store
+# Imported from utils directly, not via trade_store: Streamlit only hot-reloads
+# modules under dashboard/, so after a deploy a live process can pair new
+# dashboard code with an old trade_store (AttributeError on 2026-09-28).
+from utils.snapshot_time import snapshot_age_seconds
 _log = logging.getLogger("dashboard.cache")
 
 
@@ -1023,7 +1027,7 @@ def _persisted_top_picks_snapshot() -> dict | None:
     _gen_at = snap.get("generated_at")
     if not _gen_at:
         return None
-    _age = _store.snapshot_age_seconds(_gen_at)
+    _age = snapshot_age_seconds(_gen_at)
     if _age is None:
         _log.debug("cache._persisted_top_picks_snapshot: bad generated_at %r", _gen_at)
         return None
@@ -1065,7 +1069,7 @@ def _persisted_all_scores_snapshot() -> dict | None:
     _gen_at = snap.get("generated_at")
     if not _gen_at:
         return None
-    _age = _store.snapshot_age_seconds(_gen_at)
+    _age = snapshot_age_seconds(_gen_at)
     if _age is None:
         _log.debug("cache._persisted_all_scores_snapshot: bad generated_at %r", _gen_at)
         return None
@@ -1403,7 +1407,7 @@ def get_tomorrow_watchlist(n: int = 15) -> dict:
         snap = _store.kv_get(_TW_KV_KEY, user_id=_TW_KV_USER)
         if snap and isinstance(snap, dict):
             _gen_at = snap.get("generated_at")
-            _age = _store.snapshot_age_seconds(_gen_at)
+            _age = snapshot_age_seconds(_gen_at)
             if _gen_at and _age is None:
                 _log.debug("cache.get_tomorrow_watchlist: bad generated_at %r", _gen_at)
             if _age is not None and _age <= _TW_MAX_AGE_SECONDS:

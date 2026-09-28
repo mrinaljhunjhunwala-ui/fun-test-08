@@ -298,7 +298,8 @@ def _probe_warmer_snapshot(name: str, kv_key: str, kv_user: str,
     gen_at = snap.get("generated_at")
     if not gen_at:
         return ProviderCheck(name, group, STATUS_IDLE, note="snapshot present but no generated_at")
-    age = _store.snapshot_age_seconds(gen_at)
+    from utils.snapshot_time import snapshot_age_seconds  # not via trade_store — see cache.py
+    age = snapshot_age_seconds(gen_at)
     if age is None:
         return ProviderCheck(name, group, STATUS_IDLE, gen_at, 0,
                              note=f"unparseable generated_at: {gen_at!r}")
