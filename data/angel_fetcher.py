@@ -17,6 +17,7 @@ import time
 import threading
 import datetime
 import json
+from collections import deque
 from typing import Dict, List, Optional, Tuple, Any
 
 import pandas as pd
@@ -159,6 +160,34 @@ def _angel_rate_limit() -> None:
 
 
 _hist_rate_limit = _angel_rate_limit
+
+
+# FIX AO-BULK (2026-09-28): Angel's candle API answers 403 "Access denied
+# because of exceeding access rate" after ~90 calls/minute, and a longer-window
+# quota cut a 1 req/s scan off after ~700 calls. Queueing every thread behind
+# the 1 req/s limiter made a ~745-ticker scan take ~25 min. Instead, at most
+# ONE thread uses Angel for candles at a time, within a per-minute budget;
+# everyone else gets AngelBusy immediately and the caller falls through to
+# the next provider. Single lookups still get Angel; bulk scans run at Yahoo
+# speed.
+_HIST_PER_MIN = 60
+_HIST_SENT: deque = deque()
+_HIST_INFLIGHT = threading.Semaphore(1)
+
+
+class AngelBusy(Exception):
+    """Angel's candle budget is in use or spent — use another provider now."""
+
+
+def _hist_budget_take(k: int) -> bool:
+    with _HIST_LOCK:
+        now = time.time()
+        while _HIST_SENT and now - _HIST_SENT[0] >= 60:
+            _HIST_SENT.popleft()
+        if len(_HIST_SENT) + k > _HIST_PER_MIN:
+            return False
+        _HIST_SENT.extend([now] * k)
+        return True
 
 _BREAKER_LOCK = threading.Lock()
 _BREAKER_FAILS = [0]
@@ -483,7 +512,9 @@ def fetch_historical(
     # master, which returns before _get_token ever consults the breaker, so a
     # tripped breaker never stopped candle calls. Check it here.
     if _breaker_tripped():
-        return None
+        # FIX AO-BULK: a known-open breaker is a skip, not a fresh failure —
+        # callers fall through quietly instead of logging one WARNING per ticker.
+        raise AngelBusy("circuit breaker open")
     token = _get_token(symbol, session)
     if token is None:
         return None
@@ -499,6 +530,22 @@ def fetch_historical(
         start_date = today - datetime.timedelta(days=_PERIOD_DAYS.get(period, 370))
     span_days = (today - start_date).days
 
+    n_windows = 1 if span_days <= _CANDLE_CHUNK_DAYS else -(-(span_days + 1) // (_CANDLE_CHUNK_DAYS + 1))
+    if not _HIST_INFLIGHT.acquire(blocking=False):
+        raise AngelBusy("another candle fetch in flight")
+    try:
+        if not _hist_budget_take(n_windows):
+            raise AngelBusy("per-minute candle budget spent")
+        return _fetch_historical_windows(session, token, symbol, ao_interval, period,
+                                         today, start_date, span_days)
+    finally:
+        _HIST_INFLIGHT.release()
+
+
+def _fetch_historical_windows(
+    session: Dict, token: str, symbol: str, ao_interval: str, period: str,
+    today: datetime.date, start_date: datetime.date, span_days: int,
+) -> Optional[pd.DataFrame]:
     try:
         if span_days <= _CANDLE_CHUNK_DAYS:
             fromdate, todate = _period_to_dates(period)

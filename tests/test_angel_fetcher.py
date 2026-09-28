@@ -229,6 +229,7 @@ def _candle_setup(monkeypatch, sess):
     monkeypatch.setattr(af, "_hist_rate_limit", lambda: None)
     af._BREAKER_FAILS[0] = 0
     af._BREAKER_TRIPPED_AT[0] = 0.0
+    af._HIST_SENT.clear()
 
 
 def test_candle_403s_trip_breaker_and_stop_calls(monkeypatch):
@@ -238,7 +239,8 @@ def test_candle_403s_trip_breaker_and_stop_calls(monkeypatch):
         assert af.fetch_historical(f"T{i}.NS", period="1y") is None
     assert af._breaker_tripped()
     calls = sess.candle_calls
-    assert af.fetch_historical("MORE.NS", period="1y") is None
+    with pytest.raises(af.AngelBusy):              # tripped: quiet skip for the caller
+        af.fetch_historical("MORE.NS", period="1y")
     assert sess.candle_calls == calls          # tripped: no further candle requests
     af._BREAKER_FAILS[0] = 0
     af._BREAKER_TRIPPED_AT[0] = 0.0
@@ -261,3 +263,37 @@ def test_candle_success_resets_failures(monkeypatch):
     df = af.fetch_historical("OK.NS", period="1y")
     assert df is not None and not df.empty
     assert af._BREAKER_FAILS[0] == 0
+
+
+# ── FIX AO-BULK: bulk scans skip Angel instead of queueing behind it ─────────
+_OK_CANDLES = [["2026-09-25T00:00:00+05:30", 1, 2, 0.5, 1.5, 100]]
+
+
+def test_candle_fetch_busy_while_another_in_flight(monkeypatch):
+    sess = _CandleSession(status=200, data=_OK_CANDLES)
+    _candle_setup(monkeypatch, sess)
+    assert af._HIST_INFLIGHT.acquire(blocking=False)   # simulate a fetch in flight
+    try:
+        with pytest.raises(af.AngelBusy):
+            af.fetch_historical("X.NS", period="1y")
+        assert sess.candle_calls == 0                   # never queued, never called
+    finally:
+        af._HIST_INFLIGHT.release()
+    assert af.fetch_historical("X.NS", period="1y") is not None
+
+
+def test_candle_budget_spent_raises_busy(monkeypatch):
+    sess = _CandleSession(status=200, data=_OK_CANDLES)
+    _candle_setup(monkeypatch, sess)
+    monkeypatch.setattr(af, "_HIST_PER_MIN", 3)
+    for i in range(3):
+        assert af.fetch_historical(f"B{i}.NS", period="1y") is not None
+    with pytest.raises(af.AngelBusy):
+        af.fetch_historical("B3.NS", period="1y")
+    # 2y needs two windows: must reserve both, and busy doesn't trip the breaker
+    af._HIST_SENT.clear()
+    monkeypatch.setattr(af, "_HIST_PER_MIN", 1)
+    with pytest.raises(af.AngelBusy):
+        af.fetch_historical("TWO.NS", period="2y")
+    assert not af._breaker_tripped()
+    af._HIST_SENT.clear()
