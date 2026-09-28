@@ -210,6 +210,20 @@ def ensure_schema() -> None:
                 price_250d  {real}, ret_250d  {real}, nifty_ret_250d  {real}
             )
         """)
+        # Additive migration: backfill_misses counts backfill passes that
+        # found this row's price history dead (see _MAX_BACKFILL_MISSES).
+        if is_pg:
+            cur.execute("ALTER TABLE verdict_log "
+                        "ADD COLUMN IF NOT EXISTS backfill_misses INTEGER DEFAULT 0")
+        else:
+            cur.execute("PRAGMA table_info(verdict_log)")
+            if "backfill_misses" not in {row[1] for row in cur.fetchall()}:
+                try:
+                    cur.execute("ALTER TABLE verdict_log "
+                                "ADD COLUMN backfill_misses INTEGER DEFAULT 0")
+                except Exception as e:   # another connection added it first
+                    if "duplicate column" not in str(e).lower():
+                        raise
         conn.commit()
     _schema_ready_for = key
 
@@ -411,6 +425,16 @@ def _fetch_history(ticker: str) -> Optional[pd.DataFrame]:
 # Upper bound on candidate rows pulled per backfill call (ids + dates only).
 _BACKFILL_CANDIDATE_CAP = 20000
 
+# A row stops being retried after this many backfill passes found its price
+# history dead (delisted / renamed ticker): no history at all, no bar on or
+# after the logged date, or a last bar _STALE_BEHIND_NIFTY_SESSIONS+ sessions
+# older than NIFTY's. Misses are only counted while the NIFTY fetch works, so
+# a network outage never burns retries; the session gap absorbs the EOD lag
+# and a slower provider tier serving the ticker a session behind NIFTY (a
+# delisted name falls weeks behind). Any successful fill resets the count.
+_MAX_BACKFILL_MISSES = 5
+_STALE_BEHIND_NIFTY_SESSIONS = 3
+
 
 def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
     """
@@ -441,11 +465,12 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
         # returns. max_rows now applies only AFTER keeping rows with at least
         # one missing horizon that has actually been reached.
         sql = _store._q("""
-            SELECT v.id, v.ticker, v.logged_date, v.entry_price,
+            SELECT v.id, v.ticker, v.logged_date, v.entry_price, v.backfill_misses,
                    r.price_1d, r.price_5d, r.price_20d, r.price_60d, r.price_250d
             FROM verdict_log v
             LEFT JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
             WHERE v.logged_date < ?
+              AND COALESCE(v.backfill_misses, 0) < ?
               AND (r.verdict_log_id IS NULL
                OR r.price_1d   IS NULL
                OR r.price_5d   IS NULL
@@ -456,7 +481,8 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
             LIMIT ?
         """)
         with _store._get_conn() as conn:
-            rows = read_sql_df(sql, conn, params=(today.isoformat(), _BACKFILL_CANDIDATE_CAP))
+            rows = read_sql_df(sql, conn, params=(today.isoformat(), _MAX_BACKFILL_MISSES,
+                                                  _BACKFILL_CANDIDATE_CAP))
         if rows.empty:
             return stats
 
@@ -483,6 +509,10 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
             if hist[t] is not None:
                 stats["tickers_fetched"] += 1
         nifty_df = hist.get(NIFTY_BENCH)
+        # Only judge a ticker dead while the data source is demonstrably up.
+        nifty_last = _last_bar_date(nifty_df)
+        misses: List[int] = []
+        resets: List[int] = []
 
         # Compute + upsert one row at a time.
         for _, r in rows.iterrows():
@@ -494,12 +524,16 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
 
                 tdf = hist.get(ticker)
                 if tdf is None:
+                    if nifty_last is not None:
+                        misses.append(log_id)
                     continue
 
                 # Anchor entry to the logged_date bar if we don't have it.
                 if entry is None or pd.isna(entry):
                     entry = _find_bar(tdf, logged)
                 if entry is None or entry <= 0:
+                    if nifty_last is not None:
+                        misses.append(log_id)
                     continue
 
                 nifty_entry = _find_bar(nifty_df, logged) if nifty_df is not None else None
@@ -526,15 +560,53 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
                             updates[f"nifty_ret_{h}d"] = round(float(n_ret), 4)
 
                 if not updates:
+                    # A reached horizon with no bar: dead only if this ticker's
+                    # history stops before NIFTY's (not just the EOD lag).
+                    t_last = _last_bar_date(tdf)
+                    if (nifty_last is not None and t_last is not None
+                            and horizon_target_date(t_last, _STALE_BEHIND_NIFTY_SESSIONS) <= nifty_last):
+                        misses.append(log_id)
                     continue
                 _upsert_returns(log_id, updates)
                 stats["updated"] += 1
+                if pd.notna(r.get("backfill_misses")) and int(r["backfill_misses"]) > 0:
+                    resets.append(log_id)
             except Exception as e:
                 _log.debug("backfill row failed id=%s: %s", r.get("id"), e)
                 continue
+        _record_misses(misses)
+        _record_misses(resets, reset=True)
     except Exception as e:
         _log.warning("backfill_returns failed: %s: %s", type(e).__name__, e)
     return stats
+
+
+def _last_bar_date(df: Optional[pd.DataFrame]) -> Optional[_dt.date]:
+    """Date of the last bar in a fetched history, or None."""
+    if df is None or df.empty:
+        return None
+    try:
+        return pd.Timestamp(df.index[-1]).date()
+    except Exception:
+        return None
+
+
+def _record_misses(log_ids: List[int], reset: bool = False) -> None:
+    """Bump backfill_misses for rows whose history looked dead this pass, or
+    (reset=True) zero it for rows that just filled a horizon."""
+    if not log_ids:
+        return
+    placeholders = ",".join(["?"] * len(log_ids))
+    new_val = "0" if reset else "COALESCE(backfill_misses, 0) + 1"
+    try:
+        with _store._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(_store._q(
+                f"UPDATE verdict_log SET backfill_misses = {new_val} "
+                f"WHERE id IN ({placeholders})"), tuple(log_ids))
+            conn.commit()
+    except Exception as e:
+        _log.debug("_record_misses failed for %d rows: %s", len(log_ids), e)
 
 
 def _upsert_returns(log_id: int, updates: Dict[str, Optional[float]]) -> None:
