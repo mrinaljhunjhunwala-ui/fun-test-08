@@ -7,7 +7,8 @@ name: Market Alerts
 # re-registration on the next default-branch push.
 #
 # Runs every 15 minutes during NSE market hours and sends Telegram alerts
-# for custom price levels, VIX fear/panic regimes, and Nifty downtrends.
+# for custom price levels, portfolio holdings (from the My Portfolio page),
+# VIX fear/panic regimes, and Nifty downtrends.
 #
 # NSE hours 09:15–15:30 IST = 03:45–10:00 UTC. GitHub cron is UTC-only and
 # can't express :45, so we run 03–10 UTC and the script self-guards on the
@@ -46,7 +47,7 @@ jobs:
       # pyotp: Angel One TOTP login. Without it angel_fetcher fails with
       # "No module named 'pyotp'" and every fetch falls back to Yahoo.
       - name: Install minimal deps
-        run: pip install --quiet pandas numpy requests "pyotp>=2.8.0,<3.0"
+        run: pip install --quiet pandas numpy requests "pyotp>=2.8.0,<3.0" "psycopg2-binary>=2.9.0,<3.0"
 
       # Persist the de-dup state file between runs so the same alert
       # isn't re-sent every 15 minutes. New cache each run, restore latest.
@@ -62,6 +63,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Portfolio alerts read the My Portfolio holdings (and persist their
+          # reference prices) in the same Postgres the dashboard uses.
+          DATABASE_URL:       ${{ secrets.DATABASE_URL }}
           # Task 4.1 (added 2026-09-08): Gmail SMTP as the second alert
           # channel alongside Telegram. Requires GitHub Actions secrets:
           #   ALERT_GMAIL_ADDRESS       - your Gmail address

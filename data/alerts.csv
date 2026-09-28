@@ -1,37 +1,3 @@
 ticker,condition,level,note,enabled
-VEDL,above,285.94,+10% from 28-Sep close 259.95,1
-VEDL,below,233.95,-10% from 28-Sep close 259.95,1
-VEDL,below,253.22,Crosses avg buy price 253.22,1
-BALRAMCHIN,above,751.08,+10% from 28-Sep close 682.80,1
-BALRAMCHIN,below,614.52,-10% from 28-Sep close 682.80,1
-BALRAMCHIN,below,82.91,Crosses avg buy price 82.91,1
-BAJAJHIND,above,22.46,+10% from 28-Sep close 20.42,1
-BAJAJHIND,below,18.38,-10% from 28-Sep close 20.42,1
-BAJAJHIND,above,33.16,Crosses avg buy price 33.16,1
-DHANBANK,above,30.92,+10% from 28-Sep close 28.11,1
-DHANBANK,below,25.30,-10% from 28-Sep close 28.11,1
-DHANBANK,below,11.24,Crosses avg buy price 11.24,1
-ONGC,above,253.32,+10% from 28-Sep close 230.29,1
-ONGC,below,207.26,-10% from 28-Sep close 230.29,1
-ONGC,below,223.97,Crosses avg buy price 223.97,1
-XCHANGING,above,66.04,+10% from 28-Sep close 60.04,1
-XCHANGING,below,54.04,-10% from 28-Sep close 60.04,1
-XCHANGING,above,243.34,Crosses avg buy price 243.34,1
-VAML,above,461.34,+10% from 28-Sep close 419.40,1
-VAML,below,377.46,-10% from 28-Sep close 419.40,1
-VAML,above,522.00,Crosses avg buy price 522.00,1
-VOGL,above,36.70,+10% from 28-Sep close 33.36,1
-VOGL,below,30.02,-10% from 28-Sep close 33.36,1
-VOGL,above,38.00,Crosses avg buy price 38.00,1
-VEDPOWER,above,35.41,+10% from 28-Sep close 32.19,1
-VEDPOWER,below,28.97,-10% from 28-Sep close 32.19,1
-VEDPOWER,above,41.80,Crosses avg buy price 41.80,1
-VISL,above,34.49,+10% from 28-Sep close 31.35,1
-VISL,below,28.22,-10% from 28-Sep close 31.35,1
-VISL,below,20.00,Crosses avg buy price 20.00,1
-PFC,above,363.99,+10% from 28-Sep close 330.90,1
-PFC,below,297.81,-10% from 28-Sep close 330.90,1
-PFC,above,423.15,Crosses avg buy price 423.15,1
-COALINDIA,above,465.58,+10% from 28-Sep close 423.25,1
-COALINDIA,below,380.93,-10% from 28-Sep close 423.25,1
-COALINDIA,above,438.05,Crosses avg buy price 438.05,1
+RELIANCE,above,1400,EXAMPLE - custom level for a stock you watch (set enabled=1 to activate),0
+TCS,below,2400,EXAMPLE - custom level,0

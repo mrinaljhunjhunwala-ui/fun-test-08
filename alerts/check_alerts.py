@@ -289,6 +289,109 @@ def check_price_alerts(state: dict, today: str) -> int:
     return sent
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Portfolio alerts — derived from the My Portfolio holdings on every run
+#
+# No list to maintain: holdings are read from the same trade_store KV key the
+# My Portfolio page writes, so adds / sells / avg-price edits take effect on
+# the next run. Two alerts per holding:
+#   * Step move: ±_PF_STEP_PCT from a per-holding reference price. The first
+#     sighting only records the reference; each alert re-anchors it to the
+#     alert price, so the next alert is the NEXT 10% move, not a repeat.
+#   * Cost cross: price crosses the current average buy price, either way.
+# References + last cost side persist in KV (_PF_ANCHORS_KEY, user "_system");
+# sold holdings are pruned from it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PF_HOLDINGS_KEY = "manual_portfolio_holdings"
+_PF_ANCHORS_KEY  = "portfolio_alert_anchors"
+_PF_STEP_PCT     = 10.0
+
+
+def check_portfolio_alerts(state: dict, today: str) -> int:
+    try:
+        import trade_store as store
+        from utils.live_price import get_live_quote
+    except Exception as e:
+        print(f"[portfolio] import failed: {e}")
+        return 0
+    try:
+        holdings = store.kv_get(_PF_HOLDINGS_KEY, None) or []
+        anchors  = store.kv_get(_PF_ANCHORS_KEY, None, user_id="_system") or {}
+    except Exception as e:
+        print(f"[portfolio] kv read failed: {e}")
+        return 0
+    if not holdings:
+        print("[portfolio] no holdings on the My Portfolio page — nothing to check")
+        return 0
+
+    sent, held = 0, set()
+    for h in holdings:
+        ticker = str(h.get("ticker", "")).upper().replace(".NS", "").replace(".BO", "").strip()
+        try:
+            avg = float(h.get("avg_buy_price") or 0)
+        except (TypeError, ValueError):
+            avg = 0.0
+        if not ticker:
+            continue
+        held.add(ticker)
+        q = get_live_quote(ticker)
+        if not q or not q.get("price"):
+            print(f"[portfolio] {ticker}: no quote")
+            continue
+        price = float(q["price"])
+        chg = q.get("chg_pct", 0.0) or 0.0
+        a = anchors.get(ticker)
+        if not a or not a.get("ref"):
+            anchors[ticker] = {"ref": price, "ref_date": today,
+                               "side": ("above" if price >= avg else "below") if avg else None}
+            print(f"[portfolio] {ticker}: reference set at {price:.2f}")
+            continue
+
+        # 1) Step move from the reference price
+        ref = float(a["ref"])
+        move = (price / ref - 1) * 100
+        if abs(move) >= _PF_STEP_PCT:
+            key = f"pf_step_{ticker}_{ref:.2f}"
+            if not _already_fired(state, key, today):
+                arrow = "🔼" if move > 0 else "🔽"
+                msg = (f"{arrow} <b>{ticker}</b> moved <b>{move:+.1f}%</b> "
+                       f"since ₹{ref:,.2f} ({a.get('ref_date', '?')})\n"
+                       f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
+                       f"📝 Portfolio holding · next alert at ±{_PF_STEP_PCT:.0f}% from here")
+                if dispatch(msg):
+                    _mark_fired(state, key, today)
+                    sent += 1
+                    a["ref"], a["ref_date"] = price, today
+
+        # 2) Average-cost cross
+        if avg:
+            side = "above" if price >= avg else "below"
+            if a.get("side") and side != a["side"]:
+                key = f"pf_cost_{ticker}_{side}_{avg:.2f}"
+                if not _already_fired(state, key, today):
+                    arrow = "🔼" if side == "above" else "🔽"
+                    msg = (f"{arrow} <b>{ticker}</b> crossed {side} your avg buy price "
+                           f"<b>₹{avg:,.2f}</b>\n"
+                           f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
+                           f"📝 Portfolio holding")
+                    if dispatch(msg):
+                        _mark_fired(state, key, today)
+                        sent += 1
+                        a["side"] = side
+            elif not a.get("side"):
+                a["side"] = side
+
+    for t in [t for t in anchors if t not in held]:
+        print(f"[portfolio] {t}: no longer held — dropping its reference")
+        anchors.pop(t)
+    try:
+        store.kv_set(_PF_ANCHORS_KEY, anchors, user_id="_system")
+    except Exception as e:
+        print(f"[portfolio] kv write failed: {e}")
+    return sent
+
+
 def check_vix_regime(state: dict, today: str) -> int:
     """Alert when India VIX is in a fear/panic regime."""
     try:
@@ -859,7 +962,7 @@ def check_weekly_digest(state: dict, today: str) -> int:
 #
 # Modes:
 #   default              — the original 15-min market-alerts cadence
-#                          (price CSV + VIX + Nifty trend)
+#                          (price CSV + portfolio holdings + VIX + Nifty trend)
 #   morning-digest       — 09:00 IST daily: delivery top-picks digest
 #   intraday-watchlist   — 09:20 IST daily: intraday framing of top picks
 #   momentum             — every 30 min market hours: momentum opportunities
@@ -933,6 +1036,7 @@ def main() -> int:
         total += check_test_alert(state, today)
     else:   # default
         total += check_price_alerts(state, today)
+        total += check_portfolio_alerts(state, today)
         total += check_vix_regime(state, today)
         total += check_nifty_trend(state, today)
 
