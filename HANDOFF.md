@@ -1,7 +1,7 @@
-# Handoff — 2026-09-27 · Composite snapshot, EOD data pipeline, F&O/FII fixes
+# Handoff — 2026-09-28 · Bear-regime fix, warmers working, Stooq off, EOD pipeline
 
 ## Repo state
-- **`main` at `b4488d8`**: CI passing. Local `main` is synced, and the only untracked item is `archive/`.
+- **`main` at `c590e14`**: CI passing. Local `main` is synced, and the only untracked item is `archive/`.
 - **Canonical checkout:** `D:\Kashti Claude\nse-smart-investor`.
   - `E:\code\nse-smart-investor` is an **empty folder**. Nothing should point at it.
 - **Open PRs:** none from this work.
@@ -14,8 +14,48 @@
   - The test suite is blocked from writing to production Postgres, and there's a purge tool for leaked rows.
   - Page-smoke background threads are joined.
   - The verdict_log dedup behaviour is pinned by tests.
+  - Also in parallel, 09-27 → 09-28: #188 (Claude may run `gh pr merge`), #190 (pyotp for Angel One),
+    #192 (morning digest from the pre-open scan), #195 (bulk scans skip Angel One), #196 (every
+    scheduled job has an external trigger), and verdict-ledger fixes (IST session dates, NSE holidays,
+    backfill no longer starved).
 
-## What shipped this session (#170 → #186)
+## What shipped 2026-09-28 (#189 → #198)
+
+**Bear-regime ranking fixed (#198):** full write-up in `docs/SCORE_EFFICACY_BEAR_2026-09-28.md`.
+- **Finding:** in trend_down and risk_off, Technical and RS rank backwards (recent strength predicts
+  worse returns). Evidence: 10-year study, 484 tickers, 178k weekly observations, 2017-07 → 2026-07.
+- **Change:** in bear regimes, Technical is held at 20/40 and RS at 5/10. It uses the same opt-out as
+  #168 (`NSE_USE_REGIME_WEIGHTS=0`).
+- **Result:** bear-week IC improves in both halves, at both 20 and 60 days (20d 2017–20 −0.024 →
+  +0.026, 2021–26 −0.005 → +0.061). Overall 20d IC goes from +0.0209 to +0.0329.
+- **Selection:** the variant was chosen on 2022–26 data before the 10y run existed, so 2017–20 is
+  out of sample. Variants found after seeing the 10y data (also neutralising Volume, flipping
+  Technical) were not adopted.
+- **`CompositeScore.technical_raw`:** keeps the raw points. The thesis engine and page 04's ledger tags
+  read it (flagged by the verdict-regression review).
+- **Fetcher:** new `10y` period. `10y` used to silently return 1y, and Yahoo's `max` is **monthly**
+  bars.
+- Bear rankings are now mildly right, not strong.
+
+**Warmers finally reach Postgres (#191, #193):**
+- **Top Picks warmer:** it had not completed a scan since 2026-09-08. Once the ANGEL_* secrets were
+  added, Angel One returned 403 for every candle call from GitHub's runners, and each ticker paid two
+  failing calls. The result was 52 cancelled runs; the "successes" were weekend skips.
+- **Fix:** Angel credentials were removed from the Top Picks and pre-open warmers, and the Top Picks
+  timeout went from 8 to 20 min, with a per-minute heartbeat.
+- **Verified:** the scan took 213 s and 744/745 stocks scored. `top_picks_snapshot` and
+  `tomorrow_watchlist_snapshot` are both in Postgres.
+
+**Angel One breaker (#194):** candle-API HTTP errors now count as breaker failures, and
+`fetch_historical` checks the breaker before making calls. Before, it tripped once in 333 rejections.
+
+**Stooq off by default (#189):** stooq.com now serves a JavaScript browser check, so a script can
+never get data. The tier is skipped unless `NSE_ENABLE_STOOQ=1`, and the Data health panel shows it
+as disabled.
+
+**Earlier on 09-27 (after #186):** HANDOFF refresh (#187).
+
+## What shipped 2026-09-27 (#170 → #186)
 
 **Composite golden snapshot (#170):**
 - `tools/composite_golden.py` generates `data/composite_golden_snapshot.json`: 20 seeded synthetic cases replayed through `score_dataframe()`.
@@ -89,18 +129,37 @@
 - **Valuation:** `test_valuation_golden_snapshot.py` (E1-v2).
 
 ## Open / next
-1. **Watch the first scheduled `refresh-eod-data` runs** (Monday 19:45 IST) and the Data health panel. If NSE starts blocking the runner, set the `NSE_COOKIE` secret, or re-enable the relevant Windows task after pointing it at the `D:\` checkout.
-2. **Confirm the warmers now reach Postgres.** Once `DATABASE_URL` exists, the `top_picks_snapshot` KV key should appear; the "Warmer" rows in Data health show it.
-3. **The bear-regime weakness is still open.** The score ranks backwards in trend_down and risk_off markets, and ADX direction didn't help (#172). The next idea should target momentum and mean reversion, not trend strength.
-4. **Validation gaps:** sector rank, flows, delivery % and positioning can't be replayed historically, and survivorship bias is not corrected. The positioning add-on shouldn't be switched on by default until it has been validated.
-5. **Still to check by hand:**
-   - the mobile layout on a real phone
-   - the page 04 drift banner, which only appears during market hours
-   - page 18 grade shades on a real screen
-6. **Data sources:** Stooq has been dead since 2026-09-06 and adds a timeout to every fetch; consider a "known dead" switch. NSE corp-info times out intermittently.
-7. **F&O list refresh:** re-check it against NSE's monthly circular. The drift warning in `fetch_nse_fno_bhavcopy` logs candidates.
+1. **Watch scheduled runs** of `refresh-eod-data` (19:45 IST) and the warmers in the Data health
+   panel. If NSE blocks the runner, set the `NSE_COOKIE` secret, or re-enable the relevant (disabled)
+   Windows task after pointing it at the `D:\` checkout.
+2. **Bear regimes are fixed but modest.** Possible next steps:
+   - check risk_off and trend_down separately;
+   - consider neutralising Volume (it improved further in the 10y data, but wasn't pre-registered,
+     so it needs a fresh out-of-sample check);
+   - watch the verdict ledger's bear-regime rows.
+3. **Validation gaps:** sector rank, flows, delivery % and positioning can't be replayed
+   historically, and survivorship bias is not corrected. The positioning add-on stays opt-in until
+   it's validated.
+4. **Still to check by hand:**
+   - mobile layout on a real phone;
+   - the page 04 drift banner, which only appears during market hours;
+   - page 18 grade shades on a real screen.
+5. **Branch:** the user still needs to OK deleting `ux2-ticker-hover-preview`.
+6. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
+   monthly circular; the drift warning in `fetch_nse_fno_bhavcopy` names the candidates.
 
 ## Gotchas
+- **Several Claude sessions work in this repo at once.** One ran `git reset --hard` in the main
+  checkout and wiped another session's uncommitted edits. **Work in `.claude/worktrees/<name>` on
+  your own branch and commit early.**
+- **The laptop idle-sleeps overnight.** A long study (the 10y efficacy run takes about 45 min of
+  compute) was paused for 11 hours. Hold the machine awake (keep-awake, `until: turn_end`) and wait
+  in the turn.
+- **Research runs on long periods:** use `--period 10y`, not `max` (monthly bars). Copy
+  `research/output/observations.csv` elsewhere before starting the next run. Per-pillar variants
+  can be evaluated exactly from the observation columns (pillars add up; RS pts = `RS_Score / 10`).
+- **GitHub Actions "success" can mean "skipped".** The warmers exit 0 on weekends and holidays.
+  Check the log for `scan done` / `persisted`.
 - **Local tests reach production Postgres unless you unset `DATABASE_URL`.** The user-level `DATABASE_URL` points at the production database; the suite now blocks writes, but reads and timings still go remote. To match CI, run `env -u DATABASE_URL py -m pytest ...`, then delete any `trades.db` it creates.
 - **Stacked PRs and `--delete-branch`:** squash-merging the base PR deletes its branch, and that **closes** the stacked PR. Merge without deleting, or retarget the stacked PR to `main` first. Afterwards, rebase the stacked branch onto `main` to drop the pre-squash commits.
 - **pytest summary grep:** the summary line reads `N passed, M deselected in …`, so grepping for `passed in` misses it. Use `tail`.
