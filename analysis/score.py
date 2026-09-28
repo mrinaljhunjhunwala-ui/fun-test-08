@@ -310,6 +310,7 @@ class CompositeScore:
     rs_score:           Optional[float] = None # FIX RS1: RS_Score vs Nifty (0-100 percentile), None when benchmark unavailable
     positioning_score:  Optional[float] = None # FIX POS1: Positioning pillar (0-10, F&O + flag ON); None otherwise
     is_fno:             bool            = False # FIX POS1: True when the ticker is F&O-eligible per data.fno_universe
+    technical_raw:      Optional[float] = None  # FIX BEAR-NEUTRAL: pre-neutralisation technical pts (descriptive uses: thesis, ledger tags)
     overlay_score:      Optional[int]   = None  # FIX OVERLAY1 (Task 3.3): TQS x valuation sidecar, 0-100. NEVER blended into .score.
     timestamp:          str          = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -330,6 +331,7 @@ class CompositeScore:
             "positioning": self.positioning_score,
             "is_fno": self.is_fno,
             "overlay_score": self.overlay_score,
+            "technical_raw": self.technical_raw,
         }
 
 
@@ -682,11 +684,16 @@ def _score_momentum(df: pd.DataFrame,
         pts["variant"]  = "M_bear_mean_reversion"
         pts["regime"]   = regime_label
         if _rs_available:
-            rs_pts = round(float(np.clip(rs_score, 0.0, 100.0)) / 100.0 * 10.0, 2)
-            pts["rs_available"] = True
-            pts["rs_score"]     = round(rs_score, 1)
-            pts["rs_pts"]       = rs_pts
-            total = mr_pts + rs_pts
+            # FIX BEAR-NEUTRAL (2026-09-28): RS ranks backwards in bear regimes
+            # (10y per-week IC, trend_down 20d -0.036 / 60d -0.039), so it is
+            # held at its neutral midpoint (5 of 10) instead of scored. Raw
+            # value kept in the breakdown. docs/SCORE_EFFICACY_BEAR_2026-09-28.md
+            pts["rs_available"]   = True
+            pts["rs_score"]       = round(rs_score, 1)
+            pts["rs_pts_raw"]     = round(float(np.clip(rs_score, 0.0, 100.0)) / 100.0 * 10.0, 2)
+            pts["rs_pts"]         = 5.0
+            pts["rs_neutralised"] = True
+            total = mr_pts + 5.0
         else:
             pts["rs_available"] = False
             total = mr_pts   # 0-15 only; 10 pts unfilled in ad-hoc RS-less mode
@@ -1534,6 +1541,17 @@ def score_dataframe(
         vix_info = {"regime": "normal", "vix": None, "allow_buy": True}
 
     tech_pts,  tech_detail = _score_technical(df)
+    tech_raw = tech_pts
+    # FIX BEAR-NEUTRAL (2026-09-28): in bear regimes (trend_down / risk_off,
+    # same opt-out flag as the bear momentum variant) the Technical pillar is
+    # held at its neutral midpoint (20 of 40). It rewards RSI 60-70, a bullish
+    # SMA stack and strong trends, which rank backwards there. 10y study,
+    # tech+RS neutral vs current, bear weeks: 20d IC 2017-20 -0.024 -> +0.026,
+    # 2021-26 -0.005 -> +0.061; 60d also better in both halves.
+    if (regime_label or "").lower() in _BEAR_REGIMES and _regime_weights_enabled():
+        tech_detail["tech_pts_raw"]     = tech_pts
+        tech_detail["tech_neutralised"] = True
+        tech_pts = 20.0
     mom_pts,   mom_detail  = _score_momentum(df, regime_label=regime_label)
     vol_pts,   vol_detail  = _score_volume(df, delivery_info=delivery_info)
     pat_detail             = _detect_patterns(df)
@@ -1655,6 +1673,7 @@ def score_dataframe(
         grade             = grade,
         action            = action,
         technical_score   = tech_pts,
+        technical_raw     = tech_raw,
         momentum_score    = mom_pts,
         volume_score      = vol_pts,
         sentiment_score   = sent_pts,

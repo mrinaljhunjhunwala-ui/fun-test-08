@@ -79,7 +79,10 @@ def _from_composite(inp: ThesisInputs, cs: Any) -> None:
     inp.composite_score = g("score", "score")
     inp.action = g("action", "action")
     inp.grade = g("grade", "grade")
-    inp.technical_score = g("technical", "technical_score")
+    # FIX BEAR-NEUTRAL: the thesis describes the stock, so it reads the raw
+    # technical points; the composite holds them at 20 in bear regimes.
+    _raw = g("technical_raw", "technical_raw")
+    inp.technical_score = _raw if _raw is not None else g("technical", "technical_score")
     inp.momentum_score = g("momentum", "momentum_score")
     inp.volume_score = g("volume", "volume_score")
     inp.sentiment_score = g("sentiment", "sentiment_score")
