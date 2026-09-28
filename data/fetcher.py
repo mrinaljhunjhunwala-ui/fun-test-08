@@ -262,7 +262,7 @@ _PERIOD_DAYS = {
     "1d":  10,  "5d":  18,  "1m":  35,  "6m": 185,
     # yfinance-style labels (legacy internal use)
     "1mo": 35,  "2mo": 65,  "3mo": 95,  "6mo": 185,
-    "1y":  370, "2y":  740, "3y": 1100, "5y": 1830,
+    "1y":  370, "2y":  740, "3y": 1100, "5y": 1830, "10y": 3660,
     "max": 1830,
 }
 
@@ -360,7 +360,7 @@ def _fetch_yahoo_direct(ticker: str, period: str = "1y", interval: str = "1d") -
         "1d":  "5d",   "5d":  "5d",   "1m":  "1mo",  "6m":  "6mo",
         "ytd": "ytd",  "max": "max",
         "1mo": "1mo",  "2mo": "3mo",  "3mo": "3mo",  "6mo": "6mo",
-        "1y":  "1y",   "2y":  "2y",   "3y":  "5y",   "5y":  "5y",
+        "1y":  "1y",   "2y":  "2y",   "3y":  "5y",   "5y":  "5y",   "10y": "10y",
         # Intraday period keys (used by fetch_intraday).
         # FIX INTRA1 — two of these were wrong. "7d" mapped to Yahoo's "5d",
         # so fetch_intraday(days=6..15) asked for up to 15 days of 15m bars and

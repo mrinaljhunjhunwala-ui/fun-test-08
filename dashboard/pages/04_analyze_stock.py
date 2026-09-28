@@ -1039,7 +1039,11 @@ if analyze_btn or _prefill_active or (
                     _tags: list = []
                     for _p in (getattr(cs, "patterns_detected", []) or []):
                         _tags.append(f"pattern.{str(_p)[:40]}")
-                    _tech = float(getattr(cs, "technical_score", 0) or 0)
+                    # FIX BEAR-NEUTRAL: tag on the raw technical points so the
+                    # ledger still sees tech_high/low in bear regimes.
+                    _tech_raw = getattr(cs, "technical_raw", None)
+                    _tech = float(_tech_raw if _tech_raw is not None
+                                  else (getattr(cs, "technical_score", 0) or 0))
                     _mom  = float(getattr(cs, "momentum_score",  0) or 0)
                     _vol  = float(getattr(cs, "volume_score",    0) or 0)
                     _sent = float(getattr(cs, "sentiment_score", 0) or 0)
