@@ -512,7 +512,9 @@ def fetch_historical(
     # master, which returns before _get_token ever consults the breaker, so a
     # tripped breaker never stopped candle calls. Check it here.
     if _breaker_tripped():
-        return None
+        # FIX AO-BULK: a known-open breaker is a skip, not a fresh failure —
+        # callers fall through quietly instead of logging one WARNING per ticker.
+        raise AngelBusy("circuit breaker open")
     token = _get_token(symbol, session)
     if token is None:
         return None

@@ -239,7 +239,8 @@ def test_candle_403s_trip_breaker_and_stop_calls(monkeypatch):
         assert af.fetch_historical(f"T{i}.NS", period="1y") is None
     assert af._breaker_tripped()
     calls = sess.candle_calls
-    assert af.fetch_historical("MORE.NS", period="1y") is None
+    with pytest.raises(af.AngelBusy):              # tripped: quiet skip for the caller
+        af.fetch_historical("MORE.NS", period="1y")
     assert sess.candle_calls == calls          # tripped: no further candle requests
     af._BREAKER_FAILS[0] = 0
     af._BREAKER_TRIPPED_AT[0] = 0.0
