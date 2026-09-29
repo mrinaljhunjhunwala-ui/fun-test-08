@@ -1,27 +1,34 @@
-"""Angel One - NSE Smart Investor (multipage page; body verbatim from app.py)."""
+"""Angel One - NSE Smart Investor (multipage page; body verbatim from app.py).
+
+LAYOUT (2026-09-29): artboard 11 of the 2026-09-12 "proposed layout" mockup.
+A quiet status panel (connection state, when the session renews, breaker /
+budget / cache tiles) beside masked credentials and a recent-activity log,
+all read from angel_fetcher.status() / credential_summary() with no extra
+network calls. Account, holdings, positions, orders, quick order and the
+holding-posture read follow as tabs once connected.
+"""
 import os, sys
+import datetime as _dt
 import logging
 
 _log = logging.getLogger("dashboard.angel_one")
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import pandas as pd
 import streamlit as st
 from dashboard.shared.design import apply_design
 from dashboard.shared.nav import render_sidebar
 from dashboard.shared.chart_helpers import render_top_bar
 from dashboard.shared.tokens import COLORS as _TK  # noqa: E402
-# P3: explicit imports (was a dynamic shared-namespace injection)
-import os
-import pandas as pd
-import streamlit as st
-import sys
-from dashboard.shared.design import (
-    apply_design,
-)
-from dashboard.shared.chart_helpers import (
-    _ROOT,
-    render_top_bar,
+from dashboard.shared.ui_components import (
+    activity_log,
+    chip_pill,
+    gate_strip,
+    kit_card,
+    kv_list,
+    section_header,
+    status_panel,
 )
 
 apply_design()
@@ -29,9 +36,11 @@ render_sidebar(current="Angel One")
 render_top_bar()
 
 # ───────────────────────── page body (de-indented from app.py) ─────────────────────────
-from data.angel_fetcher import (
+from data.angel_fetcher import (  # noqa: E402
     is_configured as _ao_is_configured,
     _get_session as _ao_get_session,
+    credential_summary as _ao_credentials,
+    status as _ao_status,
     get_profile as _ao_get_profile,
     get_funds as _ao_get_funds,
     get_holdings as _ao_get_holdings,
@@ -45,140 +54,173 @@ from data.angel_fetcher import (
     clear_session as _ao_clear_session,
 )
 
-st.markdown('<h1 class="page-title-serif">Angel <em>One</em></h1><p class="page-subtitle">Broker integration.</p>', unsafe_allow_html=True)
-
-st.markdown("Connect your Angel One SmartAPI account for live data, real holdings, and order placement.")
+st.markdown(
+    '<h1 class="page-title-serif">Angel <em>One</em></h1>'
+    '<p class="page-subtitle">Broker integration · the first live-price source when connected.</p>',
+    unsafe_allow_html=True,
+)
 
 _ao_ok = _ao_is_configured()
+if _ao_ok:
+    # Log in (or reuse the cached session) so the status below is current.
+    try:
+        _ao_get_session()
+    except Exception as _sess_e:
+        _log.debug("Angel One session check failed: %s", _sess_e)
+_st = _ao_status()
+_cr = _ao_credentials()
+
+
+def _hhmm(ts) -> str:
+    return _dt.datetime.fromtimestamp(float(ts)).strftime("%H:%M") if ts else "—"
+
+
+_cool_min = _st["breaker_cooldown_s"] // 60
+if not _ao_ok:
+    _label, _tone = "Not connected", "neutral"
+    _headline = "Credentials <em>not configured</em>"
+    _hint = ("Live prices come from Yahoo and NSE until Angel One is set up. "
+             "Four steps below; the page lights up after a restart.")
+elif _st["login_breaker_open"]:
+    _label, _tone = "Login paused", "bad"
+    _headline = f"Login <em>paused for {_cool_min} min</em>"
+    _hint = (f"{_st['login_fails']} logins in a row were refused, so attempts are paused. "
+             "Check that the password and TOTP seed are still current.")
+elif not _st["logged_in"]:
+    _label, _tone = "Configured · not logged in", "warn"
+    _headline = "Login <em>didn't go through</em>"
+    _hint = "The last attempt was refused or errored; Recent activity has the reason."
+elif _st["data_breaker_open"]:
+    _label, _tone = "Connected · data paused", "warn"
+    _headline = f"Session active, quotes <em>paused {_cool_min} min</em>"
+    _hint = (f"{_st['data_fails']} Angel One calls failed in a row, so the fetcher is using "
+             "Yahoo until the pause ends. No action needed.")
+else:
+    _label, _tone = "Connected · authenticated", "good"
+    _renews_at = _dt.datetime.now().timestamp() + (_st["renews_in_s"] or 0)
+    _headline = f"Session active · renews at <em>{_hhmm(_renews_at)}</em>"
+    _hint = (f"Angel One is the first price source. After {_st['breaker_threshold']} failed calls in "
+             f"a row the fetcher pauses it for {_cool_min} min and falls back to Yahoo on its own; "
+             "bulk scans always use Yahoo.")
+
+_stats = [
+    ("Logged in", _hhmm(_st["login_at"]) if _st["logged_in"] else "—",
+     "this process" if _st["logged_in"] else ""),
+    ("Renews in", f"{int((_st['renews_in_s'] or 0) // 60)} min" if _st["logged_in"] else "—",
+     "auto re-login" if _st["logged_in"] else ""),
+    ("Candle budget", f"{_st['candle_calls_last_min']} / {_st['candle_budget_per_min']}", "last minute"),
+    ("Failed calls", f"{_st['data_fails']}", f"pause at {_st['breaker_threshold']}"),
+    ("Instruments", f"{_st['instruments']:,}" if _st["instruments"] else "—",
+     "NSE EQ tokens" if _st["instruments"] else "not loaded yet"),
+    ("Symbols resolved", f"{_st['tokens_cached']:,}", "token cache"),
+]
+
+_ao_l, _ao_r = st.columns([1.55, 1], gap="medium")
+with _ao_l:
+    # Tiles only once credentials exist; before that they'd all read "—" / 0.
+    st.markdown(status_panel(_label, _tone, _headline, _hint, _stats if _ao_ok else None),
+                unsafe_allow_html=True)
+with _ao_r:
+    _cr_labels = (("client_id", "Client code"), ("api_key", "API key"),
+                  ("password", "Password"), ("totp_secret", "TOTP seed"))
+    _cr_rows = [
+        (_lbl, _cr[_k]["masked"] if _cr[_k]["masked"] else chip_pill("missing", "bad"))
+        for _k, _lbl in _cr_labels
+    ]
+    _srcs = {_cr[_k]["source"] for _k, _ in _cr_labels} - {""}
+    _cr_sub = {"secrets": "Streamlit secrets", "env": "environment variables"}.get(
+        next(iter(_srcs)), "") if len(_srcs) == 1 else ("mixed sources" if _srcs else "none set")
+    st.markdown(
+        kit_card("Credentials", kv_list(
+            _cr_rows,
+            note="Kept in <b>.streamlit/secrets.toml</b> (gitignored) or the platform's secret "
+                 "store. Only the last four characters are ever shown here."),
+            sub=_cr_sub),
+        unsafe_allow_html=True,
+    )
+    st.markdown(kit_card("Recent activity", activity_log(_st["events"][:8]),
+                         sub="this server process · since start"),
+                unsafe_allow_html=True)
 
 # ── Credentials setup ────────────────────────────────────────────────────
 if not _ao_ok:
-    # P2 · F5 onboarding panel — same empty_state()/panel() vocabulary as the
-    # other stub states, with the numbered wire-up steps kept as a wizard.
-    from dashboard.shared.ui_components import (
-        empty_state as _ao_empty, panel as _ao_panel,
-    )
-    st.markdown(
-        _ao_empty(
-            "Angel One not connected",
-            hint="Credentials aren't configured yet. Follow the four steps "
-                 "below — the page lights up after a restart.",
-            icon="🔌",
-        ),
-        unsafe_allow_html=True,
-    )
-
-    def _ao_step(n: int, title: str, body: str) -> None:
-        st.markdown(
-            _ao_panel(
-                f'<div class="t-body">{body}</div>',
-                kind="sunken", tone="info",
-                title=f"Step {n} of 4 · {title}",
-            ),
-            unsafe_allow_html=True,
+    with _ao_l:
+        st.markdown(kit_card("Connect in four steps", (
+            '<ol class="ao-steps">'
+            "<li><b>Get your SmartAPI key.</b> Angel One → My Profile → API Key (or "
+            '<a href="https://smartapi.angelone.in" target="_blank">smartapi.angelone.in</a>) '
+            "→ Generate API Key → copy it.</li>"
+            "<li><b>Get your TOTP seed.</b> Profile → Security Settings → Two-Factor "
+            "Authentication → Re-Setup → “Can't scan QR?” → copy the base32 text.</li>"
+            "<li><b>Add the credentials</b> to <code>.streamlit/secrets.toml</code> (gitignored) "
+            "or your platform's secret store, never in code (template below).</li>"
+            "<li><b>Restart Streamlit</b> so the session picks them up.</li></ol>"
+        )), unsafe_allow_html=True)
+        st.code(
+            "[angel_one]\n"
+            'api_key     = "<your SmartAPI key>"\n'
+            'client_id   = "<your client ID>"\n'
+            'password    = "<your login password>"\n'
+            'totp_secret = "<base32 TOTP seed>"\n',
+            language="toml",
         )
-
-    _ao_step(1, "Get your SmartAPI key",
-             "Log in to Angel One → My Profile → API Key (or visit "
-             '<a href="https://smartapi.angelone.in" target="_blank">smartapi.angelone.in</a>) '
-             "→ <b>Generate API Key</b> → copy the key.")
-    _ao_step(2, "Get your TOTP secret",
-             "Angel One → Profile → Security Settings → Two-Factor Authentication "
-             "→ <b>Re-Setup</b> → click <b>“Can't scan QR?”</b> and copy the base32 text key.")
-    _ao_step(3, "Add credentials",
-             "Put them in <code>.streamlit/secrets.toml</code> (gitignored) "
-             "or your platform's secret store — never in code.")
-    st.code(
-        "[angel_one]\n"
-        'api_key     = "<your SmartAPI key>"\n'
-        'client_id   = "<your client ID>"\n'
-        'password    = "<your login password>"\n'
-        'totp_secret = "<base32 TOTP seed>"\n',
-        language="toml",
-    )
-    st.caption("Or set environment variables:")
-    st.code("ANGEL_API_KEY=...  ANGEL_CLIENT_ID=...  ANGEL_PASSWORD=...  "
-            "ANGEL_TOTP_SECRET=...", language="bash")
-    _ao_step(4, "Restart Streamlit",
-             "Restart the app after adding credentials so the session picks them up.")
+        st.caption("Or set environment variables:")
+        st.code("ANGEL_API_KEY=...  ANGEL_CLIENT_ID=...  ANGEL_PASSWORD=...  "
+                "ANGEL_TOTP_SECRET=...", language="bash")
     st.stop()
 
-# ── Connected — show tabs ────────────────────────────────────────────────
-st.success("Angel One connected", icon="🟢")
+# ── Connected — session control + tabs ───────────────────────────────────
+if st.button("🔄 Refresh Session", key="ao_refresh"):
+    # FIX MKT6: was also calling a blanket st.cache_data.clear() here,
+    # which wiped every other page's cached data (Top Picks, watchlist
+    # scans, etc.) for zero benefit — this page doesn't actually use
+    # st.cache_data for any of its own data (funds/holdings/positions
+    # are fetched live from angel_fetcher on every rerun already).
+    # _ao_clear_session() is what actually matters: it forces a fresh
+    # login on the next request.
+    _ao_clear_session()
+    st.success("Session cleared — reconnecting on next request")
+    st.rerun()
 
 tab_ao1, tab_ao2, tab_ao3, tab_ao4, tab_ao5, tab_ao6 = st.tabs([
-    "📊 Account Overview",
-    "💼 Holdings",
-    "⚡ Today's Positions",
-    "📋 Orders & Trades",
-    "🛒 Quick Order",
-    "🧭 Posture Analysis",
+    "Account", "Holdings", "Today's positions", "Orders & trades",
+    "Quick order", "Holding posture",
 ])
 
-# ── TAB 1: ACCOUNT OVERVIEW ───────────────────────────────────────────────
+# ── TAB 1: ACCOUNT ────────────────────────────────────────────────────────
 with tab_ao1:
-    st.markdown(
-        '<div class="t-h2" style="margin:14px 0 6px 0">'
-        'Account Overview</div>',
-        unsafe_allow_html=True,
-    )
-    col_p, col_f = st.columns(2)
-
-    with col_p:
-        try:
-            _prof = _ao_get_profile()
-            if _prof:
-                st.markdown(
-                    f'<div class="card-blue"><b>{_prof["name"]}</b><br>'
-                    f'Client ID: {_prof["client_id"]}<br>'
-                    f'Email: {_prof["email"]}<br>'
-                    f'Exchanges: {", ".join(_prof["exchanges"])}</div>',
-                    unsafe_allow_html=True,
-                )
-        except Exception as e:
-            _log.debug("Angel One profile display failed: %s", e)
-            st.markdown("*Profile unavailable*")
-
-    with col_f:
-        try:
-            _funds = _ao_get_funds()
-            if _funds:
-                _cash = _funds["available_cash"]
-                _used = _funds["used_margin"]
-                _m2m  = _funds["m2m"]
-                _m2m_clr = "var(--bull)" if _m2m >= 0 else "var(--bear)"
-                st.markdown(
-                    f'<div class="card-green">'
-                    f'<div class="metric-lbl">Available Cash</div>'
-                    f'<div class="metric-val">Rs {_cash:,.0f}</div>'
-                    f'Used Margin: Rs {_used:,.0f}<br>'
-                    f'Unrealised P&L: <span style="color:{_m2m_clr}">Rs {_m2m:+,.0f}</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-        except Exception as e:
-            _log.debug("Angel One funds display failed: %s", e)
-            st.markdown("*Funds data unavailable*")
-
-    if st.button("🔄 Refresh Session", key="ao_refresh"):
-        # FIX MKT6: was also calling a blanket st.cache_data.clear() here,
-        # which wiped every other page's cached data (Top Picks, watchlist
-        # scans, etc.) for zero benefit — this page doesn't actually use
-        # st.cache_data for any of its own data (funds/holdings/positions
-        # are fetched live from angel_fetcher on every rerun already).
-        # _ao_clear_session() is what actually matters: it forces a fresh
-        # login on the next request.
-        _ao_clear_session()
-        st.success("Session cleared — reconnecting on next request")
-        st.rerun()
+    st.markdown(section_header("Account", "profile · funds"), unsafe_allow_html=True)
+    try:
+        _funds = _ao_get_funds()
+        if _funds:
+            _m2m = _funds["m2m"]
+            _m2m_clr = "var(--bull)" if _m2m >= 0 else "var(--bear)"
+            st.markdown(gate_strip([
+                ("Available cash", f"₹{_funds['available_cash']:,.0f}", ""),
+                ("Used margin", f"₹{_funds['used_margin']:,.0f}", ""),
+                ("Unrealised P&L", f'<span style="color:{_m2m_clr}">₹{_m2m:+,.0f}</span>', "mark to market"),
+            ]), unsafe_allow_html=True)
+        else:
+            st.caption("Funds data unavailable.")
+    except Exception as e:
+        _log.debug("Angel One funds display failed: %s", e)
+        st.caption("Funds data unavailable.")
+    try:
+        _prof = _ao_get_profile()
+        if _prof:
+            st.markdown(kit_card("Profile", kv_list([
+                ("Name", _prof["name"]),
+                ("Client ID", _prof["client_id"]),
+                ("Email", _prof["email"]),
+                ("Exchanges", ", ".join(_prof["exchanges"])),
+            ])), unsafe_allow_html=True)
+    except Exception as e:
+        _log.debug("Angel One profile display failed: %s", e)
+        st.caption("Profile unavailable.")
 
 # ── TAB 2: HOLDINGS ────────────────────────────────────────────────────────
 with tab_ao2:
-    st.markdown(
-        '<div class="t-h2" style="margin:14px 0 6px 0">'
-        'Demat Holdings</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(section_header("Demat holdings", "live from Angel One"), unsafe_allow_html=True)
     with st.spinner("Fetching holdings from Angel One…"):
         _holdings = _ao_get_holdings()
 
@@ -192,16 +234,14 @@ with tab_ao2:
         _total_pnl      = _total_value - _total_invested
         _total_pnl_pct  = (_total_pnl / _total_invested * 100) if _total_invested > 0 else 0
 
-        mh1, mh2, mh3, mh4 = st.columns(4)
-        mh1.metric("Stocks", len(_holdings))
-        mh2.metric("Portfolio Value", f"Rs {_total_value:,.0f}")
-        mh3.metric("Total P&L",
-                   f"Rs {_total_pnl:+,.0f}",
-                   delta=f"{_total_pnl_pct:+.2f}%",
-                   delta_color="normal")
-        mh4.metric("Invested", f"Rs {_total_invested:,.0f}")
-
-        st.markdown("---")
+        _pnl_clr = "var(--bull)" if _total_pnl >= 0 else "var(--bear)"
+        st.markdown(gate_strip([
+            ("Stocks", f"{len(_holdings)}", ""),
+            ("Portfolio value", f"₹{_total_value:,.0f}", ""),
+            ("Total P&L", f'<span style="color:{_pnl_clr}">₹{_total_pnl:+,.0f}</span>',
+             f"{_total_pnl_pct:+.2f}%"),
+            ("Invested", f"₹{_total_invested:,.0f}", ""),
+        ]), unsafe_allow_html=True)
 
         _hdf = pd.DataFrame(_holdings)
         _hdf = _hdf[["symbol", "qty", "avg_price", "ltp", "pnl", "pnl_pct", "value_rs"]]
@@ -254,11 +294,8 @@ with tab_ao2:
 
 # ── TAB 3: TODAY'S POSITIONS ───────────────────────────────────────────────
 with tab_ao3:
-    st.markdown(
-        '<div class="t-h2" style="margin:14px 0 6px 0">'
-        "Today's Positions</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(section_header("Today's positions", "net · intraday + delivery"),
+                unsafe_allow_html=True)
     with st.spinner("Fetching positions…"):
         _positions = _ao_get_positions()
 
@@ -274,14 +311,13 @@ with tab_ao3:
             _pos_df.columns = ["Symbol", "Qty", "Avg Price", "LTP", "P&L", "Product", "Side"]
 
             _total_pos_pnl = sum(p["pnl"] for p in _net_pos)
-            pos_c1, pos_c2, pos_c3 = st.columns(3)
-            pos_c1.metric("Open Positions", len(_net_pos))
-            pos_c2.metric("Total P&L Today",
-                          f"Rs {_total_pos_pnl:+,.0f}",
-                          delta_color="normal")
-            pos_c3.metric("Long / Short",
-                          f"{sum(1 for p in _net_pos if p['qty']>0)} / "
-                          f"{sum(1 for p in _net_pos if p['qty']<0)}")
+            _pos_clr = "var(--bull)" if _total_pos_pnl >= 0 else "var(--bear)"
+            st.markdown(gate_strip([
+                ("Open positions", f"{len(_net_pos)}", ""),
+                ("P&L today", f'<span style="color:{_pos_clr}">₹{_total_pos_pnl:+,.0f}</span>', ""),
+                ("Long / short", f"{sum(1 for p in _net_pos if p['qty'] > 0)} / "
+                                 f"{sum(1 for p in _net_pos if p['qty'] < 0)}", ""),
+            ]), unsafe_allow_html=True)
 
             # F7b · same colour-blind pattern as the Holdings tab above —
             # ▲/▼ prefix in the P&L display + font-weight:700 so direction
@@ -309,12 +345,9 @@ with tab_ao3:
 
 # ── TAB 4: ORDERS & TRADES ─────────────────────────────────────────────────
 with tab_ao4:
-    st.markdown(
-        '<div class="t-h2" style="margin:14px 0 6px 0">'
-        "Today's Orders &amp; Trades</div>",
-        unsafe_allow_html=True,
-    )
-    ord_t1, ord_t2, ord_t3 = st.tabs(["📑 Order Book", "✅ Trade Book", "🎯 GTT Orders"])
+    st.markdown(section_header("Today's orders &amp; trades", "order book · trade book · GTT"),
+                unsafe_allow_html=True)
+    ord_t1, ord_t2, ord_t3 = st.tabs(["Order book", "Trade book", "GTT orders"])
 
     with ord_t1:
         with st.spinner("Fetching order book…"):
@@ -410,11 +443,7 @@ with tab_ao4:
 
 # ── TAB 5: QUICK ORDER ─────────────────────────────────────────────────────
 with tab_ao5:
-    st.markdown(
-        '<div class="t-h2" style="margin:14px 0 6px 0">'
-        'Quick Order</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(section_header("Quick order", "places a real order"), unsafe_allow_html=True)
     st.warning(
         "This places a **real order** in your Angel One account using live funds. "
         "Double-check all details before confirming.",
@@ -472,18 +501,29 @@ with tab_ao5:
             else:
                 st.error("Could not connect to Angel One — check session")
 
-# ── TAB 6: POSTURE ANALYSIS ────────────────────────────────────────────────
+# ── TAB 6: HOLDING POSTURE ─────────────────────────────────────────────────
 # Runs the same six-filter momentum recipe used by the alerts' momentum scan
 # on every delivery holding and every open intraday position, so the user
-# sees at a glance which names still have their thesis intact vs which have
+# sees at a glance which names still have their trend intact vs which have
 # decayed. Pure analysis (no order side-effects). See
-# analysis/portfolio_posture.py for the classifier.
+# analysis/portfolio_posture.py for the classifier. The engine's codes
+# (EXIT_WATCH, ADD_WATCH, ...) read as instructions, so the page shows
+# descriptive labels for them (CLAUDE.md rule 1).
+_POSTURE_LABELS = {
+    "EXIT_WATCH":    "Trend broken",
+    "TRIM_WATCH":    "Weakening",
+    "HOLD":          "Trend intact",
+    "ADD_WATCH":     "Strengthening",
+    "STOPPED_OUT":   "Below ATR stop",
+    "STOP_HIT":      "Stop level hit",
+    "TARGET_HIT":    "Target level hit",
+    "TRAIL_TIGHTER": "Extended",
+    "RUNNING":       "Running",
+    "UNCLEAR":       "Unclear",
+}
 with tab_ao6:
-    st.markdown(
-        '<div class="t-h2" style="margin:14px 0 6px 0">'
-        'Posture Analysis</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(section_header("Holding posture", "six-filter momentum read"),
+                unsafe_allow_html=True)
     st.caption(
         "Descriptive posture per holding using the same 55-day breakout + "
         "1.5× volume + RSI 55–75 + trend + VWAP + ATR filters the momentum "
@@ -523,7 +563,7 @@ with tab_ao6:
                 _pos_now = _ao_get_positions() or {"day": [], "net": []}
                 _ipost = analyse_positions(_pos_now.get("day") or [], _fetch)
 
-        # Rendering: colour chip per posture, sorted with EXIT_WATCH first
+        # Rendering: colour chip per posture, trend-broken names first
         _order = {"EXIT_WATCH": 0, "TRIM_WATCH": 1, "HOLD": 2, "ADD_WATCH": 3, "STOPPED_OUT": 4}
         _hpost.sort(key=lambda h: _order.get(h.posture, 9))
 
@@ -548,11 +588,11 @@ with tab_ao6:
                     f'<div style="border-left:4px solid {_c}; padding:8px 12px;'
                     f' margin:6px 0; background:rgba(66,165,245,0.05)">'
                     f'<b>{h.symbol}</b> · '
-                    f'<span style="color:{_c};font-weight:600">{h.posture.replace("_"," ")}</span> · '
+                    f'<span style="color:{_c};font-weight:600">{_POSTURE_LABELS.get(h.posture, h.posture)}</span> · '
                     f'{h.filters_passing}/6 filters · P&L {h.pnl_pct:+.2f}%<br>'
                     f'<span style="color:var(--dim);font-size:0.9em">{h.reason}</span><br>'
                     f'<span style="font-size:0.85em">RSI {h.rsi} · SMA50 ₹{h.sma50:,.2f} · '
-                    f'ATR ₹{h.atr:,.2f} · Suggested stop ₹{h.suggested_stop:,.2f} · '
+                    f'ATR ₹{h.atr:,.2f} · ATR stop ref ₹{h.suggested_stop:,.2f} · '
                     f'RS-63d {h.rs_63d:+.1f}%</span>'
                     f'</div>',
                     unsafe_allow_html=True,
@@ -568,7 +608,7 @@ with tab_ao6:
                     f'<div style="border-left:4px solid {_c}; padding:8px 12px;'
                     f' margin:6px 0; background:rgba(66,165,245,0.05)">'
                     f'<b>{p.symbol}</b> · '
-                    f'<span style="color:{_c};font-weight:600">{p.posture.replace("_"," ")}</span> · '
+                    f'<span style="color:{_c};font-weight:600">{_POSTURE_LABELS.get(p.posture, p.posture)}</span> · '
                     f'P&L {p.pnl_pct:+.2f}%<br>'
                     f'<span style="color:var(--dim);font-size:0.9em">{p.reason}</span>'
                     f'</div>',

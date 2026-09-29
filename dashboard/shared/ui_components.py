@@ -1581,3 +1581,45 @@ def ticker_table(rows: list) -> str:
             "<th>Day high</th><th>Day low</th><th>VWAP</th></tr>")
     return (f'<div class="ticker-panel"><table class="ticker-table"><thead>{head}</thead>'
             f'<tbody>{"".join(body)}</tbody></table></div>')
+
+
+# ── Angel One (artboard 11) ─────────────────────────────────────────────────
+
+def status_panel(label: str, tone: str, headline: str, hint: str = "",
+                 stats: Optional[list] = None) -> str:
+    """Quiet connection-status panel: dot + label, serif headline, muted
+    hint, then a grid of (label, value_html, sub) stat tiles.
+
+    tone: good / warn / bad / neutral colours the dot and label.
+    """
+    colour = {"good": "var(--bull)", "warn": "var(--amber)",
+              "bad": "var(--bear)"}.get(tone, "var(--dim)")
+    tiles = "".join(
+        f'<div class="ao-stat"><div class="ao-stat-k">{k}</div><div class="ao-stat-v">{v}'
+        + (f'<span class="ao-stat-s">{s}</span>' if s else "") + "</div></div>"
+        for k, v, s in (stats or [])
+    )
+    hint_html = f'<p class="ao-hint">{hint}</p>' if hint else ""
+    grid = f'<div class="ao-stats">{tiles}</div>' if tiles else ""
+    return (f'<div class="ao-status"><div class="ao-line"><span class="ao-dot" '
+            f'style="background:{colour}"></span><span class="ao-label" style="color:{colour}">'
+            f'{label}</span></div><div class="ao-h" role="heading" aria-level="3">{headline}</div>'
+            f"{hint_html}{grid}</div>")
+
+
+def activity_log(events: list, empty: str = "No activity recorded yet.") -> str:
+    """Event list: dicts with ts (epoch s), kind, detail, tone. Newest first."""
+    import datetime as _dt
+    if not events:
+        return f'<div class="ao-log-empty">{empty}</div>'
+    label = {"good": "OK", "bad": "Failed", "warn": "Warn"}
+    rows = []
+    for e in events:
+        when = _dt.datetime.fromtimestamp(float(e.get("ts") or 0)).strftime("%H:%M")
+        tone = e.get("tone", "neutral")
+        rows.append(
+            f'<li><span class="ao-lt">{when}</span><div><span class="ao-lk">{e.get("kind", "")}</span>'
+            f'<div class="ao-ls">{e.get("detail", "")}</div></div>'
+            f'{chip_pill(label.get(tone, "info"), tone if tone in ("good", "bad", "warn") else "neutral")}</li>'
+        )
+    return f'<ul class="ao-log">{"".join(rows)}</ul>'
