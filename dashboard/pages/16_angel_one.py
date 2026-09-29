@@ -303,12 +303,22 @@ with tab_ao3:
         st.error("Could not fetch positions.")
     else:
         _net_pos = _positions.get("net", [])
+        _closed_pos = _positions.get("closed", [])
+        if _closed_pos:
+            _realised = sum(p["pnl"] for p in _closed_pos)
+            st.caption(f"{len(_closed_pos)} position(s) squared off today · "
+                       f"realised P&L Rs {_realised:+,.0f}")
+            _cdf = pd.DataFrame(_closed_pos)[["symbol", "segment", "expiry", "product", "pnl"]]
+            _cdf.columns = ["Symbol", "Segment", "Expiry", "Product", "Realised P&L"]
+            st.dataframe(_cdf, hide_index=True, width="stretch")
         if not _net_pos:
-            st.info("No open positions today.")
+            st.info("No open positions right now.")
         else:
             _pos_df = pd.DataFrame(_net_pos)
-            _pos_df = _pos_df[["symbol", "qty", "avg_price", "ltp", "pnl", "product", "side"]]
-            _pos_df.columns = ["Symbol", "Qty", "Avg Price", "LTP", "P&L", "Product", "Side"]
+            _pos_df = _pos_df[["symbol", "segment", "expiry", "qty", "avg_price", "ltp",
+                               "pnl", "product", "side"]]
+            _pos_df.columns = ["Symbol", "Segment", "Expiry", "Qty", "Avg Price", "LTP",
+                               "P&L", "Product", "Side"]
 
             _total_pos_pnl = sum(p["pnl"] for p in _net_pos)
             _pos_clr = "var(--bull)" if _total_pos_pnl >= 0 else "var(--bear)"
@@ -561,7 +571,12 @@ with tab_ao6:
                 _hpost = analyse_holdings(_holdings_now, _fetch, nifty_history=_nifty)
             if _do_int:
                 _pos_now = _ao_get_positions() or {"day": [], "net": []}
-                _ipost = analyse_positions(_pos_now.get("day") or [], _fetch)
+                _open = _pos_now.get("day") or []
+                # F&O contracts (NIFTY…CE etc.) have no Yahoo history; the
+                # posture falls back to entry-vs-LTP, so skip the slow lookup.
+                _fo = {p["symbol"] for p in _open if p.get("segment") == "F&O"}
+                _ipost = analyse_positions(
+                    _open, lambda s: None if s in _fo else _fetch(s))
 
         # Rendering: colour chip per posture, trend-broken names first
         _order = {"EXIT_WATCH": 0, "TRIM_WATCH": 1, "HOLD": 2, "ADD_WATCH": 3, "STOPPED_OUT": 4}
@@ -615,7 +630,8 @@ with tab_ao6:
                     unsafe_allow_html=True,
                 )
         elif _do_int:
-            st.info("No open intraday positions today.")
+            st.info("No open intraday or F&O positions right now — posture is read "
+                    "for open positions only; squared-off trades are on Today's positions.")
 
         if _hpost or _ipost:
             with st.expander("📨 Preview alert message"):
