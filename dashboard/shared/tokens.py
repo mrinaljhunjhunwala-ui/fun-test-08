@@ -10,25 +10,25 @@ from __future__ import annotations
 
 COLORS: dict[str, str] = {
     # Surfaces
-    "ground":    "#0a0a0a",
-    "surface":   "#131316",
-    "sunken":    "#0e0e10",
-    "rail":      "#0a0a0c",
+    "ground":    "#0e1116",
+    "surface":   "#171b22",
+    "sunken":    "#12151b",
+    "rail":      "#0b0e12",
     # Ink
-    "ink":       "#edeef0",
-    "ink-mid":   "#c8cad0",
-    "dim":       "#8b8d93",
-    "faint":     "#55575e",
+    "ink":       "#e8e6e0",
+    "ink-mid":   "#c3c1ba",
+    "dim":       "#8b8e97",
+    "faint":     "#5f636c",
     # Signal
-    "bull":      "#16c784",
-    "bear":      "#ff4d4d",
-    "amber":     "#f2a93b",
+    "bull":      "#6faa84",
+    "bear":      "#c77070",
+    "amber":     "#d6a64c",
     # Accent
-    "accent":    "#ff9500",
-    "accent-hi": "#ffb340",
+    "accent":    "#c88a3f",
+    "accent-hi": "#dda35c",
     # Categorical
-    "violet":    "#c77dff",
-    "azure":     "#5a8fd6",
+    "violet":    "#a98bc9",
+    "azure":     "#6f93c4",
 }
 
 

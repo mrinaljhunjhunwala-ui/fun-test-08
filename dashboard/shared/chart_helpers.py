@@ -230,8 +230,8 @@ def build_price_chart(df: pd.DataFrame, ticker: str,
         x=df.index, open=df["Open"], high=df["High"],
         low=df["Low"], close=df["Close"],
         name="OHLC",
-        increasing_line_color="#26a69a", increasing_fillcolor="#26a69a",
-        decreasing_line_color="#ef5350", decreasing_fillcolor="#ef5350",
+        increasing_line_color="#6faa84", increasing_fillcolor="#6faa84",
+        decreasing_line_color="#c77070", decreasing_fillcolor="#c77070",
     ), row=1, col=1)
 
     if "BB_Upper" in df.columns:
@@ -258,7 +258,7 @@ def build_price_chart(df: pd.DataFrame, ticker: str,
 
     if "Volume" in df.columns:
         vol_colors = [
-            "#26a69a" if c >= o else "#ef5350"
+            "#6faa84" if c >= o else "#c77070"
             for c, o in zip(df["Close"], df["Open"])
         ]
         fig.add_trace(go.Bar(
@@ -279,7 +279,7 @@ def build_price_chart(df: pd.DataFrame, ticker: str,
             x=df.index, y=df["RSI"], name="RSI",
             line=dict(color="#CE93D8", width=1.5),
         ), row=3, col=1)
-        for level, color in [(30, "#26a69a"), (70, "#ef5350"), (50, "rgba(150,150,150,0.5)")]:
+        for level, color in [(30, "#6faa84"), (70, "#c77070"), (50, "rgba(150,150,150,0.5)")]:
             fig.add_hline(y=level, line_dash="dot", line_color=color, row=3, col=1)
         fig.add_hrect(y0=70, y1=100, fillcolor="rgba(239,83,80,0.06)",
                       line_width=0, row=3, col=1)
@@ -296,7 +296,7 @@ def build_price_chart(df: pd.DataFrame, ticker: str,
             line=dict(color="#FF9800", width=1.5),
         ), row=4, col=1)
         if "MACD_Hist" in df.columns:
-            hist_colors = ["#26a69a" if v >= 0 else "#ef5350" for v in df["MACD_Hist"]]
+            hist_colors = ["#6faa84" if v >= 0 else "#c77070" for v in df["MACD_Hist"]]
             fig.add_trace(go.Bar(
                 x=df.index, y=df["MACD_Hist"], name="Hist",
                 marker_color=hist_colors, opacity=0.6,
@@ -570,7 +570,7 @@ def _live_top_bar():
             _vinfo = _ltb_vix()
             _vv = _vinfo.get("vix")
             if _vv:
-                _vcol = "#00d4aa" if _vv < 16 else "#ff9500" if _vv < 22 else "#ff4757"
+                _vcol = "#00d4aa" if _vv < 16 else "#c88a3f" if _vv < 22 else "#ff4757"
                 _chips += (
                     f'<div style="background:#0d1526;border:1px solid rgba(255,255,255,.05);'
                     f'border-left:3px solid {_vcol};border-radius:8px;padding:6px 12px;min-width:96px">'

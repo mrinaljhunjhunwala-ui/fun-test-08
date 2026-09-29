@@ -607,7 +607,7 @@ def verdict_display_label(verdict: str) -> str:
 
 def _grade_color(grade: str) -> str:
     return {
-        "A+": "#26a69a", "A": "#4CAF50", "B": "#8BC34A",
+        "A+": "#6faa84", "A": "#4CAF50", "B": "#8BC34A",
         "C":  "#FFC107", "D": "#FF5722", "F": "#f44336",
     }.get(grade, "#9E9E9E")
 
@@ -1038,7 +1038,7 @@ def _render_autoclose_banner(closed: list) -> None:
                 f'<span style="color:#ffa726;font-weight:700">close manually</span></div>'
             )
         else:
-            _col = "#26a69a" if (c["pnl"] or 0) >= 0 else "#ef5350"
+            _col = "#6faa84" if (c["pnl"] or 0) >= 0 else "#c77070"
             _rows += (
                 f'<div style="display:flex;justify-content:space-between;'
                 f'padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px">'

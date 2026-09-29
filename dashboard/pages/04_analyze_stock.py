@@ -341,7 +341,7 @@ def _overview_chart(df):
     fig.update_layout(
         height=240, margin=dict(l=8, r=8, t=6, b=4),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="IBM Plex Mono, monospace", size=10, color=COLORS["dim"]),
+        font=dict(family="JetBrains Mono, monospace", size=10, color=COLORS["dim"]),
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0, font=dict(size=10)),
         xaxis=dict(showgrid=False, zeroline=False),

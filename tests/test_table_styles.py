@@ -30,8 +30,8 @@ def test_signed_text_css_bold_threshold():
 def test_row_tint_scales_and_caps():
     lo = row_tint_css(1, full_at=20)
     hi = row_tint_css(100, full_at=20)
-    assert "22,199,132" in lo and "0.160" in hi
-    assert "255,77,77" in row_tint_css(-5)
+    assert "111,170,132" in lo and "0.160" in hi
+    assert "199,112,112" in row_tint_css(-5)
     assert row_tint_css(None) == ""
 
 

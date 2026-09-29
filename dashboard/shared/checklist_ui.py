@@ -183,7 +183,7 @@ def render_checklist_expander(sym: str, df_daily: pd.DataFrame,
         st.markdown("**Factor detail:**")
         for c in result.checks:
             icon = "✅" if c["pass"] else "❌"
-            color = "#4caf50" if c["pass"] else "#ef5350"
+            color = "#4caf50" if c["pass"] else "#c77070"
             st.markdown(
                 f"<div style='border-left:4px solid {color}; padding:6px 12px; "
                 f"margin:4px 0; background:rgba(255,255,255,0.03); border-radius:4px;'>"

@@ -369,7 +369,7 @@ def _trade_type(headline: str) -> tuple:
     if any(k in h for k in ("oversold", "bounce", "reversal", "support")):
         return ("Oversold Bounce", "🔄", "#5b8def")
     if any(k in h for k in ("momentum", "uptrend", "above sma", "strong trend", "trending")):
-        return ("Momentum", "📈", "#ff9500")
+        return ("Momentum", "📈", "#c88a3f")
     if any(k in h for k in ("pullback", "dip")):
         return ("Pullback", "🎯", "#a78bfa")
     return ("Trend", "•", "#8899bb")
@@ -393,7 +393,7 @@ def _horizon_countdown(valid_until: str) -> str:
     import datetime as _dtm
     _days = (_d - _dtm.date.today()).days
     if _days < 0:
-        return '<span style="color:#ef5350;font-weight:700">⚠ past its window — reassess</span>'
+        return '<span style="color:#c77070;font-weight:700">⚠ past its window — reassess</span>'
     if _days == 0:
         return '<span style="color:#FF9800;font-weight:700">⚠ expires today</span>'
     if _days <= 2:
