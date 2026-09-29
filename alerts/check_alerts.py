@@ -132,6 +132,9 @@ def dispatch(msg: str, *, subject: str = "NSE Smart Investor alert") -> bool:
     _subj = _subject_from_message(msg, fallback=subject)
     _tg_ok    = send_telegram(msg)
     _gmail_ok = send_gmail(_subj, msg)
+    # Name the alert in the run log — "1 alert(s) sent" alone didn't say which.
+    print(f"[sent] {_subj} (telegram={'ok' if _tg_ok else 'fail'}, "
+          f"gmail={'ok' if _gmail_ok else 'fail'})")
     return bool(_tg_ok or _gmail_ok)
 
 
@@ -1035,10 +1038,14 @@ def main() -> int:
     elif mode == "test":
         total += check_test_alert(state, today)
     else:   # default
-        total += check_price_alerts(state, today)
-        total += check_portfolio_alerts(state, today)
-        total += check_vix_regime(state, today)
-        total += check_nifty_trend(state, today)
+        _counts = {
+            "price":     check_price_alerts(state, today),
+            "portfolio": check_portfolio_alerts(state, today),
+            "vix":       check_vix_regime(state, today),
+            "nifty":     check_nifty_trend(state, today),
+        }
+        print("[main] per-check: " + ", ".join(f"{k}={v}" for k, v in _counts.items()))
+        total += sum(_counts.values())
 
     _save_state(state)
     print(f"[main mode={mode}] done — {total} alert(s) sent.")

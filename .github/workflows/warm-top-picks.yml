@@ -42,7 +42,7 @@ concurrency:
 
 jobs:
   warm:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 20, not 8 (2026-09-28): the full-universe scan regularly ran past 8 min
     # (runs on 2026-09-25 and 09-27 were cancelled before persisting anything),
     # e.g. when Angel One's breaker trips and every ticker goes to Yahoo.
@@ -50,10 +50,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
