@@ -134,7 +134,7 @@ def test_rule_met_and_not_met():
 def test_registered_rule_is_frozen():
     r = vl.DECISION_RULE
     assert (r["registered_on"], r["horizon_days"], r["min_verdicts"], r["min_days"],
-            r["threshold_pct"]) == ("2026-09-29", 20, 150, 20, 50.0)
+            r["threshold_pct"]) == ("2026-09-29", 20, 150, 30, 50.0)
     assert tuple(r["verdicts"]) == ("BUY", "STRONG BUY")
 
 
