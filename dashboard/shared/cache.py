@@ -1292,6 +1292,17 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
     out["n_universe"] = len(_UNIV)
     out["n_scored"]   = len(results)
     out["breakout_funnel"] = dict(_funnel)
+    # Bear-regime scoring (#168/#198) holds Technical at 20/40 and RS at 5/10,
+    # so no name can reach the BUY label the breakout gate needs and few fall
+    # low enough for breakdown. Record it so the page can say the empty
+    # buckets are regime-suppressed rather than looking like a broken scan.
+    try:
+        from analysis.score import _BEAR_REGIMES, _live_regime_label, _regime_weights_enabled
+        _rl = _live_regime_label()
+        out["regime_label"] = _rl
+        out["bear_scoring_active"] = bool(_rl in _BEAR_REGIMES and _regime_weights_enabled())
+    except Exception as _rg_e:
+        _log.debug("cache._tomorrow_watchlist: regime flag unavailable: %s", _rg_e)
 
     # FIX C7: log per-bucket counts and warn on empty buckets, so a silently-
     # empty bucket (the original threshold bug) is visible in logs going
