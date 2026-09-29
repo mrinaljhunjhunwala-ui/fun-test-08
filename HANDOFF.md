@@ -29,8 +29,11 @@
   Market Alerts, digest or pre-open runs during market hours. Every scheduled workflow now takes an
   external `workflow_dispatch` trigger. The 8 targets (URL, body, IST schedule) are in a table in
   `alerts/README.md`.
-  - **cron-job.org is NOT set up yet.** The user has to do this: an account plus a fine-grained token with
-    Actions read/write.
+  - **cron-job.org is live for #1 (pre-open, 08:40) and #3 (Market Alerts, every 15 min)** since
+    2026-09-29. Both were checked that night: HTTP 204, and the `workflow_dispatch` runs passed. They use a
+    fine-grained token (this repo only, Actions read/write) that lives only in cron-job.org. Jobs #2 and
+    #4–#8 are not created yet. The README lists the gotchas: the Content-Type header is required, clones
+    start inactive, and ad blockers break the test-run button.
   - **Stopgap:** Windows Task Scheduler on the user's PC, folder `\NSE Smart Investor\`.
     - Pre-open at 08:40, and Market Alerts every 15 min from 09:00 to 15:45, Mon–Fri.
     - Both have wake-to-run and catch-up enabled.
