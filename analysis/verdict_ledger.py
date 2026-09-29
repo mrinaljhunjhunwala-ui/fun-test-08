@@ -897,7 +897,10 @@ DECISION_RULE: Dict[str, Any] = {
     "horizon_days": 20,
     "verdicts": BULLISH_VERDICTS,
     "min_verdicts": 150,
-    "min_days": 20,
+    # 20 -> 30 (same day, before any sample neared the floor): at a
+    # 20-session horizon nearby days share most of their window, so 20 days
+    # is only a few independent observations.
+    "min_days": 30,
     # day-clustered Wilson lower bound on "the day's picks beat NIFTY", in %
     "threshold_pct": 50.0,
 }
