@@ -957,28 +957,8 @@ def apply_design():
         .t-h2.guide-h2 { font-size: 18px; }
     }
 
-    /* ── P2 · Market Live tape + Command Centre regime strip / pick-more ──
-       Self-contained block (01_market_live.py, 02_command_centre.py). */
-    .ml-tape {
-        height: 32px; overflow: hidden; position: relative;
-        background: var(--sunken); border: 1px solid var(--hairline-soft);
-        border-radius: 6px; margin: 10px 0 4px 0;
-        font-family: var(--font-mono); font-size: 12px; line-height: 32px;
-        -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
-                mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
-    }
-    .ml-tape-track {
-        display: inline-flex; white-space: nowrap;
-        animation: ml-tape-scroll 60s linear infinite;
-    }
-    .ml-tape:hover .ml-tape-track { animation-play-state: paused; }
-    .ml-tape-item { padding: 0 18px; color: var(--ink-mid); font-variant-numeric: tabular-nums; }
-    .ml-tape-item b { color: var(--ink); font-weight: 600; }
-    .ml-tape-up { color: var(--bull); }
-    .ml-tape-dn { color: var(--bear); }
-    @keyframes ml-tape-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-    @media (prefers-reduced-motion: reduce) { .ml-tape-track { animation: none; } }
-
+    /* ── P2 · Command Centre regime strip / pick-more ──
+       Self-contained block (02_command_centre.py). */
     .regime-strip {
         display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
         padding: 6px 12px; margin: -4px 0 10px 0;
@@ -1436,6 +1416,59 @@ def apply_design():
         .sh-price { text-align: left; }
         .sh-row { justify-content: flex-start; }
     }
+
+    /* Live Ticker (artboard 06): dense price table with one-shot row flash
+       on a tick, and the index rail beside it. */
+    .lt-meta {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+        font-family: var(--font-mono); font-size: 12px; color: var(--dim);
+    }
+    .lt-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+    .ticker-panel {
+        max-height: 640px; overflow: auto; background: var(--card-lift);
+        border: 1px solid var(--hairline); border-radius: 6px;
+    }
+    table.ticker-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    table.ticker-table th {
+        position: sticky; top: 0; z-index: 1; padding: 9px 12px; text-align: right; white-space: nowrap;
+        background: var(--sunken); border-bottom: 1px solid var(--hairline);
+        font-size: 10px; font-weight: 500; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    table.ticker-table th:first-child, table.ticker-table td:first-child { text-align: left; }
+    table.ticker-table td {
+        padding: 6px 12px; text-align: right; white-space: nowrap; color: var(--ink);
+        line-height: 1.3; border-bottom: 1px solid var(--hairline-soft);
+        font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    }
+    table.ticker-table td:first-child { font-family: var(--font-sans); }
+    table.ticker-table tbody tr:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+    table.ticker-table .sym { font-weight: 600; }
+    table.ticker-table .co { display: block; font-size: 11px; color: var(--dim); }
+    .tk-up { color: var(--bull) !important; }
+    .tk-dn { color: var(--bear) !important; }
+    .tk-flat { color: var(--dim) !important; }
+    @keyframes tk-flash-up-kf { from { background: rgba(22,199,132,.22); } to { background: transparent; } }
+    @keyframes tk-flash-dn-kf { from { background: rgba(255,77,77,.22); } to { background: transparent; } }
+    tr.tk-flash-up td { animation: tk-flash-up-kf 1.6s ease-out 1; }
+    tr.tk-flash-dn td { animation: tk-flash-dn-kf 1.6s ease-out 1; }
+    @media (prefers-reduced-motion: reduce) {
+        tr.tk-flash-up td, tr.tk-flash-dn td { animation: none; }
+    }
+    .mini-index {
+        padding: 12px 14px; margin-bottom: 10px; background: var(--card-lift);
+        border: 1px solid var(--hairline); border-radius: 6px;
+    }
+    .mini-index.sunk { background: var(--sunken); }
+    .mi-name { font-size: 10px; font-weight: 600; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; }
+    .mi-val {
+        margin-top: 4px; font-family: var(--font-mono); font-size: 20px; color: var(--ink);
+        letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+    }
+    .mi-sub { margin-top: 3px; font-family: var(--font-mono); font-size: 11.5px; }
+    .mini-spark { display: block; width: 100%; height: 36px; margin-top: 8px; }
+    .mi-kv { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px;
+             font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+    .mi-kv .mi-name { font-size: 9px; margin-bottom: 2px; }
 
     @media (max-width: 900px) {
         .gate-strip, .fu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

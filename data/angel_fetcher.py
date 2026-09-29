@@ -757,6 +757,8 @@ def get_batch_quotes(tickers: List[str]) -> Dict[str, Optional[Dict]]:
                     "high": float(q.get("high", 0)),
                     "low": float(q.get("low", 0)),
                     "volume": int(q.get("tradeVolume", 0) or 0),
+                    # avgPrice is Angel's average traded price, i.e. session VWAP.
+                    "vwap": float(q.get("avgPrice", 0) or 0),
                     "upper_circuit": float(q.get("upperCircuit", 0) or 0),
                     "lower_circuit": float(q.get("lowerCircuit", 0) or 0),
                     "week_52_high": float(q.get("52WeekHigh", 0) or 0),

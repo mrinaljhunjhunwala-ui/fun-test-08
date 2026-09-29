@@ -1,34 +1,43 @@
-"""Market Live - NSE Smart Investor (multipage page; body verbatim from app.py)."""
+"""Market Live - NSE Smart Investor (multipage page; body verbatim from app.py).
+
+LAYOUT (2026-09-29): artboard 06 of the 2026-09-12 "proposed layout" mockup.
+A dense live-price table (LTP, change, volume, day range, VWAP) with an index
+rail beside it. The table and rail are one @st.fragment that re-runs every
+30 s while NSE is open, so rows flash when their price ticks; the old
+whole-page <meta refresh> started a new session on every reload, so nothing
+could be compared between ticks. Market-wide breadth, the sector heatmap, a
+mover drill-down and news follow below.
+"""
 import os, sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
-import streamlit as st
-from dashboard.shared.design import apply_design
-from dashboard.shared.nav import render_sidebar
-from dashboard.shared.chart_helpers import render_top_bar
-# P3: explicit imports (was a dynamic shared-namespace injection)
-import math
-import os
+import datetime as _dt
+import logging
+
 import pandas as pd
 import streamlit as st
-import sys
-from dashboard.shared.design import (
-    apply_design,
-)
-from dashboard.shared.cache import (
-    get_display_name,
-)
+
+from dashboard.shared.design import apply_design
+from dashboard.shared.nav import render_sidebar
+from dashboard.shared.cache import get_display_name
 from dashboard.shared.chart_helpers import (
-    _ROOT,
     PLOT_COLORS,
     diverging_colors,
     finite_abs_peak,
+    index_rail_data,
     render_top_bar,
     tick_pulse_tracker,
 )
-from dashboard.shared.ui_components import ticker_hover_wrap
-import logging
+from dashboard.shared.ui_components import (
+    empty_state,
+    gate_strip,
+    mini_index,
+    section_header,
+    ticker_table,
+)
+
+_log = logging.getLogger("dashboard.market_live")
 
 
 def _sector_of(ticker: str) -> str:
@@ -43,30 +52,25 @@ render_sidebar(current="Live Ticker")
 render_top_bar()
 
 # ───────────────────────── page body (de-indented from app.py) ─────────────────────────
-from utils.market_hours import market_status as _ms_fn, refresh_interval_seconds
-from utils.news import get_market_news, get_stock_news, _quick_sentiment
+from utils.market_hours import market_status as _ms_fn  # noqa: E402
+from utils.news import get_market_news, get_stock_news  # noqa: E402
 
 _ms = _ms_fn()
-ri  = refresh_interval_seconds()
+_LIVE = bool(_ms.get("is_open"))
+_TICK_S = 30   # table + rail refresh cadence while NSE is open
 
-# ── Auto-refresh via meta tag when market is open ──────────────────────────
-if ri > 0:
-    st.markdown(f'<meta http-equiv="refresh" content="{ri}">',
-                unsafe_allow_html=True)
-
-# ── Header ─────────────────────────────────────────────────────────────────
-col_h1, col_h2 = st.columns([3, 1])
+# ── Header: title + session meta + refresh ─────────────────────────────────
+col_h1, col_h2 = st.columns([5, 1], vertical_alignment="bottom")
 with col_h1:
-    st.markdown('<h1 class="page-title-serif">Live <em>Ticker</em></h1>', unsafe_allow_html=True)
-
-    st.markdown("Real-time NSE prices · Top movers · News signals")
+    _dot = ("var(--bull)" if _LIVE else "var(--amber)" if _ms.get("is_pre") else "var(--bear)")
+    st.markdown(
+        '<h1 class="page-title-serif">Live <em>Ticker</em></h1>'
+        f'<div class="lt-meta"><span><span class="lt-dot" style="background:{_dot}"></span>'
+        f'NSE {str(_ms["status"]).lower()} · {_ms["time_ist"]}</span>'
+        f'<span>{_ms["day"]}</span><span>{_ms["detail"]}</span></div>',
+        unsafe_allow_html=True,
+    )
 with col_h2:
-    st.markdown(f"""
-    <div style='text-align:right;margin-top:12px'>
-    <span style='font-size:22px'>{_ms['color']}</span><br>
-    <b style='font-size:16px'>{_ms['status']}</b><br>
-    <span style='font-size:11px;color:var(--ink-mid)'>{_ms['time_ist']}</span>
-    </div>""", unsafe_allow_html=True)
     # FIX MKT1: was a blanket st.cache_data.clear() — wiped every other
     # page's cached data (Top Picks, watchlist scans, etc.) along with this
     # page's own snapshot. "Refresh Now" only means this page's data.
@@ -75,9 +79,6 @@ with col_h2:
     # captured here and the actual .clear() happens right before the
     # function is first called below, once it actually exists.
     _mkt_refresh_clicked = st.button("🔄 Refresh Now")
-
-st.markdown(f"*{_ms['day']} — {_ms['detail']}*")
-st.markdown("---")
 
 # ── Fetch broad NSE prices — Angel One (priority) → Yahoo → NSE fallback ──
 @st.cache_data(ttl=60 if _ms["is_open"] else 3600, show_spinner=False)
@@ -113,6 +114,7 @@ def _load_nifty_snapshot():
         raw     = get_live_prices_batch(tickers_list, max_workers=20)
         _source = "Yahoo Finance"
 
+
     rows = []
     for t in tickers_list:
         q = raw.get(t)
@@ -129,6 +131,9 @@ def _load_nifty_snapshot():
                 "chg_pct":    chg,
                 "vol_ratio":  1.0,
                 "volume":     q.get("volume", 0),
+                "high":       q.get("high") or None,
+                "low":        q.get("low") or None,
+                "vwap":       q.get("vwap") or None,
                 "_source":    _source,
             })
         except Exception as _row_e:
@@ -140,163 +145,165 @@ def _load_nifty_snapshot():
     df = pd.DataFrame(rows).sort_values("chg_pct", ascending=False)
     return df
 
-# Now that _load_nifty_snapshot exists, honor an earlier "Refresh Now"
-# click (captured before this point in the script, since the button is
-# rendered above the function definition).
+
+@st.cache_data(ttl=_TICK_S if _LIVE else 600, show_spinner=False)
+def _load_view_quotes(tickers: tuple) -> dict:
+    """Quotes for the table's current view (Nifty 50 / watchlist): a small
+    batch on its own short cache so the table can tick without re-pulling
+    the ~750-stock snapshot."""
+    from utils.live_price import get_live_prices_batch
+    return get_live_prices_batch(list(tickers), max_workers=12, max_wait_seconds=25)
+
+
+def _board_rows(view: str) -> tuple:
+    """(rows, source_label, requested) for the table. Rows are dicts in the
+    shape ui_components.ticker_table reads, sorted by % change."""
+    if view == "Top movers":
+        # The ~750-stock snapshot (60 s cache while open). Only this view
+        # waits on it; the default Nifty 50 view never does.
+        with st.spinner("Loading the market-wide snapshot (~750 stocks)…"):
+            snap = _load_nifty_snapshot()
+        if snap.empty:
+            return [], "—", 0
+        pool = pd.concat([snap.head(15), snap.tail(15)]).drop_duplicates(subset=["ticker"])
+        src = str(pool["_source"].iloc[0]) if "_source" in pool.columns else "Yahoo Finance"
+        recs = [
+            {"ticker": r["ticker"], "price": r["price"], "prev_close": r["prev_close"],
+             "chg_pct": r["chg_pct"], "volume": r.get("volume"), "high": r.get("high"),
+             "low": r.get("low"), "vwap": r.get("vwap")}
+            for _, r in pool.iterrows()
+        ]
+        requested = len(pool)
+    else:
+        if view == "My watchlist":
+            tickers = [t if str(t).endswith(".NS") else f"{t}.NS"
+                       for t in st.session_state.get("watchlist", []) or []]
+        else:
+            from data.universe import get_universe
+            tickers = get_universe("nifty50")
+        requested = len(tickers)
+        if not tickers:
+            return [], "—", 0
+        raw = _load_view_quotes(tuple(tickers))
+        recs = [dict(raw[t], ticker=t) for t in tickers
+                if isinstance(raw.get(t), dict) and raw[t].get("price")]
+        # angel_fetcher's batch rows carry net_chg; the Yahoo tiers don't.
+        src = "Angel One" if any("net_chg" in r for r in recs) else "Yahoo Finance"
+    rows = []
+    for q in recs:
+        try:
+            px = float(q["price"])
+            prev = float(q.get("prev_close") or px)
+        except (TypeError, ValueError):
+            continue
+        pct = q.get("chg_pct")
+        rows.append({
+            "ticker": q["ticker"], "sym": q["ticker"].replace(".NS", ""),
+            "sub": _sector_of(q["ticker"]),
+            "price": px, "chg": px - prev,
+            "chg_pct": float(pct) if pct is not None else ((px / prev - 1) * 100 if prev else 0.0),
+            "volume": q.get("volume"), "high": q.get("high") or None,
+            "low": q.get("low") or None, "vwap": q.get("vwap") or None,
+        })
+    rows.sort(key=lambda r: r["chg_pct"], reverse=True)
+    return rows, src, requested
+
+
+@st.fragment(run_every=_TICK_S if _LIVE else None)
+def _live_board():
+    """Ticker table + index rail. Re-runs on its own every _TICK_S seconds
+    while NSE is open; each row flashes once when its LTP changed since the
+    previous pass (tick_pulse_tracker keeps the last-seen prices)."""
+    _view = st.segmented_control(
+        "Table view", ["Nifty 50", "Top movers", "My watchlist"],
+        default="Nifty 50", key="lt_view", label_visibility="collapsed",
+    ) or "Nifty 50"
+    _rows, _src, _requested = _board_rows(_view)
+    _pulse, _commit = tick_pulse_tracker(f"_lt_prev::{_view}")
+    for _r in _rows:
+        _cls = _pulse(_r["ticker"], _r["price"])
+        _r["flash"] = "up" if "up" in _cls else "down" if "down" in _cls else ""
+    _commit()
+
+    _tbl, _rail = st.columns([3.4, 1], gap="medium")
+    with _tbl:
+        if _rows:
+            st.markdown(ticker_table(_rows), unsafe_allow_html=True)
+        elif _view == "My watchlist" and not _requested:
+            st.markdown(empty_state("Your watchlist is empty",
+                                    hint="Add tickers from the sidebar or any Analyze page."),
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(empty_state("Prices unavailable",
+                                    hint="No quote source answered. The table retries on the "
+                                         "next refresh."), unsafe_allow_html=True)
+    with _rail:
+        _idx = []
+        try:
+            _idx = index_rail_data()
+        except Exception as _ir_e:
+            _log.debug("index rail failed: %s", _ir_e)
+        for _i in _idx:
+            st.markdown(mini_index(_i["label"], _i["price"], _i["chg"], _i["chg_pct"],
+                                   _i.get("spark"), invert=_i["label"] == "India VIX"),
+                        unsafe_allow_html=True)
+        _now = _dt.datetime.now().strftime("%H:%M:%S")
+        _cad = f"every {_TICK_S} s" if _LIVE else "paused · closed"
+        st.markdown(
+            '<div class="mini-index sunk"><div class="mi-name">Feed</div>'
+            f'<div class="mi-kv"><div><div class="mi-name">Source</div>{_src.split(" (")[0]}</div>'
+            f'<div><div class="mi-name">Priced</div>{len(_rows)} / {_requested}</div></div>'
+            f'<div class="mi-kv"><div><div class="mi-name">Updated</div>{_now}</div>'
+            f'<div><div class="mi-name">Refresh</div>{_cad}</div></div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+# Now that both loaders exist, honor an earlier "Refresh Now" click
+# (captured above, where the button renders). FIX MKT1: clears only this
+# page's caches, the snapshot and the table's quotes.
 if _mkt_refresh_clicked:
     _load_nifty_snapshot.clear()
+    _load_view_quotes.clear()
     st.rerun()
+
+# Table first: it needs ~50 quotes, the breadth snapshot below needs ~750.
+_live_board()
 
 with st.spinner("Loading NSE market snapshot (~750 stocks)…"):
     snap = _load_nifty_snapshot()
 
 if snap.empty:
-    st.warning("Could not fetch market data. Try again in 30 seconds.")
+    st.warning("Could not fetch the market-wide snapshot. Try again in 30 seconds.")
 else:
-    # ── Data source badge ──────────────────────────────────────────────────
-    _src = snap.get("_source", pd.Series(["Yahoo Finance"])).iloc[0] if "_source" in snap.columns else "Yahoo Finance"
-    _src_pill = "pill-green" if "Angel One" in _src else "pill-gray"
-    st.markdown(
-        f'<span class="{_src_pill}">Data: {_src}</span>',
-        unsafe_allow_html=True,
-    )
+    _src = snap["_source"].iloc[0] if "_source" in snap.columns else "Yahoo Finance"
 
-    # ── Top metrics row ────────────────────────────────────────────────────
+    # ── Market-wide breadth (the whole ~750-stock snapshot) ──────────────
     adv = int((snap["chg_pct"] > 0).sum())
     dec = int((snap["chg_pct"] < 0).sum())
-    unch = len(snap) - adv - dec
     avg_chg = snap["chg_pct"].mean()
-    _breadth_pct = adv / max(adv + dec, 1) * 100
-
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("NSE Stocks Tracked", f"{len(snap)}")
-    m2.metric("Advances / Declines", f"{adv} / {dec}",
-              delta=f"{adv-dec:+d} net", delta_color="normal" if adv >= dec else "inverse")
-    m3.metric("Avg Change", f"{avg_chg:+.2f}%",
-              delta_color="normal" if avg_chg >= 0 else "inverse")
-    m4.metric("Breadth", f"{_breadth_pct:.0f}% up",
-              delta_color="normal" if _breadth_pct >= 50 else "inverse")
-
-    # ── P2 · terminal-grade tape — fixed height, monospaced, edge-masked ──
-    _tape_rows = pd.concat([snap.head(10), snap.tail(10).iloc[::-1]]).drop_duplicates(subset=["ticker"])
-    _tape_items = "".join(
-        f'<span class="ml-tape-item"><b>{_tr["ticker"].replace(".NS", "")}</b> '
-        f'{_tr["price"]:,.2f} '
-        f'<span class="{"ml-tape-up" if _tr["chg_pct"] >= 0 else "ml-tape-dn"}">'
-        f'{"▲" if _tr["chg_pct"] >= 0 else "▼"}{abs(_tr["chg_pct"]):.2f}%</span></span>'
-        for _, _tr in _tape_rows.iterrows()
-    )
-    st.markdown(
-        f'<div class="ml-tape" aria-label="Top movers tape"><div class="ml-tape-track">'
-        f'{_tape_items}{_tape_items}</div></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("---")
-
-    # ── Today's Trade Ideas (from live % change + market breadth) ──────────
-    # NOTE: intraday volume isn't available in the batch feed, so ideas are
-    # ranked on live price change + breadth, not volume.
-    st.markdown("##### 💡 Today's Trade Ideas")
-    _sg_items = []
-    _top_gain = snap.iloc[0]   if len(snap) else None       # sorted desc
-    _top_lose = snap.iloc[-1]  if len(snap) else None
-    # F1 audit -- semantic-idea cards now source their accent + tint background
-    # from design.py tokens (bull/bear/amber) so the palette is one source of
-    # truth. Tint backgrounds are subtler than the previous hand-mixed near-
-    # black hexes; the border-left rail keeps the semantic intent legible.
-    if _top_gain is not None and _top_gain["chg_pct"] >= 1.0:
-        _sg_items.append(("🟢 STRONGEST TODAY", "var(--bull)", "var(--tint-bull)",
-                          _top_gain["ticker"].replace(".NS",""),
-                          f"₹{_top_gain['price']:,.2f}  ·  {_top_gain['chg_pct']:+.2f}%",
-                          "Leading the market higher — strongest momentum in the universe today"))
-    if _top_lose is not None and _top_lose["chg_pct"] <= -1.0:
-        _sg_items.append(("🔴 WEAKEST TODAY", "var(--bear)", "var(--tint-bear)",
-                          _top_lose["ticker"].replace(".NS",""),
-                          f"₹{_top_lose['price']:,.2f}  ·  {_top_lose['chg_pct']:+.2f}%",
-                          "Under the heaviest selling pressure in the universe today"))
-    # Market-regime idea from breadth
+    # Rounded before the read so the label agrees with the printed share.
+    _breadth_pct = round(adv / max(adv + dec, 1) * 100)
     if _breadth_pct >= 65:
-        _sg_items.append(("📈 BROAD STRENGTH", "var(--bull)", "var(--tint-bull)", "Market-wide",
-                          f"{_breadth_pct:.0f}% of stocks up · avg {avg_chg:+.2f}%",
-                          "Risk-on breadth — most stocks advancing"))
+        _b_read, _b_col = "Broad strength", "var(--bull)"
     elif _breadth_pct <= 35:
-        _sg_items.append(("📉 BROAD WEAKNESS", "var(--bear)", "var(--tint-bear)", "Market-wide",
-                          f"{100-_breadth_pct:.0f}% of stocks down · avg {avg_chg:+.2f}%",
-                          "Risk-off breadth — most stocks declining"))
+        _b_read, _b_col = "Broad weakness", "var(--bear)"
     else:
-        _sg_items.append(("↔️ MIXED MARKET", "var(--amber)", "var(--tint-amber)", "Market-wide",
-                          f"{_breadth_pct:.0f}% up · avg {avg_chg:+.2f}%",
-                          "No clear breadth tilt — moves are stock-specific"))
+        _b_read, _b_col = "Mixed", "var(--amber)"
+    _chg_col = "var(--bull)" if avg_chg >= 0 else "var(--bear)"
+    st.markdown(section_header("Market breadth", f"{_src} · Nifty Total Market"),
+                unsafe_allow_html=True)
+    st.markdown(gate_strip([
+        ("Stocks priced", f"{len(snap)}", "of ~750 tracked"),
+        ("Advances / declines", f"{adv} / {dec}", f"{adv - dec:+d} net"),
+        ("Average move", f'<span style="color:{_chg_col}">{avg_chg:+.2f}%</span>', "equal-weighted"),
+        ("Share advancing", f"{_breadth_pct:.0f}%", "of stocks that moved"),
+        ("Breadth read", f'<span style="color:{_b_col}">{_b_read}</span>',
+         "≥65% up strong · ≤35% weak"),
+    ]), unsafe_allow_html=True)
 
-    _sg_html = '<div style="display:flex;gap:10px;margin-bottom:4px;flex-wrap:wrap">'
-    for _lbl, _c, _bg, _tk, _sub, _why in _sg_items:
-        _sg_html += (
-            f'<div style="flex:1;min-width:200px;background:{_bg};border-left:5px solid {_c};'
-            f'border-radius:10px;padding:12px 15px">'
-            f'<div style="font-size:10px;color:{_c};text-transform:uppercase;'
-            f'letter-spacing:1px;font-weight:700;margin-bottom:2px">{_lbl}</div>'
-            f'<div style="font-size:20px;font-weight:700;color:var(--ink)">{_tk}</div>'
-            f'<div style="font-size:12px;color:var(--ink-mid);margin:2px 0">{_sub}</div>'
-            f'<div style="font-size:11px;color:var(--dim)">{_why}</div></div>'
-        )
-    _sg_html += '</div>'
-    st.markdown(_sg_html, unsafe_allow_html=True)
-    st.caption("Ideas ranked on live price change + market breadth (intraday volume not in feed). "
-               "Not financial advice — confirm with the Analyze page before trading.")
-
-    st.markdown("---")
-
-    # ── Gainers and Losers — clean HTML cards (robust, no nested expanders) ─
     top5 = snap.head(5)
     bot5 = snap.tail(5).iloc[::-1]
-
-    # UX3 · live-tick pulse — one shared tracker across gainers + losers so a
-    # stock that flips from gainer to loser (or back) still compares against
-    # its own last-seen price rather than starting fresh. commit() at the end
-    # of the render prunes symbols that dropped out of both top-5 lists.
-    _mv_pulse, _mv_pulse_commit = tick_pulse_tracker("_ml_movers_prev")
-
-    def _movers_block(rows, is_gainer):
-        _acc = "var(--bull)" if is_gainer else "var(--bear)"
-        _html = ""
-        for _i, (_, _row) in enumerate(rows.iterrows(), 1):
-            _ch = _row["chg_pct"]
-            _cc2 = "var(--bull)" if _ch >= 0 else "var(--bear)"
-            _ar = "▲" if _ch >= 0 else "▼"
-            _nm = str(_row.get("name", ""))[:26]
-            _tick_cls = _mv_pulse(_row["ticker"], _row["price"])
-            _mv_price = pd.to_numeric(_row["price"], errors="coerce")
-            _mv_chg = pd.to_numeric(_ch, errors="coerce")
-            _mv_label = ticker_hover_wrap(
-                _row["ticker"].replace(".NS", ""),
-                price=float(_mv_price) if math.isfinite(_mv_price) else None,
-                chg_pct=float(_mv_chg) if math.isfinite(_mv_chg) else None,
-                sector=_sector_of(_row["ticker"]),
-            )
-            _html += (
-                f'<div class="mover-card{_tick_cls}" '
-                f'style="background:var(--sunken);border-left:4px solid {_acc};'
-                f'border-radius:9px;padding:9px 13px;margin-bottom:6px;'
-                f'display:flex;justify-content:space-between;align-items:center">'
-                f'<div><span style="color:var(--faint);font-size:11px;margin-right:6px">#{_i}</span>'
-                f'<span style="font-size:15px;font-weight:700;color:var(--ink)">{_mv_label}</span>'
-                f'<div style="font-size:11px;color:var(--dim)">{_nm}</div></div>'
-                f'<div style="text-align:right">'
-                f'<div style="font-size:15px;font-weight:700;color:var(--ink)">₹{_row["price"]:,.2f}</div>'
-                f'<div style="font-size:13px;font-weight:600;color:{_cc2}">{_ar} {abs(_ch):.2f}%</div>'
-                f'</div></div>'
-            )
-        return _html
-
-    _mc1, _mc2 = st.columns(2)
-    with _mc1:
-        st.markdown("#### 🟢 Top Gainers")
-        st.markdown(_movers_block(top5, True), unsafe_allow_html=True)
-    with _mc2:
-        st.markdown("#### 🔴 Top Losers")
-        st.markdown(_movers_block(bot5, False), unsafe_allow_html=True)
-    _mv_pulse_commit()
 
     # ── P2 · Sector heatmap — diverging palette (hue = sign, alpha = size) ──
     try:
@@ -329,9 +336,9 @@ else:
             ))
             _fig.update_layout(height=320, margin=dict(l=0, r=0, t=0, b=0),
                                paper_bgcolor="rgba(0,0,0,0)")
-            st.markdown('<div class="t-h2" style="margin:14px 0 6px 0">'
-                        '🗺️ Sector Heatmap</div>', unsafe_allow_html=True)
-            st.plotly_chart(_fig, use_container_width=True)
+            st.markdown(section_header("Sector heatmap", "average move per sector"),
+                        unsafe_allow_html=True)
+            st.plotly_chart(_fig, width="stretch")
             st.caption("Tile size = stocks tracked · colour hue = direction, "
                        "intensity = size of the average move. Hover for %.")
     except Exception as _hm_e:
@@ -406,7 +413,6 @@ else:
         return reasons if reasons else ["No specific technical catalyst detected"]
 
     # ── Drill into any mover (one panel, no nested-expander clutter) ───────
-    st.markdown("")
     _drill_pool = pd.concat([top5, bot5]).drop_duplicates(subset=["ticker"])
     _drill_opts = ["— pick a stock —"] + [
         f"{r['ticker'].replace('.NS','')}  ({r['chg_pct']:+.2f}%)"
@@ -429,7 +435,7 @@ else:
                 for _rs in _explain_mover(_dt_full, _dchg, 1.0):
                     st.markdown(f"• {_rs}")
             _da, _db, _dc = st.columns(3)
-            if _da.button("📊 Analyze", key=f"ml_an_{_dt_full}", use_container_width=True):
+            if _da.button("📊 Analyze", key=f"ml_an_{_dt_full}", width="stretch"):
                 # FIX NAV1: canonical analyze_ticker hand-off (see
                 # 04_analyze_stock.py FIX A8) instead of manual_ticker_input +
                 # last_analyzed — traced through and confirmed the old path
@@ -440,24 +446,23 @@ else:
                 st.session_state["analyze_ticker"] = _dt_full
                 st.session_state["_goto_page"] = "🔍 Analyze Stock"
                 st.rerun()
-            if _db.button("📝 Paper Trade", key=f"ml_pt_{_dt_full}", use_container_width=True):
+            if _db.button("📝 Paper Trade", key=f"ml_pt_{_dt_full}", width="stretch"):
                 st.session_state["_goto_page"] ="📂 Paper Trades"
                 st.session_state["pt_prefill_ticker"] = _dt_full
                 st.rerun()
-            if _dc.button("＋ Watchlist", key=f"ml_wl_{_dt_full}", use_container_width=True):
+            if _dc.button("＋ Watchlist", key=f"ml_wl_{_dt_full}", width="stretch"):
                 if _dt_full not in st.session_state.get("watchlist", []):
                     st.session_state.setdefault("watchlist", []).append(_dt_full)
                 st.toast(f"{_dt_label} added to watchlist ✓")
 
     # ── Full NSE snapshot table ────────────────────────────────────────────
-    st.markdown("---")
     with st.expander(f"📋 Full NSE Snapshot ({len(snap)} stocks)", expanded=False):
         disp = snap[["name", "ticker", "price", "chg_pct"]].copy()
         disp.columns = ["Company", "Ticker", "Price (₹)", "Change %"]
         disp["Ticker"]    = disp["Ticker"].str.replace(".NS", "")
         disp["Price (₹)"] = disp["Price (₹)"].map("₹{:,.2f}".format)
         disp["Change %"]  = disp["Change %"].map("{:+.2f}%".format)
-        st.dataframe(disp, hide_index=True, use_container_width=True, height=400)
+        st.dataframe(disp, hide_index=True, width="stretch", height=400)
         # DT1 + DT2 · movers table attribution.
         try:
             from dashboard.shared.ui_components import data_as_of as _ml_asof
@@ -472,12 +477,8 @@ else:
             pass
 
 # ── Market News (multi-source, with source badges) ─────────────────────────
-st.markdown("---")
-st.markdown(
-    '<div class="t-h2" style="margin:14px 0 6px 0">'
-    '📰 Latest Market News</div>',
-    unsafe_allow_html=True,
-)
+st.markdown(section_header("Latest market news", "multi-source · keyword sentiment"),
+            unsafe_allow_html=True)
 with st.spinner("Aggregating news from multiple sources…"):
     mkt_news = get_market_news(max_articles=14)
 
@@ -508,11 +509,3 @@ if mkt_news:
         )
 else:
     st.info("News temporarily unavailable — refresh in a moment.")
-
-if ri > 0:
-    st.caption(f"Auto-refreshes every {ri//60} minutes while market is open.")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PAGE 0 — COMMAND CENTRE
-# ═══════════════════════════════════════════════════════════════════════════════
