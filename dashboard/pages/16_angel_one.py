@@ -564,11 +564,13 @@ with tab_ao6:
         except Exception:
             pass
 
-        _hpost, _ipost = [], []
+        _hpost, _ipost, _hskip = [], [], []
+        _holdings_now = []
         with st.spinner("Analysing holdings…"):
             if _do_del:
                 _holdings_now = _ao_get_holdings() or []
-                _hpost = analyse_holdings(_holdings_now, _fetch, nifty_history=_nifty)
+                _hpost = analyse_holdings(_holdings_now, _fetch, nifty_history=_nifty,
+                                          skipped=_hskip)
             if _do_int:
                 _pos_now = _ao_get_positions() or {"day": [], "net": []}
                 _open = _pos_now.get("day") or []
@@ -612,8 +614,11 @@ with tab_ao6:
                     f'</div>',
                     unsafe_allow_html=True,
                 )
-        elif _do_del:
-            st.info("No delivery holdings, or all failed to fetch history.")
+        elif _do_del and not _holdings_now:
+            st.info("No delivery holdings in your demat account.")
+        if _do_del and _hskip:
+            st.info("No posture for: " + "; ".join(
+                f"**{s['symbol']}** — {s['reason']}" for s in _hskip))
 
         if _ipost:
             st.markdown("#### ⚡ Intraday positions")

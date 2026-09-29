@@ -316,19 +316,32 @@ def analyse_holdings(
     holdings: List[Dict],
     fetcher: Callable[[str], Optional[pd.DataFrame]],
     nifty_history: Optional[pd.DataFrame] = None,
+    skipped: Optional[List[Dict[str, str]]] = None,
 ) -> List[HoldingPosture]:
     """Analyse all delivery holdings. Skips names for which fetch fails
-    (rather than raising) so one broken symbol doesn't kill the batch."""
+    (rather than raising) so one broken symbol doesn't kill the batch.
+
+    Pass a list as `skipped` to receive {"symbol", "reason"} for every
+    holding that produced no posture, so the page can say why."""
     out: List[HoldingPosture] = []
+    need = DEFAULT_CONFIG.min_bars_needed
     for h in holdings or []:
+        sym = h.get("symbol", "")
         try:
-            df = fetcher(h.get("symbol", ""))
+            df = fetcher(sym)
         except Exception as _fe:
-            _log.debug("analyse_holdings: fetch failed for %s: %s", h.get("symbol"), _fe)
+            _log.debug("analyse_holdings: fetch failed for %s: %s", sym, _fe)
             df = None
         p = analyse_delivery_holding(h, df, nifty_history)
         if p is not None:
             out.append(p)
+        elif skipped is not None:
+            if df is None or df.empty:
+                reason = "price history could not be fetched"
+            else:
+                reason = (f"only {len(df)} trading days of history "
+                          f"(needs {need} for the 200-day average) — likely a recent listing")
+            skipped.append({"symbol": sym, "reason": reason})
     return out
 
 
