@@ -717,6 +717,10 @@ def _aggregate(df: pd.DataFrame, *, group_col: str, id_col: str) -> pd.DataFrame
         each with its own Wilson lower bound.
     """
     df = df.copy()
+    # All-NULL columns arrive as object dtype (None), which pandas 2 refuses
+    # to average — coerce so a group with no NIFTY returns yields NaN, not a crash.
+    df["ret_val"] = pd.to_numeric(df["ret_val"], errors="coerce")
+    df["n_ret_val"] = pd.to_numeric(df["n_ret_val"], errors="coerce")
     df["alpha"] = df["ret_val"] - df["n_ret_val"]          # NaN when Nifty missing
     df["is_win"] = (df["ret_val"] > 0).astype(int)
     df["has_alpha"] = df["alpha"].notna().astype(int)
