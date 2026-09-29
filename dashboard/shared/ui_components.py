@@ -1485,3 +1485,99 @@ def thesis_grid(bull: list, bear: list, risk: list,
             + _block("bear", "✕ Bear", bear, "No bear factors triggered.")
             + _block("risk", "△ Risk", risk, "No specific risks flagged.")
             + verdict + "</div>")
+
+
+# ── Live Ticker (artboard 06) ───────────────────────────────────────────────
+
+def fmt_volume(v) -> str:
+    """Traded quantity in Indian units: 2.42Cr, 81L, 4.8K. "—" when unknown."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if not v or v != v:
+        return "—"
+    if v >= 1e7:
+        return f"{v / 1e7:.2f}Cr"
+    if v >= 1e5:
+        return f"{v / 1e5:.1f}L".replace(".0L", "L")
+    if v >= 1e3:
+        return f"{v / 1e3:.1f}K"
+    return f"{v:,.0f}"
+
+
+def sparkline(values: list, tone: str = "") -> str:
+    """Inline SVG line over ``values`` (oldest first) with an end dot.
+
+    tone: "up" / "down" colours it bull / bear; otherwise it follows the
+    series' own direction (last vs first).
+    """
+    pts = [float(v) for v in (values or []) if v is not None and v == v]
+    if len(pts) < 2:
+        return ""
+    lo, hi = min(pts), max(pts)
+    span = (hi - lo) or 1.0
+    w, h, pad = 260.0, 36.0, 3.0
+    xy = [(i / (len(pts) - 1) * w, pad + (hi - p) / span * (h - 2 * pad)) for i, p in enumerate(pts)]
+    d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in xy)
+    up = (tone == "up") if tone in ("up", "down") else pts[-1] >= pts[0]
+    colour = "var(--bull)" if up else "var(--bear)"
+    ex, ey = xy[-1]
+    return (f'<svg class="mini-spark" viewBox="0 0 {w:.0f} {h:.0f}" preserveAspectRatio="none" '
+            f'aria-hidden="true"><path d="{d}" fill="none" stroke="{colour}" stroke-width="1.5" '
+            f'vector-effect="non-scaling-stroke"/><circle cx="{ex:.1f}" cy="{ey:.1f}" r="2.4" '
+            f'fill="{colour}"/></svg>')
+
+
+def mini_index(name: str, value: float, chg: float, chg_pct: float,
+               spark: Optional[list] = None, invert: bool = False) -> str:
+    """Right-rail index card: name, mono level, change line, sparkline.
+
+    invert=True for fear gauges (India VIX), where a rise reads as risk-off,
+    so the change and sparkline colour flip.
+    """
+    rising = chg >= 0
+    good = (not rising) if invert else rising
+    colour = "var(--bull)" if good else "var(--bear)"
+    arrow = "▲" if rising else "▼"
+    spark_html = sparkline(spark or [], tone="up" if good else "down")
+    return (f'<div class="mini-index"><div class="mi-name">{name}</div>'
+            f'<div class="mi-val">{value:,.2f}</div>'
+            f'<div class="mi-sub" style="color:{colour}">{arrow} {chg:+,.2f} · {chg_pct:+.2f}%</div>'
+            f"{spark_html}</div>")
+
+
+def ticker_table(rows: list) -> str:
+    """Dense live-price table: ticker (+ sector), LTP, Δ, Δ%, volume, day
+    high / low and VWAP, in a fixed-height scroll panel with a sticky header.
+
+    rows: dicts with sym, sub, price, chg, chg_pct and optional volume,
+    high, low, vwap, flash ("up" / "down" flashes the row once).
+    """
+    def _px(v):
+        return f"{v:,.2f}" if isinstance(v, (int, float)) and v and v == v else "—"
+
+    body = []
+    for r in rows:
+        pct = float(r.get("chg_pct") or 0.0)
+        cls = "tk-up" if pct > 0.05 else "tk-dn" if pct < -0.05 else "tk-flat"
+        flash = {"up": ' class="tk-flash-up"', "down": ' class="tk-flash-dn"'}.get(r.get("flash"), "")
+        vwap = r.get("vwap")
+        vwap_html = _px(vwap)
+        if vwap and r.get("price"):
+            side = "tk-up" if r["price"] >= vwap else "tk-dn"
+            vwap_html = f'<span class="{side}">{vwap_html}</span>'
+        body.append(
+            f"<tr{flash}><td><span class=\"sym\">{r['sym']}</span>"
+            f"<span class=\"co\">{r.get('sub') or ''}</span></td>"
+            f"<td>{_px(r.get('price'))}</td>"
+            f'<td class="{cls}">{float(r.get("chg") or 0.0):+,.2f}</td>'
+            f'<td class="{cls}">{pct:+.2f}%</td>'
+            f"<td>{fmt_volume(r.get('volume'))}</td>"
+            f"<td>{_px(r.get('high'))}</td><td>{_px(r.get('low'))}</td>"
+            f"<td>{vwap_html}</td></tr>"
+        )
+    head = ("<tr><th>Ticker</th><th>LTP</th><th>Δ</th><th>Δ %</th><th>Volume</th>"
+            "<th>Day high</th><th>Day low</th><th>VWAP</th></tr>")
+    return (f'<div class="ticker-panel"><table class="ticker-table"><thead>{head}</thead>'
+            f'<tbody>{"".join(body)}</tbody></table></div>')

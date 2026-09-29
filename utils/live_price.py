@@ -60,6 +60,26 @@ _log = logging.getLogger("live_price")
 
 # ─── Yahoo Finance direct quote API ─────────────────────────────────────────
 
+def _vwap_from_bars(result: dict) -> dict:
+    """{"vwap": float} from a Yahoo chart result's intraday bars, or {}.
+
+    Typical price (H+L+C)/3 weighted by bar volume; bars with a missing
+    field or zero volume are skipped. Empty when no volume traded.
+    """
+    try:
+        q = result["indicators"]["quote"][0]
+        num = den = 0.0
+        for h, lo, c, v in zip(q.get("high") or [], q.get("low") or [],
+                               q.get("close") or [], q.get("volume") or []):
+            if None in (h, lo, c, v) or not v:
+                continue
+            num += (h + lo + c) / 3.0 * v
+            den += v
+        return {"vwap": num / den} if den > 0 else {}
+    except (KeyError, IndexError, TypeError):
+        return {}
+
+
 def _yahoo_json_quote(ticker_ns: str) -> Optional[dict]:
     """
     Fetch live quote from Yahoo Finance JSON endpoint.
@@ -98,6 +118,13 @@ def _yahoo_json_quote(ticker_ns: str) -> Optional[dict]:
             }
             if volume:
                 out["volume"] = int(volume)
+            # Session range + VWAP (Live Ticker table). The range comes from
+            # the chart meta; VWAP is volume-weighted typical price over the
+            # 1-minute bars this request already returned. Both optional.
+            _hi, _lo = meta.get("regularMarketDayHigh"), meta.get("regularMarketDayLow")
+            if _hi and _lo:
+                out["high"], out["low"] = float(_hi), float(_lo)
+            out.update(_vwap_from_bars(data["chart"]["result"][0]))
             return out
     except Exception as e:
         _log.debug("yahoo JSON quote failed for %s: %s", ticker_ns, e)
@@ -217,6 +244,10 @@ def _normalise(q: dict) -> dict:
     }
     if q.get("volume"):
         out["volume"] = int(q["volume"])
+    # Optional session fields (Yahoo tier only); omitted when absent.
+    for _k in ("high", "low", "vwap"):
+        if q.get(_k):
+            out[_k] = float(q[_k])
     return out
 
 

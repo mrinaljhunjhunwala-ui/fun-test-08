@@ -454,6 +454,57 @@ def _index_strip_data():
     return out
 
 
+_INDEX_RAIL = [
+    ("Nifty 50", "^NSEI"), ("Bank Nifty", "^NSEBANK"),
+    ("Nifty Midcap 50", "^NSEMDCP50"), ("India VIX", "^INDIAVIX"),
+]
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def index_rail_data() -> list:
+    """Live Ticker right rail: [{label, price, chg, chg_pct, spark}] per index.
+
+    ``spark`` is the latest session's 5-minute closes (Yahoo chart API, the
+    same crumb session _index_strip_data uses). An index that fails is left
+    out rather than shown as zero.
+    """
+    import json
+    import urllib.parse
+    import urllib.request
+    try:
+        from data.fetcher import _get_yf_crumb
+        _opener, _crumb = _get_yf_crumb()
+    except Exception as _e:
+        _log.debug("chart_helpers.index_rail_data crumb unavailable: %s", _e)
+        _opener, _crumb = None, ""
+    _qs = f"&crumb={urllib.parse.quote(_crumb)}" if _crumb else ""
+    _open = _opener.open if _opener else urllib.request.urlopen
+    out = []
+    for label, sym in _INDEX_RAIL:
+        try:
+            url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
+                   f"{urllib.parse.quote(sym)}?interval=5m&range=1d{_qs}")
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+            with _open(req, timeout=6) as r:
+                res = json.loads(r.read())["chart"]["result"][0]
+            meta = res["meta"]
+            price = meta.get("regularMarketPrice")
+            prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+            if not (price and prev):
+                continue
+            closes = [float(c) for c in (res["indicators"]["quote"][0].get("close") or [])
+                      if c is not None]
+            out.append({"label": label, "price": float(price),
+                        "chg": float(price) - float(prev),
+                        "chg_pct": (float(price) / float(prev) - 1) * 100,
+                        "spark": closes})
+        except Exception as _e:
+            _log.debug("chart_helpers.index_rail_data %s degraded: %s", sym, _e)
+            continue
+    return out
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def _ticker_tape_data():
     _names = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
