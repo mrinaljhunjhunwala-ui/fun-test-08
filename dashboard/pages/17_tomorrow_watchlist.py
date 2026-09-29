@@ -554,11 +554,40 @@ def _render_detail(it: dict, rank: int, kind: str, key_prefix: str) -> None:
             st.rerun()
 
 
+_REGIME_FALLBACK: dict = {}
+
+
+def _bear_scoring_active() -> bool:
+    """Snapshot flag when present; older persisted snapshots lack it, so fall
+    back to the live regime (cached 30 min inside analysis.score)."""
+    if "bear_scoring_active" in _wl:
+        return bool(_wl.get("bear_scoring_active"))
+    try:
+        from analysis.score import _BEAR_REGIMES, _live_regime_label, _regime_weights_enabled
+        _rl = _live_regime_label()
+        _REGIME_FALLBACK["label"] = _rl
+        return bool(_rl in _BEAR_REGIMES and _regime_weights_enabled())
+    except Exception:
+        return False
+
+
 def _render_bucket(items: list, kind: str, key_prefix: str) -> None:
     if not items:
-        st.markdown(empty_state("No candidates in this bucket",
-                                "Today's scan found no setups that pass this bucket's gate."),
-                    unsafe_allow_html=True)
+        if kind in ("breakout", "breakdown") and _bear_scoring_active():
+            # Not a broken scan: bear-regime scoring (#168/#198) compresses
+            # composite scores toward the middle, so these gates rarely pass.
+            _rg = str(_wl.get("regime_label") or _REGIME_FALLBACK.get("label") or "bear").replace("_", " ")
+            st.markdown(empty_state(
+                f"Suppressed during the {_rg} regime",
+                "In bear regimes the composite holds Technical and Relative Strength at neutral "
+                "(10-year study: both ranked backwards in bear weeks), so scores cluster mid-range "
+                "and this bucket's score gate is rarely met. It refills when the regime turns. "
+                "Reversal Watch and Top Picks' relative ranking still apply."),
+                unsafe_allow_html=True)
+        else:
+            st.markdown(empty_state("No candidates in this bucket",
+                                    "Today's scan found no setups that pass this bucket's gate."),
+                        unsafe_allow_html=True)
         # Breakout funnel: which gate emptied the bucket. Older persisted
         # snapshots don't carry it — show nothing rather than zeros.
         _f = _wl.get("breakout_funnel") if kind == "breakout" else None
