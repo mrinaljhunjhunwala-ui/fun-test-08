@@ -44,7 +44,7 @@ concurrency:
 
 jobs:
   warm:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Timeout covers both scans back-to-back plus setup: 2 min Top Picks +
     # ~2 min Tomorrow's Watchlist + 2 min pip install + slack = 12 min. Kept
     # generous rather than tight so a temporarily slow data provider does not
@@ -53,10 +53,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -80,7 +80,7 @@ jobs:
       # alert-state cache, so the digest still goes out at most once a day.
       - name: Restore alert state
         id: restore_state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: data/alert_state.json
           key: alert-state-${{ github.run_id }}
@@ -100,7 +100,7 @@ jobs:
 
       - name: Save alert state
         if: always() && steps.restore_state.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: data/alert_state.json
           key: alert-state-${{ github.run_id }}
