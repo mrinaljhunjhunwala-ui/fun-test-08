@@ -52,6 +52,17 @@ _INST_MASTER_URL = (
     "/OpenAPI_File/files/OpenAPIScripMaster.json"
 )
 
+# In-process activity log for the Angel One page: logins, breaker trips,
+# instrument-master loads, manual session clears. Newest last; lost on
+# restart (it describes this server process, nothing more).
+_EVENTS: deque = deque(maxlen=40)
+_EVENTS_LOCK = threading.Lock()
+
+
+def _event(kind: str, detail: str, tone: str = "neutral") -> None:
+    with _EVENTS_LOCK:
+        _EVENTS.append({"ts": time.time(), "kind": kind, "detail": detail, "tone": tone})
+
 
 def _safe_parse_json_response(resp: requests.Response) -> Optional[Any]:
     """
@@ -136,6 +147,7 @@ def _load_instrument_master() -> bool:
                 return False
             _INST_MAP = new_map
             _INST_MAP_TS[0] = time.time()
+            _event("Instruments", f"{len(new_map):,} NSE equity tokens loaded", "good")
             _log.info(
                 "angel_fetcher: instrument master loaded — %d NSE EQ tokens cached",
                 len(new_map),
@@ -212,6 +224,8 @@ def _breaker_record_failure() -> None:
         _BREAKER_FAILS[0] += 1
         if _BREAKER_FAILS[0] >= _BREAKER_THRESHOLD and not _BREAKER_TRIPPED_AT[0]:
             _BREAKER_TRIPPED_AT[0] = time.time()
+            _event("Data breaker", f"tripped after {_BREAKER_FAILS[0]} failures · "
+                   f"paused {_BREAKER_COOLDOWN // 60} min", "bad")
             _log.warning(
                 "angel_fetcher: circuit breaker TRIPPED after %d consecutive failures — "
                 "pausing Angel One calls for %ds",
@@ -248,6 +262,8 @@ def _login_breaker_record_failure() -> None:
         _LOGIN_BREAKER_FAILS[0] += 1
         if _LOGIN_BREAKER_FAILS[0] >= _LOGIN_BREAKER_THRESHOLD and not _LOGIN_BREAKER_TRIPPED_AT[0]:
             _LOGIN_BREAKER_TRIPPED_AT[0] = time.time()
+            _event("Login breaker", f"tripped after {_LOGIN_BREAKER_FAILS[0]} failures · "
+                   f"paused {_LOGIN_BREAKER_COOLDOWN // 60} min", "bad")
             _log.warning(
                 "angel_fetcher: LOGIN circuit breaker TRIPPED after %d consecutive "
                 "login failures — pausing all Angel One login attempts for %ds. "
@@ -375,7 +391,9 @@ def _get_session() -> Optional[Dict]:
             )
             parsed = _safe_parse_json_response(resp)
             if not parsed or not parsed.get("status"):
-                _log.warning("angel_fetcher: login failed — %s", (parsed or {}).get("message", "unknown"))
+                _msg = (parsed or {}).get("message", "unknown")
+                _log.warning("angel_fetcher: login failed — %s", _msg)
+                _event("Session", f"login refused · {str(_msg)[:80]}", "bad")
                 _login_breaker_record_failure()
                 return None
 
@@ -386,10 +404,12 @@ def _get_session() -> Optional[Dict]:
                 "ts": time.time(),
             })
             _login_breaker_record_success()
+            _event("Session", "logged in · TOTP verified", "good")
             return _SESSION
 
         except Exception as e:
             _log.warning("angel_fetcher._get_session failed: %s", e)
+            _event("Session", f"login error · {type(e).__name__}", "bad")
             _login_breaker_record_failure()
             return None
 
@@ -697,6 +717,75 @@ def get_live_quote(ticker: str) -> Optional[Dict]:
 def clear_session() -> None:
     global _SESSION
     _SESSION["jwt"] = None
+    _event("Session", "cleared · next request logs in again", "neutral")
+
+
+_SESSION_REUSE_S = 3000   # _get_session re-logs in after this many seconds
+
+
+def status() -> Dict[str, Any]:
+    """Read-only health snapshot for the Angel One page. No network calls.
+
+    Everything here is this server process's own state: the cached login,
+    both circuit breakers, the candle budget, the instrument / token caches
+    and the recent event log (newest first).
+    """
+    now = time.time()
+    ts = float(_SESSION.get("ts") or 0.0)
+    logged_in = bool(_SESSION.get("jwt")) and (now - ts) < _SESSION_REUSE_S
+    with _HIST_LOCK:
+        candle_calls = sum(1 for t in _HIST_SENT if now - t < 60)
+    with _EVENTS_LOCK:
+        events = list(_EVENTS)[::-1]
+    return {
+        "configured": is_configured(),
+        "logged_in": logged_in,
+        "login_at": ts or None,
+        "renews_in_s": max(0.0, _SESSION_REUSE_S - (now - ts)) if logged_in else None,
+        "login_breaker_open": _login_breaker_tripped(),
+        "login_fails": _LOGIN_BREAKER_FAILS[0],
+        "data_breaker_open": _breaker_tripped(),
+        "data_fails": _BREAKER_FAILS[0],
+        "breaker_threshold": _BREAKER_THRESHOLD,
+        "breaker_cooldown_s": _BREAKER_COOLDOWN,
+        "candle_calls_last_min": candle_calls,
+        "candle_budget_per_min": _HIST_PER_MIN,
+        "instruments": len(_INST_MAP),
+        "instruments_loaded_at": _INST_MAP_TS[0] or None,
+        "tokens_cached": sum(1 for tok, _ in _TOKEN_CACHE.values() if tok),
+        "events": events,
+    }
+
+
+def _mask(key: str, value: str) -> str:
+    if not value:
+        return ""
+    if key in ("password", "totp_secret"):
+        return "stored"          # never any part of a secret
+    tail = value[-4:] if len(value) > 6 else ""
+    head = value[0] if key == "client_id" and len(value) > 6 else ""
+    return f"{head}••••{tail}"
+
+
+def credential_summary() -> Dict[str, Dict[str, str]]:
+    """Per credential: where it came from ("secrets" / "env" / "") and a
+    masked form (last four characters of the key and client code only;
+    password and TOTP seed are just "stored"). Never returns a raw value."""
+    from_secrets: Dict[str, str] = {}
+    try:
+        import streamlit as st
+        ao = st.secrets.get("angel_one", {})
+        from_secrets = {k: str(ao.get(k, "")) for k in ("api_key", "client_id", "password", "totp_secret")}
+    except Exception as e:
+        _log.debug("credential_summary: st.secrets unavailable: %s", e)
+    out: Dict[str, Dict[str, str]] = {}
+    for key, env in (("client_id", "ANGEL_CLIENT_ID"), ("api_key", "ANGEL_API_KEY"),
+                     ("password", "ANGEL_PASSWORD"), ("totp_secret", "ANGEL_TOTP_SECRET")):
+        val, src = from_secrets.get(key, ""), "secrets"
+        if not val:
+            val, src = os.environ.get(env, ""), "env"
+        out[key] = {"source": src if val else "", "masked": _mask(key, val)}
+    return out
 
 
 def get_batch_quotes(tickers: List[str]) -> Dict[str, Optional[Dict]]:

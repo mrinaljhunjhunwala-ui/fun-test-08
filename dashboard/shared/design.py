@@ -1470,6 +1470,50 @@ def apply_design():
              font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
     .mi-kv .mi-name { font-size: 9px; margin-bottom: 2px; }
 
+    /* Angel One (artboard 11): quiet status panel, masked credentials,
+       activity log. */
+    .ao-status {
+        padding: 22px 24px; background: var(--card-lift);
+        border: 1px solid var(--hairline); border-radius: 6px; margin-bottom: 12px;
+    }
+    .ao-line { display: flex; align-items: center; gap: 8px; }
+    .ao-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .ao-label { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+    .ao-h {
+        margin: 12px 0 8px 0; font-family: var(--font-serif); font-size: 26px;
+        line-height: 1.2; letter-spacing: -0.01em; color: var(--ink);
+    }
+    .ao-h em { color: var(--accent); }
+    .ao-hint { margin: 0 0 18px 0; max-width: 62ch; font-size: 13px; line-height: 1.55; color: var(--dim); }
+    .ao-stats {
+        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px;
+        background: var(--hairline); border: 1px solid var(--hairline); border-radius: 4px; overflow: hidden;
+    }
+    .ao-stat { padding: 11px 13px; background: var(--sunken); min-width: 0; }
+    .ao-stat-k {
+        font-size: 10px; font-weight: 600; color: var(--dim);
+        letter-spacing: 0.1em; text-transform: uppercase;
+    }
+    .ao-stat-v {
+        margin-top: 4px; font-family: var(--font-mono); font-size: 18px; color: var(--ink);
+        font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ao-stat-s { margin-left: 5px; font-size: 11px; color: var(--faint); }
+    .ao-log { list-style: none; margin: 0; padding: 0; }
+    .ao-log li {
+        display: grid; grid-template-columns: 46px 1fr auto; gap: 10px; align-items: start;
+        padding: 9px 0; border-bottom: 1px dotted var(--hairline); font-size: 13px;
+    }
+    .ao-log li:last-child { border-bottom: none; }
+    .ao-lt { font-family: var(--font-mono); font-size: 11px; color: var(--dim); padding-top: 2px; }
+    .ao-lk { font-weight: 600; color: var(--ink); }
+    .ao-ls { margin-top: 2px; font-size: 11.5px; color: var(--dim); }
+    .ao-log-empty { font-size: 12px; font-style: italic; color: var(--faint); padding: 4px 0; }
+    .ao-steps { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--ink-mid); }
+    .ao-steps li { margin-bottom: 8px; }
+    .ao-steps b { color: var(--ink); }
+    @media (max-width: 900px) { .ao-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
     @media (max-width: 900px) {
         .gate-strip, .fu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .gate-cell { border-bottom: 1px solid var(--hairline-soft); }
