@@ -957,6 +957,78 @@ def apply_design():
         .t-h2.guide-h2 { font-size: 18px; }
     }
 
+    /* Investor Guide as a document (artboard 09): one centred reading column
+       per chapter tab, serif chapter title, table of contents, drop-cap lede,
+       numbered section heads, pull quotes and callouts. Scoped to the keyed
+       containers the page emits (.st-key-guide_ch_<n>). */
+    [class*="st-key-guide_ch_"] { max-width: 760px; margin: 0 auto; }
+    .gd-eyebrow {
+        margin: 18px 0 12px 0; font-size: 11px; font-weight: 600; color: var(--dim);
+        letter-spacing: 0.18em; text-transform: uppercase;
+    }
+    .gd-eyebrow span { color: var(--accent); }
+    .gd-title {
+        margin: 0 0 14px 0; font-family: var(--font-serif); font-weight: 400;
+        font-size: 42px; line-height: 1.08; letter-spacing: -0.02em; color: var(--ink);
+        text-wrap: balance;
+    }
+    .gd-title em { color: var(--accent); }
+    .gd-meta {
+        display: flex; flex-wrap: wrap; gap: 6px 14px; padding-bottom: 20px; margin-bottom: 26px;
+        border-bottom: 1px solid var(--hairline); font-family: var(--font-mono);
+        font-size: 12px; color: var(--faint);
+    }
+    .gd-toc {
+        display: grid; gap: 2px; padding: 14px 18px; margin: 0 0 28px 0;
+        background: var(--sunken); border-radius: 4px;
+    }
+    .gd-toc-t {
+        margin-bottom: 6px; font-size: 10px; font-weight: 600; color: var(--dim);
+        letter-spacing: 0.14em; text-transform: uppercase;
+    }
+    .gd-toc a {
+        display: flex; justify-content: space-between; gap: 12px; padding: 4px 0;
+        border-bottom: 1px dotted var(--hairline); font-size: 13.5px;
+        color: var(--ink) !important; text-decoration: none !important;
+    }
+    .gd-toc a:last-of-type { border-bottom: none; }
+    .gd-toc a:hover { color: var(--accent) !important; }
+    .gd-toc .n { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+    .gd-lede {
+        margin: 0 0 28px 0; font-family: var(--font-serif); font-size: 20px;
+        line-height: 1.5; color: var(--ink);
+    }
+    .gd-lede::first-letter {
+        float: left; padding: 6px 10px 0 0; font-size: 3.6em; line-height: 0.85; color: var(--accent);
+    }
+    .gd-h3 {
+        display: flex; align-items: baseline; gap: 12px; margin: 34px 0 12px 0;
+        font-family: var(--font-serif); font-size: 25px; letter-spacing: -0.01em;
+        color: var(--ink); scroll-margin-top: 80px;
+    }
+    .gd-h3 .n { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--accent); }
+    .gd-quote {
+        margin: 26px 0; padding: 4px 0 4px 20px; border-left: 2px solid var(--accent);
+        font-family: var(--font-serif); font-style: italic; font-size: 20px;
+        line-height: 1.4; color: var(--ink);
+    }
+    .gd-callout {
+        margin: 18px 0; padding: 14px 18px; background: var(--sunken); border-radius: 4px;
+        font-size: 13.5px; line-height: 1.6; color: var(--ink-mid);
+    }
+    .gd-callout b { color: var(--ink); }
+    .gd-callout.warn { border-left: 2px solid var(--amber); }
+    .gd-next {
+        margin-top: 34px; padding-top: 18px; border-top: 1px solid var(--hairline);
+        font-size: 13px; color: var(--dim);
+    }
+    [class*="st-key-guide_ch_"] .sig-table-wrap { margin: 10px 0 18px 0; }
+    [class*="st-key-guide_ch_"] table.sig-table td { white-space: normal; vertical-align: top; }
+    @media (max-width: 640px) {
+        .gd-title { font-size: 32px; }
+        .gd-lede { font-size: 17px; }
+    }
+
     /* ── P2 · Command Centre regime strip / pick-more ──
        Self-contained block (02_command_centre.py). */
     .regime-strip {
