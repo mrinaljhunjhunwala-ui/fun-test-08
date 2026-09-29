@@ -845,18 +845,43 @@ def chip_delta(value: float, unit: str = "%") -> str:
     )
 
 
+def _hero_pillars(pillars: Optional[list]) -> str:
+    """Pillar bars for the hero's score column: (name, value, max) tuples."""
+    rows = []
+    for name, value, cap in pillars or []:
+        try:
+            v, c = float(value or 0.0), float(cap or 0.0)
+        except (TypeError, ValueError):
+            continue
+        share = max(0.0, min(1.0, v / c)) if c > 0 else 0.0
+        fill = ("var(--accent)" if share >= 0.5 else
+                "var(--amber)" if share >= 0.3 else "var(--bear)")
+        rows.append(
+            f'<div class="hv-pillar"><span class="hv-pl-n">{name}</span>'
+            f'<span class="hv-pl-bar"><span class="hv-pl-fill" '
+            f'style="width:{share * 100:.0f}%;background:{fill}"></span></span>'
+            f'<span class="hv-pl-v">{v:.0f} / {c:.0f}</span></div>'
+        )
+    return f'<div class="hv-pillars">{"".join(rows)}</div>' if rows else ""
+
+
 def hero_verdict(posture: str,
                  posture_qualifier: str = "",
                  composite: Optional[float] = None,
                  max_score: float = 90,
                  kicker: str = "Posture · this session",
                  why: str = "",
-                 tone: str = "accent") -> str:
+                 tone: str = "accent",
+                 pillars: Optional[list] = None) -> str:
     """Editorial verdict hero card (mockup Variant A -- serif italic posture).
 
     Two-column card. LEFT: kicker, serif italic posture noun, muted
     qualifier, why paragraph. RIGHT: big mono composite score with
     /max denominator. tone: accent / good / warn / bad.
+
+    pillars: optional (name, value, max) tuples drawn as bars under the
+    score (artboard 02). A bar under half its max turns amber, under 30%
+    bear red, so a weak pillar stands out without reading the numbers.
     """
     tone_color = {
         "accent": "var(--accent)",
@@ -892,6 +917,7 @@ def hero_verdict(posture: str,
             f'border-radius:999px;overflow:hidden">'
             f'<div style="height:100%;width:{pct*100:.1f}%;background:{tone_color}"></div>'
             f'</div>'
+            f'{_hero_pillars(pillars)}'
             f'</div>'
         )
 
@@ -1339,12 +1365,16 @@ def level_strip(cells: list, highlight: int = -1) -> str:
     open, prev close, VWAP, ORB high/low, day range); extra cells drop.
     """
     out = []
-    for i, (label, value, sub) in enumerate(list(cells)[:6]):
+    cells = list(cells)[:6]
+    for i, (label, value, sub) in enumerate(cells):
         cls = "lc hi" if i == highlight else "lc"
         sub_html = f'<div class="lc-s">{sub}</div>' if sub else ""
         out.append(f'<div class="{cls}"><div class="lc-k">{label}</div>'
                    f'<div class="lc-v">{value}</div>{sub_html}</div>')
-    return f'<div class="level-strip">{"".join(out)}</div>'
+    # Fewer than six cells share the full width instead of leaving a gap.
+    cols = "" if len(cells) == 6 else (
+        f' style="grid-template-columns:repeat({max(len(cells), 1)}, minmax(0, 1fr))"')
+    return f'<div class="level-strip"{cols}>{"".join(out)}</div>'
 
 
 def depth_ladder(depth: dict) -> str:
@@ -1375,3 +1405,83 @@ def depth_ladder(depth: dict) -> str:
         spread = '<div class="depth-spread">one side of the book is empty</div>'
     return ('<div class="depth-ladder"><div class="depth-head"><span>Qty</span><span>Price</span>'
             f'<span>Orders</span></div>{sells_html}{spread}{buys_html}</div>')
+
+
+# ── Analyze Stock (artboard 02) ─────────────────────────────────────────────
+
+def stock_head(symbol: str, company: str = "", tags: Optional[list] = None,
+               price: Optional[float] = None, chg: Optional[float] = None,
+               chg_pct: Optional[float] = None, note: str = "") -> str:
+    """Ticker identity (serif symbol, company line, tag chips) with the price
+    block on the right. The action buttons are Streamlit widgets, so the
+    page renders them in a column beside this string."""
+    tags_html = "".join(chip_tag(t) for t in (tags or []) if t)
+    tags_html = f'<div class="sh-tags">{tags_html}</div>' if tags_html else ""
+    co_html = f'<span class="sh-co">{company}</span>' if company else ""
+    price_html = ""
+    if price:
+        whole, _, paise = f"{price:,.2f}".partition(".")
+        bits = []
+        if chg is not None:
+            bits.append(chip_delta(chg, unit=""))
+        if chg_pct is not None:
+            bits.append(chip_delta(chg_pct))
+        row = f'<div class="sh-row">{"".join(bits)}</div>' if bits else ""
+        note_html = f'<div class="sh-note">{note}</div>' if note else ""
+        price_html = (
+            f'<div class="sh-price"><div class="sh-now"><span class="sh-ccy">₹</span>{whole}'
+            f'<span class="sh-paise">.{paise}</span></div>{row}{note_html}</div>'
+        )
+    return (f'<div class="stock-hd"><div class="sh-id"><span class="sh-sym">{symbol}</span>'
+            f'{co_html}{tags_html}</div>{price_html}</div>')
+
+
+def kv_list(rows: list, note: str = "") -> str:
+    """Dotted key/value list: (label, value_html[, highlight]) rows.
+
+    Highlighted rows carry an accent tint (the sector-aware metrics on the
+    fundamentals card). ``note`` renders as an accent-railed footnote.
+    """
+    parts = []
+    for r in rows:
+        hi = ' class="hi"' if len(r) > 2 and r[2] else ""
+        parts.append(f"<dt{hi}>{r[0]}</dt><dd{hi}>{r[1]}</dd>")
+    note_html = f'<div class="kv-note">{note}</div>' if note else ""
+    return f'<dl class="kv">{"".join(parts)}</dl>{note_html}'
+
+
+def kit_card(title: str, body_html: str, sub: str = "") -> str:
+    """Panel with a title bar and a padded body (``.kit-panel`` shell)."""
+    sub_html = f'<span class="kit-panel-s">{sub}</span>' if sub else ""
+    return (f'<div class="kit-panel"><div class="kit-panel-hd"><span class="kit-panel-t">{title}</span>'
+            f'{sub_html}</div><div class="kit-card-b">{body_html}</div></div>')
+
+
+def thesis_grid(bull: list, bear: list, risk: list,
+                verdict_label: str = "", verdict_text: str = "", limit: int = 3) -> str:
+    """Bull / Bear / Risk blocks with a full-width descriptive verdict block.
+
+    Each list holds Factor dataclasses or dicts with a 'text' key; lists are
+    capped at ``limit`` with a "+N more in the Thesis tab" line.
+    """
+    def _block(kind: str, label: str, factors: list, empty: str) -> str:
+        items = [str(_get(f, "text", "")) for f in (factors or [])]
+        items = [t for t in items if t]
+        if items:
+            body = "<ul>" + "".join(f"<li>{t}</li>" for t in items[:limit]) + "</ul>"
+            if len(items) > limit:
+                body += f'<div class="th-more">+{len(items) - limit} more in the Thesis tab</div>'
+        else:
+            body = f'<div class="th-empty">{empty}</div>'
+        return f'<div class="th-block {kind}"><div class="th-lbl">{label}</div>{body}</div>'
+
+    verdict = ""
+    if verdict_label or verdict_text:
+        verdict = (f'<div class="th-block verd"><div class="th-lbl">Verdict · descriptive'
+                   f'{" · " + verdict_label if verdict_label else ""}</div>'
+                   f'<p class="th-body">{verdict_text}</p></div>')
+    return ('<div class="thesis-grid">'
+            + _block("bull", "✓ Bull", bull, "No bull factors triggered.")
+            + _block("bear", "✕ Bear", bear, "No bear factors triggered.")
+            + _block("risk", "△ Risk", risk, "No specific risks flagged.")
+            + verdict + "</div>")
