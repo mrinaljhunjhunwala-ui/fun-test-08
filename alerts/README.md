@@ -99,23 +99,34 @@ On 2026-09-28 (a Monday) GitHub's scheduler ran **one** warm-up and **zero**
 Market Alerts / digest / pre-open runs during market hours, so every job below
 needs an external trigger. All share the same settings:
 
-- Method: **POST**, timezone **Asia/Kolkata**, days **Mon–Fri** (except the weekly digest)
-- Headers:
+- Method: **POST**, timezone **Asia/Kolkata** (set it on the account *and* in
+  each job's Advanced tab), days **Mon–Fri** (except the weekly digest)
+- Headers (all four — without `Content-Type` cron-job.org doesn't send the
+  body as JSON and GitHub answers **422**):
   - `Authorization: Bearer <your token>`
   - `Accept: application/vnd.github+json`
   - `X-GitHub-Api-Version: 2022-11-28`
+  - `Content-Type: application/json` (the "Add Content-Type header now" button under the body adds it)
 - URL: `https://api.github.com/repos/mrinaljhunjhunwala-ui/nse-smart-investor/actions/workflows/<workflow file>/dispatches`
+- Schedule: pick **Custom** and paste the crontab below. "Every day at…" also
+  fires on weekends.
+- Request body: the box only appears once the method is POST. Type the JSON
+  with straight quotes — curly quotes get a 400, an empty body a 422.
 
-| # | Workflow file | Body | Schedule (IST) | What it does |
-|---|---|---|---|---|
-| 1 | `warm-preopen-scan.yml` | `{"ref":"main"}` | 08:40 | Fresh Top Picks + Tomorrow's Watchlist, then sends the **Morning Delivery Digest** |
-| 2 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"intraday-watchlist","force":"false"}}` | 09:20 | Intraday framing of the top picks |
-| 3 | `market-alerts.yml` | `{"ref":"main"}` | every 15 min, 09:00–15:45 | Price alerts, India VIX regime, Nifty trend |
-| 4 | `warm-top-picks.yml` | `{"ref":"main"}` | every 30 min, 09:15–15:45 | Keeps the dashboard's Top Picks snapshot fresh |
-| 5 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"momentum","force":"false"}}` | every 30 min, 10:00–15:00 | Momentum-scan digest (max one AM + one PM) |
-| 6 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"portfolio-posture","force":"false"}}` | 14:00 | Angel One holdings posture |
-| 7 | `warm_tomorrow_watchlist.yml` | `{"ref":"main"}` | 15:50 | Tomorrow's Watchlist after close |
-| 8 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"weekly-digest","force":"false"}}` | Sunday 09:00 | Week-ahead summary |
+| # | Workflow file | Body | Crontab (IST) | Schedule | What it does |
+|---|---|---|---|---|---|
+| 1 | `warm-preopen-scan.yml` | `{"ref":"main"}` | `40 8 * * 1-5` | 08:40 | Fresh Top Picks + Tomorrow's Watchlist, then sends the **Morning Delivery Digest** |
+| 2 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"intraday-watchlist","force":"false"}}` | `20 9 * * 1-5` | 09:20 | Intraday framing of the top picks |
+| 3 | `market-alerts.yml` | `{"ref":"main"}` | `*/15 9-15 * * 1-5` | every 15 min, 09:00–15:45 | Price alerts, India VIX regime, Nifty trend |
+| 4 | `warm-top-picks.yml` | `{"ref":"main"}` | `15,45 9-15 * * 1-5` | every 30 min, 09:15–15:45 | Keeps the dashboard's Top Picks snapshot fresh |
+| 5 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"momentum","force":"false"}}` | `0,30 10-14 * * 1-5` | every 30 min, 10:00–14:30 | Momentum-scan digest (max one AM + one PM) |
+| 6 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"portfolio-posture","force":"false"}}` | `0 14 * * 1-5` | 14:00 | Angel One holdings posture |
+| 7 | `warm_tomorrow_watchlist.yml` | `{"ref":"main"}` | `50 15 * * 1-5` | 15:50 | Tomorrow's Watchlist after close |
+| 8 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"weekly-digest","force":"false"}}` | `0 9 * * 0` | Sunday 09:00 | Week-ahead summary |
+
+Fastest way to add jobs 2–8: open a working job's ⋯ menu → **Clone**, then
+change the title, URL, body and crontab. Clones start **Inactive** — flip
+"Enable job" before saving.
 
 `"force":"false"` matters for `market-digest.yml`: without it a dispatched run
 is treated as a manual test (skips the market-hours guard **and** the
@@ -126,7 +137,13 @@ market window and NSE holidays themselves, so triggering on a holiday is a
 harmless no-op.
 
 A successful call returns **HTTP 204**; a `workflow_dispatch` run should appear
-in the Actions tab within a minute. The GitHub `schedule:` crons stay in the
+in the Actions tab within a minute. Reading a failure: **401** = bad/expired
+token, **403/404** = token lacks Actions write on this repo, **422** = missing
+body or `Content-Type`. cron-job.org's "Test run" button sits behind a bot
+check that ad blockers can break ("couldn't verify your test run request");
+if so, set the crontab two minutes ahead, check the job's History, then put
+the real crontab back. Turn on "Save responses in job history" to see
+GitHub's error text there. The GitHub `schedule:` crons stay in the
 workflow files as a fallback — duplicates are serialised by concurrency groups
 and de-duplicated by `alert_state.json`.
 
