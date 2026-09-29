@@ -974,33 +974,61 @@ def get_positions() -> Optional[Dict]:
             timeout=12,
         )
         parsed = _safe_parse_json_response(resp)
-        raw = (parsed.get("data") if isinstance(parsed, dict) else None) or {}
+        raw = (parsed.get("data") if isinstance(parsed, dict) else None) or []
+        # SmartAPI getPosition returns a flat list of rows (equity and F&O
+        # alike). Older code assumed a {"day": [...], "net": [...]} dict and
+        # crashed on .get() of a list, so the page showed no positions at all.
+        if isinstance(raw, dict):
+            raw = (raw.get("net") or []) + (raw.get("day") or [])
         if not raw:
-            return {"day": [], "net": []}
+            return {"day": [], "net": [], "closed": []}
 
-        def _parse_positions(items: list) -> List[Dict]:
-            out = []
-            for p in (items or []):
-                qty = int(p.get("netqty", 0) or 0)
-                if qty == 0:
+        def _f(p: Dict, *keys: str) -> float:
+            for k in keys:
+                try:
+                    v = p.get(k)
+                    if v not in (None, ""):
+                        return float(v)
+                except (TypeError, ValueError):
                     continue
-                avg = float(p.get("netavgprice", 0) or 0)
-                ltp = float(p.get("ltp", avg) or avg)
-                out.append({
-                    "symbol": p.get("tradingsymbol", "").replace("-EQ", ""),
-                    "qty": qty,
-                    "avg_price": round(avg, 2),
-                    "ltp": round(ltp, 2),
-                    "pnl": round((ltp - avg) * qty, 2),
-                    "product": p.get("producttype", ""),
-                    "side": "LONG" if qty > 0 else "SHORT",
-                })
-            return out
+            return 0.0
 
-        return {
-            "day": _parse_positions(raw.get("day") or []),
-            "net": _parse_positions(raw.get("net") or []),
-        }
+        open_rows: List[Dict] = []
+        closed_rows: List[Dict] = []
+        seen = set()
+        for p in raw:
+            key = (p.get("tradingsymbol"), p.get("exchange"), p.get("producttype"))
+            if key in seen:
+                continue
+            seen.add(key)
+            qty = int(_f(p, "netqty"))
+            avg = _f(p, "netprice", "avgnetprice", "netavgprice")
+            ltp = _f(p, "ltp") or avg
+            exch = str(p.get("exchange") or "")
+            pnl = _f(p, "pnl") if p.get("pnl") not in (None, "") else (ltp - avg) * qty
+            row = {
+                "symbol": str(p.get("tradingsymbol") or "").replace("-EQ", ""),
+                "exchange": exch,
+                "segment": "F&O" if exch in ("NFO", "BFO", "MCX", "CDS") else "Equity",
+                "instrument": str(p.get("instrumenttype") or ""),
+                "expiry": str(p.get("expirydate") or ""),
+                "strike": _f(p, "strikeprice") or None,
+                "option_type": str(p.get("optiontype") or ""),
+                "lot_size": int(_f(p, "lotsize")) or None,
+                "qty": qty,
+                "avg_price": round(avg, 2),
+                "ltp": round(ltp, 2),
+                "pnl": round(pnl, 2),
+                "realised": round(_f(p, "realised"), 2),
+                "unrealised": round(_f(p, "unrealised"), 2),
+                "product": str(p.get("producttype") or ""),
+                "side": "LONG" if qty > 0 else ("SHORT" if qty < 0 else "CLOSED"),
+            }
+            (open_rows if qty != 0 else closed_rows).append(row)
+
+        # "day" kept for callers (alerts, posture) — Angel's position book is
+        # already today's book, so open rows serve both.
+        return {"day": open_rows, "net": open_rows, "closed": closed_rows}
 
     except Exception as e:
         _log.warning("angel_fetcher.get_positions failed: %s", e)
