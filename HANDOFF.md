@@ -23,6 +23,48 @@
     scheduled job has an external trigger), and verdict-ledger fixes (IST session dates, NSE holidays,
     backfill no longer starved).
 
+## Alerts pipeline — state as of 2026-09-29 (#190 #192 #195 #196 #200 #206 #207)
+
+- **GitHub cron is effectively dead for this repo.** On Mon 2026-09-28 it ran 1 warm-up and **zero**
+  Market Alerts, digest or pre-open runs during market hours. Every scheduled workflow now takes an
+  external `workflow_dispatch` trigger. The 8 targets (URL, body, IST schedule) are in a table in
+  `alerts/README.md`.
+  - **cron-job.org is NOT set up yet.** The user has to do this: an account plus a fine-grained token with
+    Actions read/write.
+  - **Stopgap:** Windows Task Scheduler on the user's PC, folder `\NSE Smart Investor\`.
+    - Pre-open at 08:40, and Market Alerts every 15 min from 09:00 to 15:45, Mon–Fri.
+    - Both have wake-to-run and catch-up enabled.
+    - Script: `C:\Users\ASUS\nse-triggers\dispatch.ps1`. Log: `dispatch.log` in the same folder.
+    - It only fires while the PC is on. Delete it once cron-job.org works.
+  - `market-digest.yml` dispatches must send `"force":"false"`. Otherwise they act as manual tests and skip
+    the market-hours guard and dedup.
+- **Angel One candle API:** it works from GitHub runners and isn't IP-blocked. It returns 403 "exceeding
+  access rate" at about 90 calls/min, and a longer-window quota cuts off at about 700 calls.
+  - Since #195, one thread at a time fetches candles, within 60/min.
+  - Any other thread gets `AngelBusy` and falls through to Yahoo silently.
+  - Bulk scans never need Angel.
+- **Morning Delivery Digest:** `warm-preopen-scan.yml` sends it right after writing the fresh snapshot
+  (#192). Snapshots older than 16h are skipped. First delivered 2026-09-29, late because the PC was off at
+  08:40.
+- **Portfolio alerts (#206):** built from the My Portfolio holdings (KV `manual_portfolio_holdings`) on every
+  Market Alerts run.
+  - A ±10% step alert from a stored reference price, which re-anchors on each alert.
+  - An alert when the price crosses the average cost.
+  - References live in KV `portfolio_alert_anchors` (user `_system`), seeded from the 28-Sep closes.
+  - `data/alerts.csv` is back to disabled examples, for custom one-off levels only.
+- **Run logs name what fired (#207):** `[sent] <headline>` for each alert, and
+  `[main] per-check: price= portfolio= vix= nifty=` per run. The recurring daily alert is the
+  **Nifty 50 downtrend** check.
+- **CI hygiene (#207):** actions are on their Node-24 majors (checkout v5, setup-python v6, cache v5,
+  upload-artifact v6). Runners are pinned to `ubuntu-24.04`, because `ubuntu-latest` moves to Ubuntu 26 on
+  2026-10-19.
+- **Open decision: Tomorrow's Watchlist in bear regimes.** #168 (25 Sep) and #198 (28 Sep) compress
+  bear-regime scores (Technical held at 20/40, RS at 5/10).
+  - No stock reaches BUY ≥ 65; the top score on 29 Sep was 62.6.
+  - The breakout funnel's first gate is `BUY/STRONG BUY`, so the list is empty by construction.
+  - Breakdown fell from 15 to 1–4.
+  - Options: rank-based gates in bear regimes, or show the lists as regime-suppressed. Needs a user call.
+
 ## What shipped 2026-09-28, later (#200 → #204)
 
 - **Bear follow-up (#202, docs only):** on the same 10y data, #198 improves every risk_off cell and 3 of 4
