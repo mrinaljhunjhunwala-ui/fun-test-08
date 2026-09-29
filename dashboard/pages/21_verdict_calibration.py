@@ -119,6 +119,37 @@ _o2.metric("Shadow trades", f"{_by_source.get('shadow_auto', 0):,}")
 _o3.metric("Played out ≥20d", f"{_played_20d:,}")
 _o4.metric("Played out ≥60d", f"{_played_60d:,}")
 
+# ── Pre-registered evidence test (fixed 2026-09-29, before the sample matured) ─
+_rule_res = _vl.evaluate_decision_rule()
+_rule = _rule_res["rule"]
+_rule_txt = (
+    f"At **{_rule['horizon_days']} sessions**, pooling **{' + '.join(_rule['verdicts'])}**, "
+    f"with at least **{_rule['min_verdicts']} verdicts** across **{_rule['min_days']} separate "
+    f"days**: the day-clustered Wilson lower bound on *the day's picks beat NIFTY* must be "
+    f"above **{_rule['threshold_pct']:.0f}%**. Registered {_rule['registered_on']}; changing it "
+    "after seeing results would defeat its purpose."
+)
+_wl = _rule_res["wilson_lower_days_vs_nifty"]
+_progress = (f"Now: **{_rule_res['n_alpha']}** verdicts over **{_rule_res['alpha_days']}** days "
+             "with a NIFTY return"
+             + (f" · day-clustered Wilson lower vs NIFTY **{_wl:.1f}%**" if _wl is not None else ""))
+st.markdown(
+    '<div class="t-h2" style="margin:14px 0 6px 0">🧾 Pre-registered evidence test</div>',
+    unsafe_allow_html=True,
+)
+st.caption(_rule_txt)
+if _rule_res["status"] == "insufficient":
+    st.info(f"**Not enough data yet.** {_progress}. Until both floors are reached, no "
+            "conclusion either way is supported.")
+elif _rule_res["status"] == "met":
+    st.success(f"**Criterion met.** {_progress}. On its own past calls, the model's picks beat "
+               "NIFTY on enough days to clear the bar. Caveat: forward windows of nearby days "
+               "overlap, so this is weaker evidence than the day count suggests. Descriptive "
+               "only — not advice.")
+else:
+    st.warning(f"**Criterion not met.** {_progress}. On its own past calls, the model has not "
+               "yet shown it beats NIFTY more reliably than chance. Descriptive only.")
+
 st.markdown("---")
 
 # ── Section A — Calibration by verdict × horizon ─────────────────────────────
@@ -138,11 +169,12 @@ st.caption(
     "after the verdict date."
 )
 st.caption(
-    "⚠️ **Overlap caveat:** a ticker viewed on several consecutive days "
-    "contributes several rows whose forward windows overlap, so the samples "
-    "are not independent. The Wilson bounds treat them as independent and "
-    "are therefore **optimistic** (too narrow), especially at 20/60/250 "
-    "sessions."
+    "⚠️ **Overlap caveat:** picks logged the same day share one market move, "
+    "and a ticker viewed on consecutive days has overlapping windows, so rows "
+    "are not independent — the row-level Wilson bounds are **optimistic**. "
+    "**Days** counts distinct logging days; **Days beating NIFTY %** scores each "
+    "day once (did that day's picks beat NIFTY on average?) and its Wilson "
+    "lower bound is the more honest number."
 )
 
 # Shared column labels: raw win vs win-vs-NIFTY are labelled distinctly.
@@ -154,6 +186,10 @@ _WIN_COLS = {
     "win_vs_nifty": "Win vs NIFTY %",
     "wilson_lower_vs_nifty": "Wilson lower vs NIFTY %",
     "wins": "Wins (raw)",
+    "n_days": "Days",
+    "alpha_days": "Days with α",
+    "day_win_vs_nifty": "Days beating NIFTY %",
+    "wilson_lower_days_vs_nifty": "Wilson lower (days) vs NIFTY %",
 }
 
 _horizon_choice = st.radio(
@@ -187,14 +223,53 @@ else:
         _bw = _buy_row["Wilson lower % (raw)"].max()
         _bwn = _buy_row["Wilson lower vs NIFTY %"].max()
         _ba = _buy_row["α vs NIFTY %"].max()
+        _bd = _buy_row["Wilson lower (days) vs NIFTY %"].max()
+        _bdays_raw = _buy_row["Days"].max()
+        _bdays = 0 if pd.isna(_bdays_raw) else int(_bdays_raw)
         _ba_txt = "unavailable" if pd.isna(_ba) else f"{_ba:+.2f}%"
         _bwn_txt = "unavailable" if pd.isna(_bwn) else f"{_bwn:.1f}%"
+        _bd_txt = "unavailable" if pd.isna(_bd) else f"{_bd:.1f}%"
         st.caption(
             f"👀 BUY/STRONG BUY at {_horizon_choice} sessions: Wilson-lower raw win "
-            f"rate **{_bw:.1f}%**, Wilson-lower win vs NIFTY **{_bwn_txt}**, best "
-            f"mean α **{_ba_txt}**. Below 50% Wilson lower means not yet reliably "
-            "better than a coin flip (and the overlap caveat above makes these bounds optimistic)."
+            f"rate **{_bw:.1f}%**, Wilson-lower win vs NIFTY **{_bwn_txt}** (rows), "
+            f"**{_bd_txt}** counting each of the **{_bdays}** day(s) once; best mean α "
+            f"**{_ba_txt}**. Below 50% means not yet reliably better than a coin flip."
         )
+
+# ── Section A2 — Same calls, split by market regime ──────────────────────────
+st.markdown(
+    '<div class="t-h2" style="margin:18px 0 6px 0">🌗 By market regime</div>',
+    unsafe_allow_html=True,
+)
+st.caption(
+    f"BUY/STRONG BUY calls split by whether NIFTY was rising or falling over the "
+    f"{_vl.REGIME_LOOKBACK_SESSIONS} sessions **before** each call (no look-ahead). A model "
+    "that only looks good in one regime has learned the market, not the stocks."
+)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _nifty_history():
+    return _vl._fetch_history(_vl.NIFTY_BENCH)
+
+
+_nifty_df = _nifty_history()
+if _nifty_df is None:
+    _nifty_history.clear()          # don't pin a failed fetch for the cache TTL
+_reg = _vl.regime_calibration(horizon_days=_horizon_choice, nifty_df=_nifty_df)
+if _reg.empty:
+    st.info(f"No BUY/STRONG BUY calls have played out at {_horizon_choice} sessions yet.")
+else:
+    _reg = _reg.rename(columns={
+        "regime": "NIFTY regime",
+        "n": "N",
+        "mean_ret": f"Mean {_horizon_choice}-session %",
+        "median_ret": f"Median {_horizon_choice}-session %",
+        **_WIN_COLS,
+    })
+    st.dataframe(_reg, hide_index=True, width="stretch")
+    if (_reg["NIFTY regime"] == "Unknown").all():
+        st.caption("NIFTY history unavailable right now, so regimes can't be tagged.")
 
 # ── Section B — Conviction calibration ────────────────────────────────────────
 st.markdown("---")
@@ -362,7 +437,9 @@ else:
         if v < 0:
             return f"color: {_TK['bear']}; font-weight: 600;"
         return ""
-    _sty = _sh.style.applymap(
+    # Styler.map (pandas >= 2.1) replaced applymap, which pandas 3 removed.
+    _style_map = getattr(_sh.style, "map", None) or _sh.style.applymap
+    _sty = _style_map(
         _colour_ret,
         subset=[c for c in [f"return_{_sh_horizon}d_pct", "alpha"]
                 if c in _sh.columns],

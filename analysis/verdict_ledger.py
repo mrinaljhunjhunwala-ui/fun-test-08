@@ -672,6 +672,37 @@ def calibration_by(*, group_col: str, horizon_days: int,
     return out.sort_values("n", ascending=False)
 
 
+def _day_stats(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    """Day-clustered view: rows logged the same session share one market move,
+    so they are ONE observation, not many. Per group: n_days (distinct
+    logged_date), and the share of days whose mean alpha beat NIFTY with its
+    Wilson lower bound computed over days, not rows."""
+    cols = [group_col, "n_days", "alpha_days", "day_win_vs_nifty", "wilson_lower_days_vs_nifty"]
+    if "logged_date" not in df.columns:
+        return pd.DataFrame(columns=cols)
+    daily = (df[df["alpha"].notna()]
+             .groupby([group_col, "logged_date"], dropna=False)["alpha"].mean()
+             .reset_index())
+    n_days = df.groupby(group_col, dropna=False)["logged_date"].nunique().rename("n_days")
+    if daily.empty:
+        out = n_days.reset_index()
+        out["alpha_days"] = 0
+        out["day_win_vs_nifty"] = np.nan
+        out["wilson_lower_days_vs_nifty"] = np.nan
+        return out[cols]
+    daily["day_win"] = (daily["alpha"] > 0).astype(int)
+    g = daily.groupby(group_col, dropna=False).agg(
+        alpha_days=("day_win", "count"), day_wins=("day_win", "sum")).reset_index()
+    g["day_win_vs_nifty"] = g["day_wins"] / g["alpha_days"]
+    g["wilson_lower_days_vs_nifty"] = g.apply(
+        lambda r: _wilson_lower(int(r["day_wins"]), int(r["alpha_days"])), axis=1)
+    out = n_days.reset_index().merge(
+        g[[group_col, "alpha_days", "day_win_vs_nifty", "wilson_lower_days_vs_nifty"]],
+        on=group_col, how="left")
+    out["alpha_days"] = out["alpha_days"].fillna(0).astype(int)
+    return out[cols]
+
+
 def _aggregate(df: pd.DataFrame, *, group_col: str, id_col: str) -> pd.DataFrame:
     """Shared calibration aggregation over columns ret_val / n_ret_val.
 
@@ -686,6 +717,10 @@ def _aggregate(df: pd.DataFrame, *, group_col: str, id_col: str) -> pd.DataFrame
         each with its own Wilson lower bound.
     """
     df = df.copy()
+    # All-NULL columns arrive as object dtype (None), which pandas 2 refuses
+    # to average — coerce so a group with no NIFTY returns yields NaN, not a crash.
+    df["ret_val"] = pd.to_numeric(df["ret_val"], errors="coerce")
+    df["n_ret_val"] = pd.to_numeric(df["n_ret_val"], errors="coerce")
     df["alpha"] = df["ret_val"] - df["n_ret_val"]          # NaN when Nifty missing
     df["is_win"] = (df["ret_val"] > 0).astype(int)
     df["has_alpha"] = df["alpha"].notna().astype(int)
@@ -715,6 +750,13 @@ def _aggregate(df: pd.DataFrame, *, group_col: str, id_col: str) -> pd.DataFrame
     out["win_vs_nifty"] = (out["win_vs_nifty"].astype(float) * 100).round(1)
     out["wilson_lower_vs_nifty"] = (out["wilson_lower_vs_nifty"].astype(float) * 100).round(1)
     out["n_alpha"] = out["n_alpha"].astype(int)
+    # FIX CAL-DAYS (2026-09-29): day-clustered columns next to the row-level
+    # ones — the row-level Wilson bounds treat same-day picks as independent.
+    days = _day_stats(df, group_col)
+    out = out.merge(days, on=group_col, how="left")
+    out["day_win_vs_nifty"] = (out["day_win_vs_nifty"].astype(float) * 100).round(1)
+    out["wilson_lower_days_vs_nifty"] = (
+        out["wilson_lower_days_vs_nifty"].astype(float) * 100).round(1)
     return out.drop(columns=["alpha_wins"])
 
 
@@ -734,6 +776,7 @@ def tag_calibration(*, horizon_days: int, min_n: int = 5) -> pd.DataFrame:
         sql = _store._q(f"""
             SELECT t.tag,
                    v.id AS log_id,
+                   v.logged_date,
                    r.{ret_col}   AS ret_val,
                    r.{nifty_col} AS n_ret_val
             FROM verdict_signal_tags t
@@ -782,3 +825,127 @@ def shadow_pnl(*, horizon_days: int = 20) -> pd.DataFrame:
         ret_col:                  f"return_{horizon_days}d_pct",
         nifty_col:                f"nifty_{horizon_days}d_pct",
     }).sort_values("logged_date", ascending=False)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Market-regime split + pre-registered decision rule (2026-09-29)
+# ─────────────────────────────────────────────────────────────────────────────
+
+BULLISH_VERDICTS = ("BUY", "STRONG BUY")
+REGIME_LOOKBACK_SESSIONS = 20
+
+
+# Ledger reads for the regime split and the decision rule must see EVERY row —
+# a silently truncated sample would make a pre-registered test meaningless.
+_FULL_LEDGER_LIMIT = 1_000_000
+
+
+def _load_full_ledger() -> pd.DataFrame:
+    df = load_ledger(limit=_FULL_LEDGER_LIMIT)
+    if len(df) >= _FULL_LEDGER_LIMIT:
+        _log.warning("verdict ledger read truncated at %d rows", _FULL_LEDGER_LIMIT)
+    return df
+
+
+def nifty_regime_at(nifty_df: Optional[pd.DataFrame], logged: _dt.date,
+                    lookback: int = REGIME_LOOKBACK_SESSIONS) -> Optional[str]:
+    """'Rising' / 'Falling' by NIFTY's trailing `lookback`-session return using
+    only bars STRICTLY BEFORE `logged` — a verdict logged intraday couldn't
+    know that day's close (no look-ahead). None if too little data."""
+    if nifty_df is None or nifty_df.empty or "Close" not in nifty_df.columns:
+        return None
+    try:
+        dates = pd.Series(nifty_df.index.date, index=nifty_df.index)
+        close = pd.to_numeric(nifty_df.loc[dates < logged, "Close"], errors="coerce").dropna()
+    except Exception:
+        return None
+    if len(close) <= lookback:
+        return None
+    ret = float(close.iloc[-1]) / float(close.iloc[-1 - lookback]) - 1.0
+    return "Rising" if ret >= 0 else "Falling"
+
+
+def regime_calibration(*, horizon_days: int, nifty_df: Optional[pd.DataFrame],
+                       verdicts: tuple = BULLISH_VERDICTS) -> pd.DataFrame:
+    """Calibration for `verdicts` split by the NIFTY regime on the day each
+    verdict was logged. Rows whose regime can't be determined are 'Unknown'."""
+    df = _load_full_ledger()
+    ret_col, nifty_col = f"ret_{horizon_days}d", f"nifty_ret_{horizon_days}d"
+    if df.empty or ret_col not in df.columns:
+        return pd.DataFrame()
+    df = df[df["verdict"].isin(verdicts) & df[ret_col].notna()].copy()
+    if df.empty:
+        return pd.DataFrame()
+    cache: Dict[str, Optional[str]] = {}
+    for d in df["logged_date"].astype(str).unique():
+        try:
+            cache[d] = nifty_regime_at(nifty_df, _dt.date.fromisoformat(d))
+        except ValueError:
+            cache[d] = None
+    df["regime"] = df["logged_date"].astype(str).map(lambda d: cache.get(d) or "Unknown")
+    n_ret = df[nifty_col] if nifty_col in df.columns else pd.Series(np.nan, index=df.index)
+    out = _aggregate(df.rename(columns={ret_col: "ret_val"}).assign(n_ret_val=n_ret),
+                     group_col="regime", id_col="id")
+    return out.sort_values("regime")
+
+
+# Pre-registered pass/fail test, fixed BEFORE the 20-session sample matured so
+# the result can't be cherry-picked afterwards. Changing it means changing
+# REGISTERED_ON and saying why in the commit — never quietly.
+DECISION_RULE: Dict[str, Any] = {
+    "registered_on": "2026-09-29",
+    "horizon_days": 20,
+    "verdicts": BULLISH_VERDICTS,
+    "min_verdicts": 150,
+    "min_days": 20,
+    # day-clustered Wilson lower bound on "the day's picks beat NIFTY", in %
+    "threshold_pct": 50.0,
+}
+
+
+def evaluate_decision_rule(rule: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Evaluate DECISION_RULE on the current ledger.
+
+    status: 'insufficient' (verdicts / days WITH a NIFTY return below
+                            min_verdicts / min_days),
+            'met' (day-clustered Wilson lower vs NIFTY > threshold),
+            'not_met' otherwise. Descriptive only — an evidence check on the
+            model's own past calls, not a recommendation.
+    """
+    rule = rule or DECISION_RULE
+    h = int(rule["horizon_days"])
+    res: Dict[str, Any] = {"status": "insufficient", "n": 0, "n_days": 0,
+                           "wilson_lower_days_vs_nifty": None,
+                           "day_win_vs_nifty": None, "mean_alpha": None, "rule": rule,
+                           "n_alpha": 0, "alpha_days": 0}
+    df = _load_full_ledger()
+    ret_col, nifty_col = f"ret_{h}d", f"nifty_ret_{h}d"
+    if df.empty or ret_col not in df.columns:
+        return res
+    df = df[df["verdict"].isin(rule["verdicts"]) & df[ret_col].notna()].copy()
+    if df.empty:
+        return res
+    n_ret = df[nifty_col] if nifty_col in df.columns else pd.Series(np.nan, index=df.index)
+    agg = _aggregate(df.rename(columns={ret_col: "ret_val"}).assign(n_ret_val=n_ret, pooled="all"),
+                     group_col="pooled", id_col="id")
+    row = agg.iloc[0]
+    res.update(n=int(row["n"]), n_days=int(row["n_days"]),
+               n_alpha=int(row["n_alpha"]), alpha_days=int(row["alpha_days"]),
+               wilson_lower_days_vs_nifty=_none_if_nan(row["wilson_lower_days_vs_nifty"]),
+               day_win_vs_nifty=_none_if_nan(row["day_win_vs_nifty"]),
+               mean_alpha=_none_if_nan(row["mean_alpha"]))
+    # Floors count only verdicts/days WITH a NIFTY return — those are the
+    # only ones the Wilson bound is computed over.
+    if res["n_alpha"] < rule["min_verdicts"] or res["alpha_days"] < rule["min_days"]:
+        return res
+    wl = res["wilson_lower_days_vs_nifty"]
+    res["status"] = "met" if wl is not None and wl > rule["threshold_pct"] else "not_met"
+    return res
+
+
+def _none_if_nan(v: Any) -> Optional[float]:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if np.isnan(f) else f
