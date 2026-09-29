@@ -210,6 +210,22 @@ def ensure_schema() -> None:
                 price_250d  {real}, ret_250d  {real}, nifty_ret_250d  {real}
             )
         """)
+        # Additive migration: sector peer-basket return per horizon (2026-09-30).
+        if is_pg:
+            for h in HORIZONS_DAYS:
+                cur.execute(f"ALTER TABLE verdict_forward_returns "
+                            f"ADD COLUMN IF NOT EXISTS sector_ret_{h}d {real}")
+        else:
+            cur.execute("PRAGMA table_info(verdict_forward_returns)")
+            have = {row[1] for row in cur.fetchall()}
+            for h in HORIZONS_DAYS:
+                if f"sector_ret_{h}d" not in have:
+                    try:
+                        cur.execute(f"ALTER TABLE verdict_forward_returns "
+                                    f"ADD COLUMN sector_ret_{h}d {real}")
+                    except Exception as e:   # another connection added it first
+                        if "duplicate column" not in str(e).lower():
+                            raise
         # Additive migration: backfill_misses counts backfill passes that
         # found this row's price history dead (see _MAX_BACKFILL_MISSES).
         if is_pg:
@@ -368,7 +384,9 @@ def load_ledger(*, ticker: Optional[str] = None,
                    r.price_5d,   r.ret_5d,   r.nifty_ret_5d,
                    r.price_20d,  r.ret_20d,  r.nifty_ret_20d,
                    r.price_60d,  r.ret_60d,  r.nifty_ret_60d,
-                   r.price_250d, r.ret_250d, r.nifty_ret_250d
+                   r.price_250d, r.ret_250d, r.nifty_ret_250d,
+                   r.sector_ret_1d, r.sector_ret_5d, r.sector_ret_20d,
+                   r.sector_ret_60d, r.sector_ret_250d
             FROM verdict_log v
             LEFT JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
             {wsql}
@@ -591,6 +609,96 @@ def _last_bar_date(df: Optional[pd.DataFrame]) -> Optional[_dt.date]:
         return None
 
 
+def backfill_sector_returns(*, max_rows: int = _BACKFILL_CANDIDATE_CAP) -> Dict[str, int]:
+    """Fill sector_ret_{h}d — the verdict's own sector peer-basket return over
+    the same window — for every horizon whose stock return is already filled.
+
+    No network: baskets are built from NSE bhavcopy closes already stored in
+    nse_delivery_daily (see analysis.sector_baskets). Windows the stored closes
+    don't fully cover stay NULL and are retried on the next call (cheap).
+    Tickers outside data/universe.SECTOR_MAP have no basket and are skipped.
+    """
+    stats = {"candidates": 0, "updated": 0}
+    try:
+        from analysis.sector_baskets import basket_daily_returns, basket_return
+        from data.universe import SECTOR_MAP
+
+        ensure_schema()
+        with _store._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT MAX(date) FROM nse_delivery_daily")
+            got = cur.fetchone()
+        if not got or not got[0]:
+            return stats
+        last_close = _dt.date.fromisoformat(str(got[0]))
+        mapped = sorted(t for t, s in SECTOR_MAP.items() if s and s != "Other")
+        gaps = " OR ".join(f"(r.ret_{h}d IS NOT NULL AND r.sector_ret_{h}d IS NULL)"
+                           for h in HORIZONS_DAYS)
+        cols = ", ".join(f"r.ret_{h}d, r.sector_ret_{h}d" for h in HORIZONS_DAYS)
+        sql = _store._q(f"""
+            SELECT v.id, v.ticker, v.logged_date, {cols}
+            FROM verdict_log v
+            JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
+            WHERE ({gaps}) AND v.ticker IN ({",".join(["?"] * len(mapped))})
+            ORDER BY v.logged_at DESC
+            LIMIT ?
+        """)
+        with _store._get_conn() as conn:
+            rows = read_sql_df(sql, conn, params=(*mapped, int(max_rows)))
+        if rows.empty:
+            return stats
+        rows["sector"] = rows["ticker"].map(SECTOR_MAP)
+        logged = pd.to_datetime(rows["logged_date"]).dt.date
+
+        # Only windows the stored closes can already cover: target <= last close.
+        def _fillable(r, d) -> List[int]:
+            return [h for h in HORIZONS_DAYS
+                    if pd.notna(r[f"ret_{h}d"]) and pd.isna(r[f"sector_ret_{h}d"])
+                    and horizon_target_date(d, h) <= last_close]
+        todo = [(r, d, _fillable(r, d)) for (_, r), d in zip(rows.iterrows(), logged)]
+        todo = [t for t in todo if t[2]]
+        stats["candidates"] = len(todo)
+        if not todo:
+            return stats                    # nothing coverable yet — skip the close read
+        lo = min(d for _, d, _ in todo)
+        hi = min(last_close, max(horizon_target_date(d, max(hs)) for _, d, hs in todo))
+
+        sector_of = {t.replace(".NS", ""): sec for t, sec in SECTOR_MAP.items()}
+        syms = sorted(sector_of)
+        ph = ",".join(["?"] * len(syms))
+        with _store._get_conn() as conn:
+            closes = read_sql_df(_store._q(
+                f"SELECT symbol, date, close FROM nse_delivery_daily "
+                f"WHERE date >= ? AND date <= ? AND symbol IN ({ph})"),
+                conn, params=(lo.isoformat(), hi.isoformat(), *syms))
+        daily = basket_daily_returns(closes, sector_of)
+        if daily.empty:
+            return stats
+
+        for r, d, hs in todo:
+            updates: Dict[str, float] = {}
+            for h in hs:
+                v = basket_return(daily, r["sector"], d, horizon_target_date(d, h))
+                if v is not None:
+                    updates[f"sector_ret_{h}d"] = round(v, 4)
+            if updates:
+                _set_forward_columns(int(r["id"]), updates)
+                stats["updated"] += 1
+    except Exception as e:
+        _log.warning("backfill_sector_returns failed: %s: %s", type(e).__name__, e)
+    return stats
+
+
+def _set_forward_columns(log_id: int, updates: Dict[str, float]) -> None:
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    with _store._get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(_store._q(
+            f"UPDATE verdict_forward_returns SET {set_clause} WHERE verdict_log_id=?"),
+            (*updates.values(), log_id))
+        conn.commit()
+
+
 def _record_misses(log_ids: List[int], reset: bool = False) -> None:
     """Bump backfill_misses for rows whose history looked dead this pass, or
     (reset=True) zero it for rows that just filled a horizon."""
@@ -667,40 +775,69 @@ def calibration_by(*, group_col: str, horizon_days: int,
     if df.empty:
         return pd.DataFrame()
     n_ret = df[nifty_col] if nifty_col in df.columns else pd.Series(np.nan, index=df.index)
-    out = _aggregate(df.rename(columns={ret_col: "ret_val"}).assign(n_ret_val=n_ret),
+    s_ret = df.get(f"sector_ret_{horizon_days}d", pd.Series(np.nan, index=df.index))
+    out = _aggregate(df.rename(columns={ret_col: "ret_val"}).assign(n_ret_val=n_ret, s_ret_val=s_ret),
                      group_col=group_col, id_col="id")
     return out.sort_values("n", ascending=False)
 
 
-def _day_stats(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+def _day_stats(df: pd.DataFrame, group_col: str, *, alpha_col: str = "alpha",
+               suffix: str = "nifty", days_col: str = "alpha_days") -> pd.DataFrame:
     """Day-clustered view: rows logged the same session share one market move,
     so they are ONE observation, not many. Per group: n_days (distinct
     logged_date), and the share of days whose mean alpha beat NIFTY with its
     Wilson lower bound computed over days, not rows."""
-    cols = [group_col, "n_days", "alpha_days", "day_win_vs_nifty", "wilson_lower_days_vs_nifty"]
+    win_c, wl_c = f"day_win_vs_{suffix}", f"wilson_lower_days_vs_{suffix}"
+    cols = [group_col, "n_days", days_col, win_c, wl_c]
     if "logged_date" not in df.columns:
         return pd.DataFrame(columns=cols)
-    daily = (df[df["alpha"].notna()]
-             .groupby([group_col, "logged_date"], dropna=False)["alpha"].mean()
-             .reset_index())
+    daily = (df[df[alpha_col].notna()]
+             .groupby([group_col, "logged_date"], dropna=False)[alpha_col].mean()
+             .reset_index().rename(columns={alpha_col: "alpha"}))
     n_days = df.groupby(group_col, dropna=False)["logged_date"].nunique().rename("n_days")
     if daily.empty:
         out = n_days.reset_index()
-        out["alpha_days"] = 0
-        out["day_win_vs_nifty"] = np.nan
-        out["wilson_lower_days_vs_nifty"] = np.nan
+        out[days_col] = 0
+        out[win_c] = np.nan
+        out[wl_c] = np.nan
         return out[cols]
     daily["day_win"] = (daily["alpha"] > 0).astype(int)
     g = daily.groupby(group_col, dropna=False).agg(
-        alpha_days=("day_win", "count"), day_wins=("day_win", "sum")).reset_index()
-    g["day_win_vs_nifty"] = g["day_wins"] / g["alpha_days"]
-    g["wilson_lower_days_vs_nifty"] = g.apply(
-        lambda r: _wilson_lower(int(r["day_wins"]), int(r["alpha_days"])), axis=1)
-    out = n_days.reset_index().merge(
-        g[[group_col, "alpha_days", "day_win_vs_nifty", "wilson_lower_days_vs_nifty"]],
-        on=group_col, how="left")
-    out["alpha_days"] = out["alpha_days"].fillna(0).astype(int)
+        **{days_col: ("day_win", "count")}, day_wins=("day_win", "sum")).reset_index()
+    g[win_c] = g["day_wins"] / g[days_col]
+    g[wl_c] = g.apply(lambda r: _wilson_lower(int(r["day_wins"]), int(r[days_col])), axis=1)
+    out = n_days.reset_index().merge(g[[group_col, days_col, win_c, wl_c]],
+                                     on=group_col, how="left")
+    out[days_col] = out[days_col].fillna(0).astype(int)
     return out[cols]
+
+
+def _sector_stats(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    """α vs the verdict's own sector basket: row-level and day-clustered."""
+    d = df.copy()
+    d["s_ret_val"] = pd.to_numeric(d["s_ret_val"], errors="coerce")
+    d["alpha_sector"] = d["ret_val"] - d["s_ret_val"]
+    d["has_s"] = d["alpha_sector"].notna().astype(int)
+    d["s_win"] = (d["alpha_sector"] > 0).astype(int)
+    g = d.groupby(group_col, dropna=False).agg(
+        mean_alpha_sector=("alpha_sector", "mean"),
+        n_alpha_sector=("has_s", "sum"),
+        s_wins=("s_win", "sum"),
+    ).reset_index()
+    g["win_vs_sector"] = g.apply(
+        lambda r: r["s_wins"] / r["n_alpha_sector"] if r["n_alpha_sector"] > 0 else np.nan, axis=1)
+    g["wilson_lower_vs_sector"] = g.apply(
+        lambda r: _wilson_lower(int(r["s_wins"]), int(r["n_alpha_sector"]))
+        if r["n_alpha_sector"] > 0 else np.nan, axis=1)
+    days = _day_stats(d, group_col, alpha_col="alpha_sector", suffix="sector",
+                      days_col="sector_days").drop(columns=["n_days"])
+    g = g.merge(days, on=group_col, how="left").drop(columns=["s_wins"])
+    g["mean_alpha_sector"] = g["mean_alpha_sector"].round(2)
+    g["n_alpha_sector"] = g["n_alpha_sector"].astype(int)
+    for c in ("win_vs_sector", "wilson_lower_vs_sector",
+              "day_win_vs_sector", "wilson_lower_days_vs_sector"):
+        g[c] = (g[c].astype(float) * 100).round(1)
+    return g
 
 
 def _aggregate(df: pd.DataFrame, *, group_col: str, id_col: str) -> pd.DataFrame:
@@ -757,6 +894,10 @@ def _aggregate(df: pd.DataFrame, *, group_col: str, id_col: str) -> pd.DataFrame
     out["day_win_vs_nifty"] = (out["day_win_vs_nifty"].astype(float) * 100).round(1)
     out["wilson_lower_days_vs_nifty"] = (
         out["wilson_lower_days_vs_nifty"].astype(float) * 100).round(1)
+    # Sector peer-basket baseline (2026-09-30) — only when the caller passed
+    # s_ret_val (the verdict's own sector basket return over the same window).
+    if "s_ret_val" in df.columns:
+        out = out.merge(_sector_stats(df, group_col), on=group_col, how="left")
     return out.drop(columns=["alpha_wins"])
 
 
@@ -778,7 +919,8 @@ def tag_calibration(*, horizon_days: int, min_n: int = 5) -> pd.DataFrame:
                    v.id AS log_id,
                    v.logged_date,
                    r.{ret_col}   AS ret_val,
-                   r.{nifty_col} AS n_ret_val
+                   r.{nifty_col} AS n_ret_val,
+                   r.sector_ret_{horizon_days}d AS s_ret_val
             FROM verdict_signal_tags t
             JOIN verdict_log v ON v.id = t.verdict_log_id
             JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
@@ -884,7 +1026,8 @@ def regime_calibration(*, horizon_days: int, nifty_df: Optional[pd.DataFrame],
             cache[d] = None
     df["regime"] = df["logged_date"].astype(str).map(lambda d: cache.get(d) or "Unknown")
     n_ret = df[nifty_col] if nifty_col in df.columns else pd.Series(np.nan, index=df.index)
-    out = _aggregate(df.rename(columns={ret_col: "ret_val"}).assign(n_ret_val=n_ret),
+    s_ret = df.get(f"sector_ret_{horizon_days}d", pd.Series(np.nan, index=df.index))
+    out = _aggregate(df.rename(columns={ret_col: "ret_val"}).assign(n_ret_val=n_ret, s_ret_val=s_ret),
                      group_col="regime", id_col="id")
     return out.sort_values("regime")
 

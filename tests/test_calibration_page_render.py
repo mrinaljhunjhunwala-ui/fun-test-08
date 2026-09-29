@@ -63,3 +63,6 @@ def test_calibration_page_renders_new_sections(offline):
     assert any("Days" in f.columns and "Wilson lower (days) vs NIFTY %" in f.columns
                for f in frames)
     assert any("NIFTY regime" in f.columns for f in frames)
+    assert any("α vs sector %" in f.columns and "Wilson lower (days) vs sector %" in f.columns
+               for f in frames)
+    assert "vs sector" in text

@@ -89,6 +89,7 @@ if _backend == "sqlite":
 # ── Backfill (lazy, capped, silent) ───────────────────────────────────────────
 with st.spinner("Fetching forward returns for eligible verdicts…"):
     _stats = _vl.backfill_returns(max_rows=200)
+    _vl.backfill_sector_returns()      # stored bhavcopy closes only — no network
 
 _col1, _col2, _col3, _col4 = st.columns(4)
 _col1.metric("Backend", _backend.upper())
@@ -176,6 +177,14 @@ st.caption(
     "day once (did that day's picks beat NIFTY on average?) and its Wilson "
     "lower bound is the more honest number."
 )
+st.caption(
+    "🏭 **vs sector** compares each pick with its sector's peer basket (the daily "
+    "median move of the sector's stocks, from stored NSE bhavcopy closes; the pick "
+    "is one of them) over the same window. Beating NIFTY but not the sector means "
+    "the sector did the work, not the stock selection. At 1–5 sessions it is "
+    "noisier: a pick logged intraday was priced mid-session while the basket "
+    "starts at that day's close. Blank until the stored closes cover the window."
+)
 
 # Shared column labels: raw win vs win-vs-NIFTY are labelled distinctly.
 _WIN_COLS = {
@@ -190,6 +199,13 @@ _WIN_COLS = {
     "alpha_days": "Days with α",
     "day_win_vs_nifty": "Days beating NIFTY %",
     "wilson_lower_days_vs_nifty": "Wilson lower (days) vs NIFTY %",
+    "mean_alpha_sector": "α vs sector %",
+    "n_alpha_sector": "N α sector",
+    "win_vs_sector": "Win vs sector %",
+    "wilson_lower_vs_sector": "Wilson lower vs sector %",
+    "sector_days": "Days with sector α",
+    "day_win_vs_sector": "Days beating sector %",
+    "wilson_lower_days_vs_sector": "Wilson lower (days) vs sector %",
 }
 
 _horizon_choice = st.radio(
