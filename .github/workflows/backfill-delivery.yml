@@ -1,0 +1,63 @@
+name: Backfill delivery closes
+
+# One-off / on-demand backfill of NSE bhavcopy delivery % + closes into
+# nse_delivery_daily. The nightly "Refresh EOD market data" job runs five
+# datasets inside a 40-minute limit, and the delivery fetch is slow (paced
+# NSE archive downloads), so any backfill longer than a few days gets
+# cancelled there (seen 2026-09-29/30 with days=90 and days=25).
+#
+# The calibration page's sector peer baskets (analysis/sector_baskets.py) are
+# built from these closes, so gaps here leave α-vs-sector blank.
+#
+# Upserts only: re-running over days already stored is a no-op. Shares the
+# refresh-eod-data concurrency group so it never races the nightly job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Weekdays to fetch, ending at `end` (e.g. 90)"
+        default: "30"
+      end:
+        description: "Last date to fetch, YYYY-MM-DD (blank = today)"
+        default: ""
+
+concurrency:
+  group: refresh-eod-data
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PYTHONUTF8: "1"
+      DAYS: ${{ github.event.inputs.days }}
+      END: ${{ github.event.inputs.end }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install --quiet -r requirements.txt
+
+      - name: Require DATABASE_URL
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is not set - rows would go to a throwaway SQLite file"
+            exit 1
+          fi
+
+      - name: Delivery % + closes (bhavcopy)
+        run: |
+          if [ -n "$END" ]; then
+            python -m scripts.fetch_nse_delivery --days "$DAYS" --end "$END"
+          else
+            python -m scripts.fetch_nse_delivery --days "$DAYS"
+          fi
