@@ -243,9 +243,6 @@ as disabled.
 6. **Mockup follow-ups:**
    - Watch Live Ticker's 30s refresh and row flash during a market session.
    - Look at the Angel One page connected, on the deployed app.
-   - The main checkout holds **uncommitted F&O-positions changes** to `data/angel_fetcher.py` and
-     `dashboard/pages/16_angel_one.py` from another session. They were written against the pre-#214 page,
-     so they need rebasing onto the new page before commit.
    - `FinalVerdict.primary_reason` can still read "Technical setup: Hold (…)" (`analysis/final_verdict.py`).
 7. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
    monthly circular; the drift warning in `fetch_nse_fno_bhavcopy` names the candidates.
