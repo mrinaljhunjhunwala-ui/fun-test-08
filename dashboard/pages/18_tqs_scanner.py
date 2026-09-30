@@ -320,7 +320,7 @@ if True:  # top-level guard kept minimal so the following block stays indented a
                 ))
                 _rfig.add_trace(go.Scatterpolar(
                     r=_vals + _vals[:1], theta=_theta, name=_r_pick,
-                    fill="toself", fillcolor="rgba(255,149,0,0.18)",
+                    fill="toself", fillcolor="rgba(200,138,63,0.18)",
                     line=dict(color=_PC["accent"], width=2),
                     hovertemplate="%{theta}: %{r:.0f}% of max<extra></extra>",
                 ))

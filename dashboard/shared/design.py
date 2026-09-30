@@ -2,14 +2,14 @@
 
 ── DESIGN TOKENS (NSE Pro v2 — "Dealing Room") ───────────────────────────────
 Reference point: the black-and-phosphor heritage of Bloomberg/Reuters terminals
-rather than a generic dark-mode SaaS dashboard. One accent (India saffron) carries
+rather than a generic dark-mode SaaS dashboard. One accent (warm rust, #c88a3f since the 2026-09 palette) carries
 all interactive/brand chrome; green and red are reserved strictly for
 buy/sell semantics so they never compete with the UI for attention.
 
-  Surface   ink #09090b · surface #131316 · sunken #0e0e10 · hairline rgba(255,255,255,.08)
-  Text      primary #edeef0 · dim #8b8d93 · faint #55575e
-  Signal    bull #16c784 · bear #ff4d4d · caution #f2a93b · accent #ff9500
-  Type      display/UI: IBM Plex Sans · data/numeric: IBM Plex Mono
+  Surface   ink #0e1116 · surface #171b22 · sunken #12151b · hairline rgba(255,255,255,.08)
+  Text      primary #e8e6e0 · dim #8b8e97 · faint #5f636c
+  Signal    bull #6faa84 · bear #c77070 · caution #d6a64c · accent #c88a3f
+  Type      display/UI: Inter · data/numeric: JetBrains Mono
   Radius    sharp 6px (tables/inputs/tape) · base 10px (cards/metrics) · soft 18px (hero panels)
 
 Public API (function names + CSS class names) is unchanged from v1 — 13 page
@@ -57,18 +57,18 @@ def apply_design():
     if "nse_pro" not in pio.templates:
         pio.templates["nse_pro"] = go.layout.Template(
             layout=dict(
-                paper_bgcolor="#09090b",
-                plot_bgcolor="#0c0c0f",
-                font=dict(family="IBM Plex Sans, -apple-system, sans-serif", color=_C["dim"], size=12),
+                paper_bgcolor="#0e1116",
+                plot_bgcolor="#12151b",
+                font=dict(family="Inter, -apple-system, sans-serif", color=_C["dim"], size=12),
                 title=dict(font=dict(size=15, color=_C["ink"])),
                 xaxis=dict(gridcolor="rgba(255,255,255,0.05)", linecolor="rgba(255,255,255,0.07)",
                            tickfont=dict(color=_C["faint"], size=11), zeroline=False),
                 yaxis=dict(gridcolor="rgba(255,255,255,0.05)", linecolor="rgba(255,255,255,0.07)",
                            tickfont=dict(color=_C["faint"], size=11), zeroline=False),
-                legend=dict(bgcolor="rgba(14,14,16,0.9)", bordercolor="rgba(255,255,255,0.07)",
-                            borderwidth=1, font=dict(color="#8b8d93", size=11)),
-                hoverlabel=dict(bgcolor="#131316", bordercolor="rgba(255,255,255,0.14)",
-                                font=dict(color="#edeef0", family="IBM Plex Mono", size=12)),
+                legend=dict(bgcolor="rgba(18,21,27,0.9)", bordercolor="rgba(255,255,255,0.07)",
+                            borderwidth=1, font=dict(color="#8b8e97", size=11)),
+                hoverlabel=dict(bgcolor="#171b22", bordercolor="rgba(255,255,255,0.14)",
+                                font=dict(color="#e8e6e0", family="JetBrains Mono", size=12)),
                 colorway=[_C["accent"], _C["bull"], _C["amber"], _C["bear"], _C["dim"], _C["azure"],
                           _C["violet"], _C["ink"]],
             )
@@ -78,18 +78,18 @@ def apply_design():
     # ── NSE Pro Design System v2 — "Dealing Room" ──────────────────────────────
     st.markdown(
         """<style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
 
     /* ── SPRINT 1.1: Design tokens as CSS custom properties ─────────────────
        Single source of truth for palette, radius, and shadow. Every rule
        below and every page-level inline style SHOULD source colour from
-       these vars — audit found ~8 parallel greens (#16c784, #26a69a,
+       these vars — audit found ~8 parallel greens (#6faa84, #6faa84,
        #00d4aa, #3ddc84 …) drifting page-to-page. New rule: no raw hex in
        page files. See docs/UI_AUDIT_2026-09.md → Cluster B. ─────────────── */
     :root {
 /*__COLOR_TOKENS__*/
       /* Surfaces — §9.2 texture layers (docs/UI_UX_DESIGN_2026-09.md).
-         Pure #0a0a0a ground lets saffron / bull / bear pop with real
+         Pure #0e1116 ground lets the rust accent / bull / bear pop with real
          chromatic weight; cards float above it as a 2% white overlay
          (borrowed from NSVisualEffectView) instead of a heavier tinted
          rectangle. Cyan was in an earlier draft; #103 explicitly rejected
@@ -126,11 +126,11 @@ def apply_design():
       --regime-none:  var(--faint);
 
       /* Tinted backgrounds (12% overlays, used on cards + pills) */
-      --tint-bull:   rgba(22,199,132,.12);
-      --tint-bear:   rgba(255,77,77,.12);
-      --tint-amber:  rgba(242,169,59,.12);
-      --tint-accent: rgba(255,149,0,.12);
-      --tint-violet: rgba(199,125,255,.12);
+      --tint-bull:   rgba(111,170,132,.12);
+      --tint-bear:   rgba(199,112,112,.12);
+      --tint-amber:  rgba(214,166,76,.12);
+      --tint-accent: rgba(200,138,63,.12);
+      --tint-violet: rgba(169,139,201,.12);
 
       /* Radius */
       --r-sharp:  6px;   /* tables, inputs, ticker tape */
@@ -138,8 +138,8 @@ def apply_design():
       --r-soft:   18px;  /* hero / glass panels */
 
       /* Type */
-      --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Courier New', monospace;
       --font-serif: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
 
       /* F4 · Motion policy (docs/UI_UX_BACKLOG.md)
@@ -265,7 +265,7 @@ def apply_design():
 
     /* ── Global ──────────────────────────────────────────────────────────────── */
     html, body, [class*="css"] {
-        font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         -webkit-font-smoothing: antialiased;
     }
     .stApp {
@@ -274,12 +274,12 @@ def apply_design():
            the existing saffron aurora at the top-centre. Stacked in a
            single background: shorthand so it stays as one paint pass. */
         background-image:
-          radial-gradient(ellipse 90% 40% at 50% -10%, rgba(255,149,0,0.05) 0%, transparent 60%),
+          radial-gradient(ellipse 90% 40% at 50% -10%, rgba(200,138,63,0.05) 0%, transparent 60%),
           /*__NOISE_SVG__*/;
         background-attachment: fixed;
         background-size: auto, 160px 160px;
     }
-    .mono { font-family:'IBM Plex Mono','Courier New',monospace !important; font-variant-numeric: tabular-nums; }
+    .mono { font-family:'JetBrains Mono','Courier New',monospace !important; font-variant-numeric: tabular-nums; }
 
     /* ── Cards ───────────────────────────────────────────────────────────────
        Flat tinted surface + solid left rail, not a diagonal two-stop gradient —
@@ -292,70 +292,70 @@ def apply_design():
     .card-blue:hover, .card-purple:hover, .card-orange:hover {
         background-position: right center;
     }
-    .card-green  { background:rgba(22,199,132,.07);  border-left:3px solid #16c784; }
-    .card-yellow { background:rgba(242,169,59,.07);  border-left:3px solid #f2a93b; }
-    .card-red    { background:rgba(255,77,77,.07);   border-left:3px solid #ff4d4d; }
-    .card-blue   { background:rgba(255,149,0,.06);  border-left:3px solid #ff9500; }
-    .card-purple { background:rgba(199,125,255,.06); border-left:3px solid #c77dff; }
-    .card-orange { background:rgba(242,169,59,.07);  border-left:3px solid #f2a93b; }
+    .card-green  { background:rgba(111,170,132,.07);  border-left:3px solid #6faa84; }
+    .card-yellow { background:rgba(214,166,76,.07);  border-left:3px solid #d6a64c; }
+    .card-red    { background:rgba(199,112,112,.07);   border-left:3px solid #c77070; }
+    .card-blue   { background:rgba(200,138,63,.06);  border-left:3px solid #c88a3f; }
+    .card-purple { background:rgba(169,139,201,.06); border-left:3px solid #a98bc9; }
+    .card-orange { background:rgba(214,166,76,.07);  border-left:3px solid #d6a64c; }
 
     /* ── Score & typography ───────────────────────────────────────────────────── */
     .score-big {
-        font-family:'IBM Plex Mono',monospace; font-size:54px; font-weight:700; letter-spacing:-1px;
+        font-family:'JetBrains Mono',monospace; font-size:54px; font-weight:700; letter-spacing:-1px;
         font-variant-numeric: tabular-nums;
     }
     .signal-big   { font-size:21px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; }
-    .narrative    { font-size:14px; line-height:1.75; color:#8b8d93; }
-    .ticker-label { font-size:23px; font-weight:700; color:#edeef0; letter-spacing:-.2px; }
+    .narrative    { font-size:14px; line-height:1.75; color:#8b8e97; }
+    .ticker-label { font-size:23px; font-weight:700; color:#e8e6e0; letter-spacing:-.2px; }
 
     /* ── Pills ───────────────────────────────────────────────────────────────── */
     .pill-green {
-        display:inline-block; background:rgba(22,199,132,.12); color:#16c784; border:1px solid rgba(22,199,132,.4);
+        display:inline-block; background:rgba(111,170,132,.12); color:#6faa84; border:1px solid rgba(111,170,132,.4);
         border-radius:20px; padding:3px 14px; font-size:12px; font-weight:600;
     }
     .pill-red {
-        display:inline-block; background:rgba(255,77,77,.12); color:#ff4d4d; border:1px solid rgba(255,77,77,.4);
+        display:inline-block; background:rgba(199,112,112,.12); color:#c77070; border:1px solid rgba(199,112,112,.4);
         border-radius:20px; padding:3px 14px; font-size:12px; font-weight:600;
     }
     .pill-yellow {
-        display:inline-block; background:rgba(242,169,59,.12); color:#f2a93b; border:1px solid rgba(242,169,59,.4);
+        display:inline-block; background:rgba(214,166,76,.12); color:#d6a64c; border:1px solid rgba(214,166,76,.4);
         border-radius:20px; padding:3px 14px; font-size:12px; font-weight:600;
     }
     .pill-gray {
-        display:inline-block; background:rgba(255,255,255,.06); color:#8b8d93; border:1px solid rgba(255,255,255,.14);
+        display:inline-block; background:rgba(255,255,255,.06); color:#8b8e97; border:1px solid rgba(255,255,255,.14);
         border-radius:20px; padding:3px 14px; font-size:12px;
     }
     .pill-blue {
-        display:inline-block; background:rgba(255,149,0,.12); color:#ff9500; border:1px solid rgba(255,149,0,.4);
+        display:inline-block; background:rgba(200,138,63,.12); color:#c88a3f; border:1px solid rgba(200,138,63,.4);
         border-radius:20px; padding:3px 14px; font-size:12px; font-weight:600;
     }
 
     /* ── Signal badges ───────────────────────────────────────────────────────── */
     .badge-buy {
-        background:rgba(22,199,132,.14); color:#16c784; border:1px solid #16c784; border-radius:6px; padding:4px 14px;
+        background:rgba(111,170,132,.14); color:#6faa84; border:1px solid #6faa84; border-radius:6px; padding:4px 14px;
         font-size:13px; font-weight:700; letter-spacing:.5px; display:inline-block;
     }
     .badge-sell {
-        background:rgba(255,77,77,.14); color:#ff4d4d; border:1px solid #ff4d4d; border-radius:6px; padding:4px 14px;
+        background:rgba(199,112,112,.14); color:#c77070; border:1px solid #c77070; border-radius:6px; padding:4px 14px;
         font-size:13px; font-weight:700; letter-spacing:.5px; display:inline-block;
     }
     .badge-hold {
-        background:rgba(242,169,59,.14); color:#f2a93b; border:1px solid #f2a93b; border-radius:6px; padding:4px 14px;
+        background:rgba(214,166,76,.14); color:#d6a64c; border:1px solid #d6a64c; border-radius:6px; padding:4px 14px;
         font-size:13px; font-weight:700; letter-spacing:.5px; display:inline-block;
     }
     .badge-watch {
-        background:rgba(255,149,0,.14); color:#ff9500; border:1px solid #ff9500; border-radius:6px; padding:4px 14px;
+        background:rgba(200,138,63,.14); color:#c88a3f; border:1px solid #c88a3f; border-radius:6px; padding:4px 14px;
         font-size:13px; font-weight:700; letter-spacing:.5px; display:inline-block;
     }
 
     /* ── Angel One badges ────────────────────────────────────────────────────── */
     .ao-badge-on {
-        background:rgba(22,199,132,.08); border:1px solid rgba(22,199,132,.4); border-radius:8px; padding:10px 14px;
-        font-size:12px; color:#16c784; margin:4px 0; display:flex; align-items:center; gap:8px;
+        background:rgba(111,170,132,.08); border:1px solid rgba(111,170,132,.4); border-radius:8px; padding:10px 14px;
+        font-size:12px; color:#6faa84; margin:4px 0; display:flex; align-items:center; gap:8px;
     }
     .ao-badge-off {
         background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.08); border-radius:8px;
-        padding:10px 14px; font-size:12px; color:#55575e; margin:4px 0; display:block;
+        padding:10px 14px; font-size:12px; color:#5f636c; margin:4px 0; display:block;
     }
 
     /* ── Streamlit metric override ─────────────────────────────────────────────
@@ -368,10 +368,10 @@ def apply_design():
         border-radius: var(--r-base); padding: 14px 18px;
     }
     [data-testid="stMetricValue"] {
-        font-family:'IBM Plex Mono',monospace; font-weight:700; letter-spacing:-.3px; font-size:20px;
+        font-family:'JetBrains Mono',monospace; font-weight:700; letter-spacing:-.3px; font-size:20px;
     }
     [data-testid="stMetricLabel"] {
-        font-size:11px; color:#55575e; text-transform:uppercase; letter-spacing:1px; font-weight:600;
+        font-size:11px; color:#5f636c; text-transform:uppercase; letter-spacing:1px; font-weight:600;
     }
     /* Never clip/ellipsis metric text — always show the full value, label and delta */
     [data-testid="stMetric"] { overflow: visible !important; }
@@ -388,7 +388,7 @@ def apply_design():
         border: 1px solid rgba(255,255,255,.1); transition: all .15s ease;
         background: rgba(255,255,255,.04);
     }
-    .stButton > button:hover { border-color: rgba(255,149,0,.5); color:#ff9500; }
+    .stButton > button:hover { border-color: rgba(200,138,63,.5); color:#c88a3f; }
     /* F7 · keyboard focus ring — matches the saffron halo used on inputs so
        "you can act here" reads the same on click, tab-through, and hover.
        :focus-visible fires only on keyboard nav (never on mouse click), so
@@ -396,15 +396,15 @@ def apply_design():
     .stButton > button:focus-visible {
         outline: none !important;
         border-color: var(--accent) !important;
-        box-shadow: 0 0 0 3px rgba(255,149,0,.20) !important;
+        box-shadow: 0 0 0 3px rgba(200,138,63,.20) !important;
     }
     .stButton > button[kind="primary"] {
-        background: #ff9500; border:none; color:#09090b; font-weight:700;
+        background: #c88a3f; border:none; color:#0e1116; font-weight:700;
     }
-    .stButton > button[kind="primary"]:hover { background:#ffb340; color:#09090b; }
+    .stButton > button[kind="primary"]:hover { background:#dda35c; color:#0e1116; }
     .stButton > button[kind="primary"]:focus-visible {
         outline: none !important;
-        box-shadow: 0 0 0 3px rgba(255,149,0,.30) !important;
+        box-shadow: 0 0 0 3px rgba(200,138,63,.30) !important;
     }
 
     /* ── Tabs ────────────────────────────────────────────────────────────────── */
@@ -415,24 +415,24 @@ def apply_design():
     }
     .stTabs [data-baseweb="tab"] {
         border-radius: 6px; padding: 8px 18px; font-weight: 500;
-        color: #55575e; transition: all .15s;
+        color: #5f636c; transition: all .15s;
     }
     .stTabs [aria-selected="true"] {
-        background: #131316; font-weight: 700; color: #ff9500;
+        background: #171b22; font-weight: 700; color: #c88a3f;
     }
     /* F7 · focus-visible ring on tab buttons — keyboard nav only. */
     .stTabs [data-baseweb="tab"]:focus-visible {
         outline: none;
-        box-shadow: 0 0 0 2px rgba(255,149,0,.35) inset;
+        box-shadow: 0 0 0 2px rgba(200,138,63,.35) inset;
     }
 
     /* ── Sidebar ─────────────────────────────────────────────────────────────── */
     [data-testid="stSidebar"] {
-        background: #0a0a0c;
+        background: #0b0e12;
         border-right: 1px solid rgba(255,255,255,.06);
     }
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-        font-size: 13px; color: #8b8d93;
+        font-size: 13px; color: #8b8e97;
     }
 
     /* ── SLICE 1 + POLISH · UI/UX 2026-09 · sidebar group headers + nav ──
@@ -440,7 +440,7 @@ def apply_design():
        hairline dividers with an uppercase eyebrow label. Nav buttons
        drop their default borders + backgrounds to read as list items.
        The active page gets a leading-edge accent pill so it reads at a
-       glance. Sourced from --accent (saffron #ff9500). See
+       glance. Sourced from --accent (saffron #c88a3f). See
        docs/UI_UX_DESIGN_2026-09.md §3. */
     [data-testid="stSidebar"] [data-testid="stExpander"] {
         background: transparent !important;
@@ -466,7 +466,7 @@ def apply_design():
         font-size: 10px !important;
         text-transform: uppercase;
         letter-spacing: .14em;
-        color: #8b8d93 !important;
+        color: #8b8e97 !important;
         font-weight: 600 !important;
     }
     /* Nav buttons — flatten to list-item feel, keep only left padding */
@@ -477,49 +477,49 @@ def apply_design():
         border-radius: 0 4px 4px 0 !important;
         padding-left: 13px !important;
         text-align: left !important;
-        color: #c8cad0 !important;
+        color: #c3c1ba !important;
         font-weight: 500 !important;
         transition: background .12s ease, color .12s ease, border-color .12s ease !important;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
-        background: rgba(255,149,0,.06) !important;
-        color: #edeef0 !important;
-        border-left-color: rgba(255,149,0,.35) !important;
+        background: rgba(200,138,63,.06) !important;
+        color: #e8e6e0 !important;
+        border-left-color: rgba(200,138,63,.35) !important;
     }
     /* Active page: leading-edge saffron pill on the disabled (current) button.
        §9.2 optional glow layer — 12 px soft saffron halo at 22% opacity so
        the active-page pill reads as lit rather than just tinted. Never on
        hover (would fire on every mouse move); only on the current page. */
     [data-testid="stSidebar"] .stButton > button:disabled {
-        background: linear-gradient(90deg, rgba(255,149,0,.14), transparent 60%) !important;
-        color: #edeef0 !important;
+        background: linear-gradient(90deg, rgba(200,138,63,.14), transparent 60%) !important;
+        color: #e8e6e0 !important;
         border: 0 !important;
-        border-left: 3px solid #ff9500 !important;
+        border-left: 3px solid #c88a3f !important;
         border-radius: 0 4px 4px 0 !important;
         padding-left: 13px !important;
         text-align: left !important;
         opacity: 1 !important;
         cursor: default !important;
-        box-shadow: 0 0 12px 0 rgba(255,149,0,.22) !important;
+        box-shadow: 0 0 12px 0 rgba(200,138,63,.22) !important;
     }
     [data-testid="stSidebar"] .stButton > button:disabled:hover {
-        color: #edeef0 !important;
-        border-color: #ff9500 !important;
-        background: linear-gradient(90deg, rgba(255,149,0,.14), transparent 60%) !important;
+        color: #e8e6e0 !important;
+        border-color: #c88a3f !important;
+        background: linear-gradient(90deg, rgba(200,138,63,.14), transparent 60%) !important;
     }
 
     /* ── Selectbox / inputs ──────────────────────────────────────────────────── */
     [data-baseweb="select"] > div:first-child {
-        background: #0e0e10; border-color: rgba(255,255,255,.1) !important;
+        background: #12151b; border-color: rgba(255,255,255,.1) !important;
         border-radius: 6px;
     }
     .stTextInput > div > div > input {
-        background: #0e0e10; border-color: rgba(255,255,255,.1);
-        border-radius: 6px; color: #edeef0; font-family:'IBM Plex Mono',monospace;
+        background: #12151b; border-color: rgba(255,255,255,.1);
+        border-radius: 6px; color: #e8e6e0; font-family:'JetBrains Mono',monospace;
     }
     .stNumberInput > div > div > input {
-        background: #0e0e10; border-color: rgba(255,255,255,.1);
-        border-radius: 6px; color: #edeef0; font-family:'IBM Plex Mono',monospace;
+        background: #12151b; border-color: rgba(255,255,255,.1);
+        border-radius: 6px; color: #e8e6e0; font-family:'JetBrains Mono',monospace;
     }
     /* §9.2 · focus-visible glow — only on the input actually being keyed,
        never on hover. Matches the active-nav pill's saffron halo so the
@@ -528,7 +528,7 @@ def apply_design():
     .stNumberInput > div > div > input:focus-visible,
     [data-baseweb="select"] > div:first-child:focus-within {
         border-color: var(--accent) !important;
-        box-shadow: 0 0 0 3px rgba(255,149,0,.15) !important;
+        box-shadow: 0 0 0 3px rgba(200,138,63,.15) !important;
         outline: none !important;
     }
 
@@ -540,7 +540,7 @@ def apply_design():
 
     /* text_area — Intraday ORB ticker list. */
     .stTextArea textarea {
-        background: #0e0e10 !important;
+        background: #12151b !important;
         border-color: rgba(255,255,255,.1) !important;
         border-radius: 6px;
         color: var(--ink) !important;
@@ -548,7 +548,7 @@ def apply_design():
     }
     .stTextArea textarea:focus-visible {
         border-color: var(--accent) !important;
-        box-shadow: 0 0 0 3px rgba(255,149,0,.15) !important;
+        box-shadow: 0 0 0 3px rgba(200,138,63,.15) !important;
         outline: none !important;
     }
 
@@ -556,7 +556,7 @@ def apply_design():
     .stSlider [data-baseweb="slider"] [role="slider"] {
         background: var(--accent) !important;
         border-color: var(--accent) !important;
-        box-shadow: 0 0 0 3px rgba(255,149,0,.12);
+        box-shadow: 0 0 0 3px rgba(200,138,63,.12);
     }
     .stSlider [data-baseweb="slider"] > div > div:first-child {
         background: var(--accent) !important;
@@ -580,7 +580,7 @@ def apply_design():
     }
     .stRadio [role="radio"]:focus-visible,
     .stCheckbox [role="checkbox"]:focus-visible {
-        outline: 3px solid rgba(255,149,0,.25) !important;
+        outline: 3px solid rgba(200,138,63,.25) !important;
         outline-offset: 2px;
     }
     /* toggle — Streamlit renders this as a BaseWeb switch. */
@@ -601,10 +601,10 @@ def apply_design():
         transition: all .15s ease;
     }
     [data-testid="stDownloadButton"] button:hover {
-        border-color: rgba(255,149,0,.5); color: var(--accent);
+        border-color: rgba(200,138,63,.5); color: var(--accent);
     }
     [data-testid="stDownloadButton"] button:focus-visible {
-        outline: 3px solid rgba(255,149,0,.25) !important;
+        outline: 3px solid rgba(200,138,63,.25) !important;
         outline-offset: 2px;
     }
 
@@ -621,21 +621,21 @@ def apply_design():
     /* ── DataFrames ──────────────────────────────────────────────────────────── */
     [data-testid="stDataFrame"] { border-radius: 6px; overflow: hidden; }
     [data-testid="stDataFrame"] thead th {
-        background: #0e0e10 !important; color: #55575e !important;
+        background: #12151b !important; color: #5f636c !important;
         font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
         font-weight: 600; border-bottom: 1px solid rgba(255,255,255,.07) !important;
     }
     [data-testid="stDataFrame"] tbody td {
-        color: #c8cad0 !important; font-family:'IBM Plex Mono',monospace; font-size:13px;
+        color: #c3c1ba !important; font-family:'JetBrains Mono',monospace; font-size:13px;
     }
-    [data-testid="stDataFrame"] tbody tr:hover td { background: rgba(255,149,0,.05) !important; }
+    [data-testid="stDataFrame"] tbody tr:hover td { background: rgba(200,138,63,.05) !important; }
 
     /* ── Order form ──────────────────────────────────────────────────────────── */
     .order-buy {
-        background:rgba(22,199,132,.06); border:1px solid rgba(22,199,132,.3); border-radius:10px; padding:18px;
+        background:rgba(111,170,132,.06); border:1px solid rgba(111,170,132,.3); border-radius:10px; padding:18px;
     }
     .order-sell {
-        background:rgba(255,77,77,.06); border:1px solid rgba(255,77,77,.3); border-radius:10px; padding:18px;
+        background:rgba(199,112,112,.06); border:1px solid rgba(199,112,112,.3); border-radius:10px; padding:18px;
     }
 
     /* ── Custom metric box ─────────────────────────────────────────────────────
@@ -658,7 +658,7 @@ def apply_design():
     /* ── Section divider ─────────────────────────────────────────────────────── */
     .sec-div { display:flex; align-items:center; gap:12px; margin:28px 0 18px; }
     .sec-div-label {
-        font-size:11px; font-weight:700; color:#55575e; text-transform:uppercase; letter-spacing:1.5px;
+        font-size:11px; font-weight:700; color:#5f636c; text-transform:uppercase; letter-spacing:1.5px;
         white-space:nowrap;
     }
     .sec-div-line  { flex:1; height:1px; background:linear-gradient(90deg,rgba(255,255,255,.09),transparent); }
@@ -679,8 +679,8 @@ def apply_design():
 
     /* ── Scrollbars ──────────────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width:6px; height:6px; }
-    ::-webkit-scrollbar-thumb { background:#1c1c20; border-radius:3px; }
-    ::-webkit-scrollbar-thumb:hover { background:#2a2a30; }
+    ::-webkit-scrollbar-thumb { background:#232833; border-radius:3px; }
+    ::-webkit-scrollbar-thumb:hover { background:#313846; }
     ::-webkit-scrollbar-track { background:transparent; }
 
     /* ── Alerts & info boxes ─────────────────────────────────────────────────── */
@@ -702,12 +702,12 @@ def apply_design():
 
     /* ── Animations — functional only (live-signal pulse), not decorative ──────── */
     @keyframes pulse-green {
-        0%,100% { box-shadow:0 0 0 0 rgba(22,199,132,.35) }
-        50% { box-shadow:0 0 0 8px rgba(22,199,132,0) }
+        0%,100% { box-shadow:0 0 0 0 rgba(111,170,132,.35) }
+        50% { box-shadow:0 0 0 8px rgba(111,170,132,0) }
     }
     @keyframes pulse-red {
-        0%,100% { box-shadow:0 0 0 0 rgba(255,77,77,.35) }
-        50% { box-shadow:0 0 0 8px rgba(255,77,77,0) }
+        0%,100% { box-shadow:0 0 0 0 rgba(199,112,112,.35) }
+        50% { box-shadow:0 0 0 8px rgba(199,112,112,0) }
     }
     .pulse-green { animation:pulse-green 2s infinite; }
     .pulse-red   { animation:pulse-red 2s infinite; }
@@ -720,14 +720,14 @@ def apply_design():
        based on session-state diff — the animation runs on the next
        paint and stops on its own. */
     @keyframes tick-pulse-up-kf {
-        0%   { box-shadow: 0 0 0 0 rgba(22,199,132,.55); }
-        60%  { box-shadow: 0 0 0 10px rgba(22,199,132,0); }
-        100% { box-shadow: 0 0 0 0 rgba(22,199,132,0); }
+        0%   { box-shadow: 0 0 0 0 rgba(111,170,132,.55); }
+        60%  { box-shadow: 0 0 0 10px rgba(111,170,132,0); }
+        100% { box-shadow: 0 0 0 0 rgba(111,170,132,0); }
     }
     @keyframes tick-pulse-down-kf {
-        0%   { box-shadow: 0 0 0 0 rgba(255,77,77,.55); }
-        60%  { box-shadow: 0 0 0 10px rgba(255,77,77,0); }
-        100% { box-shadow: 0 0 0 0 rgba(255,77,77,0); }
+        0%   { box-shadow: 0 0 0 0 rgba(199,112,112,.55); }
+        60%  { box-shadow: 0 0 0 10px rgba(199,112,112,0); }
+        100% { box-shadow: 0 0 0 0 rgba(199,112,112,0); }
     }
     .tick-pulse-up   { animation: tick-pulse-up-kf   1.4s ease-out 1; }
     .tick-pulse-down { animation: tick-pulse-down-kf 1.4s ease-out 1; }
@@ -736,13 +736,13 @@ def apply_design():
     @keyframes ticker-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
     .ticker-wrap {
         overflow:hidden; padding:9px 0; margin:8px 0;
-        border-top:1px solid rgba(255,149,0,.3);
+        border-top:1px solid rgba(200,138,63,.3);
         border-bottom:1px solid rgba(255,255,255,.05);
-        background:linear-gradient(180deg, rgba(255,149,0,.04), transparent);
+        background:linear-gradient(180deg, rgba(200,138,63,.04), transparent);
     }
     .ticker-content {
         display:inline-block; white-space:nowrap; animation:ticker-scroll 80s linear infinite;
-        font-size:13px; font-family:'IBM Plex Mono','Courier New',monospace; letter-spacing:.2px;
+        font-size:13px; font-family:'JetBrains Mono','Courier New',monospace; letter-spacing:.2px;
     }
     .ticker-wrap:hover .ticker-content { animation-play-state:paused; }
 
@@ -857,7 +857,7 @@ def apply_design():
         font-family: var(--font-mono); font-size: 11px; font-weight: 600;
     }
     .ticker-hover-card .thc-sector {
-        font-size: 10px; color: var(--dim, #8b8d93);
+        font-size: 10px; color: var(--dim, #8b8e97);
         text-transform: uppercase; letter-spacing: .6px; margin-top: 4px;
     }
     .ticker-hover-card svg { margin-top: 4px; }
@@ -1519,8 +1519,8 @@ def apply_design():
     .tk-up { color: var(--bull) !important; }
     .tk-dn { color: var(--bear) !important; }
     .tk-flat { color: var(--dim) !important; }
-    @keyframes tk-flash-up-kf { from { background: rgba(22,199,132,.22); } to { background: transparent; } }
-    @keyframes tk-flash-dn-kf { from { background: rgba(255,77,77,.22); } to { background: transparent; } }
+    @keyframes tk-flash-up-kf { from { background: rgba(111,170,132,.22); } to { background: transparent; } }
+    @keyframes tk-flash-dn-kf { from { background: rgba(199,112,112,.22); } to { background: transparent; } }
     tr.tk-flash-up td { animation: tk-flash-up-kf 1.6s ease-out 1; }
     tr.tk-flash-dn td { animation: tk-flash-dn-kf 1.6s ease-out 1; }
     @media (prefers-reduced-motion: reduce) {
@@ -1601,16 +1601,16 @@ def apply_design():
 
 # ── Design helper functions (NSE Pro — from trading-dashboard-design skill) ───
 def _glass_metric(label: str, value: str, delta: str = "", delta_pos: bool = True) -> str:
-    d_color = "#16c784" if delta_pos else "#ff4d4d"
+    d_color = "#6faa84" if delta_pos else "#c77070"
     d_sym   = "▲" if delta_pos else "▼"
     d_html  = (f'<div style="font-size:12px;color:{d_color};margin-top:4px;font-weight:600;'
-               f'font-family:\'IBM Plex Mono\',monospace">'
+               f'font-family:\'JetBrains Mono\',monospace">'
                f'{d_sym} {delta}</div>') if delta else ""
     return (
         f'<div class="glass-panel" style="text-align:center;min-height:80px">'
-        f'<div style="font-size:11px;color:#55575e;text-transform:uppercase;letter-spacing:1.2px;'
+        f'<div style="font-size:11px;color:#5f636c;text-transform:uppercase;letter-spacing:1.2px;'
         f'font-weight:600">{label}</div>'
-        f'<div style="font-family:\'IBM Plex Mono\',monospace;font-size:23px;font-weight:700;color:#edeef0;'
+        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:23px;font-weight:700;color:#e8e6e0;'
         f'margin-top:6px;letter-spacing:-.3px">{value}</div>'
         f'{d_html}</div>'
     )
@@ -1628,17 +1628,17 @@ def _spacer(size: str = "md") -> None:
 
 def _signal_card(ticker, action, price, entry, stop, target, reason, score=None, sector="") -> str:
     COLORS = {
-        "BUY":  ("#16c784", "rgba(22,199,132,.12)"),
-        "SELL": ("#ff4d4d", "rgba(255,77,77,.12)"),
-        "HOLD": ("#f2a93b", "rgba(242,169,59,.12)"),
-        "WATCH":("#ff9500", "rgba(255,149,0,.12)"),
+        "BUY":  ("#6faa84", "rgba(111,170,132,.12)"),
+        "SELL": ("#c77070", "rgba(199,112,112,.12)"),
+        "HOLD": ("#d6a64c", "rgba(214,166,76,.12)"),
+        "WATCH":("#c88a3f", "rgba(200,138,63,.12)"),
     }
     tc, bc = COLORS.get(action, COLORS["HOLD"])
     rr = (target - entry) / (entry - stop) if (entry - stop) > 0.01 else 0
-    sc_html = (f'<div style="font-family:\'IBM Plex Mono\',monospace;font-size:28px;font-weight:700;'
+    sc_html = (f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:28px;font-weight:700;'
                f'color:{tc}">{score}</div>'
-               f'<div style="font-size:10px;color:#55575e">SCORE</div>') if score is not None else ""
-    sect_html = (f'<span style="font-size:11px;color:#55575e;font-weight:400;margin-left:8px">{sector}</span>'
+               f'<div style="font-size:10px;color:#5f636c">SCORE</div>') if score is not None else ""
+    sect_html = (f'<span style="font-size:11px;color:#5f636c;font-weight:400;margin-left:8px">{sector}</span>'
                  if sector else "")
     return (
         f'<div style="background:{bc};border:1px solid {tc}44;'
@@ -1648,18 +1648,18 @@ def _signal_card(ticker, action, price, entry, stop, target, reason, score=None,
         f'<div style="background:{bc};color:{tc};border:1px solid {tc};border-radius:6px;'
         f'padding:4px 10px;font-size:13px;font-weight:700;letter-spacing:1px;margin-top:4px">{action}</div></div>'
         f'<div style="flex:1">'
-        f'<div style="font-size:18px;font-weight:700;color:#edeef0">{ticker}{sect_html}</div>'
-        f'<div style="font-size:12px;color:#55575e;margin:4px 0">{reason}</div>'
-        f'<div style="display:flex;gap:20px;margin-top:10px;font-size:13px;font-family:\'IBM Plex Mono\',monospace">'
-        f'<div><span style="color:#55575e;font-size:11px;font-family:\'IBM Plex Sans\'">'
-        f'LTP</span><br><b style="color:#c8cad0">₹{price:.2f}</b></div>'
-        f'<div><span style="color:#55575e;font-size:11px;font-family:\'IBM Plex Sans\'">'
-        f'ENTRY</span><br><b style="color:#c8cad0">₹{entry:.2f}</b></div>'
-        f'<div><span style="color:#55575e;font-size:11px;font-family:\'IBM Plex Sans\'">'
-        f'STOP</span><br><b style="color:#ff4d4d">₹{stop:.2f}</b></div>'
-        f'<div><span style="color:#55575e;font-size:11px;font-family:\'IBM Plex Sans\'">'
-        f'TARGET</span><br><b style="color:#16c784">₹{target:.2f}</b></div>'
-        f'<div><span style="color:#55575e;font-size:11px;font-family:\'IBM Plex Sans\'">'
+        f'<div style="font-size:18px;font-weight:700;color:#e8e6e0">{ticker}{sect_html}</div>'
+        f'<div style="font-size:12px;color:#5f636c;margin:4px 0">{reason}</div>'
+        f'<div style="display:flex;gap:20px;margin-top:10px;font-size:13px;font-family:\'JetBrains Mono\',monospace">'
+        f'<div><span style="color:#5f636c;font-size:11px;font-family:\'Inter\'">'
+        f'LTP</span><br><b style="color:#c3c1ba">₹{price:.2f}</b></div>'
+        f'<div><span style="color:#5f636c;font-size:11px;font-family:\'Inter\'">'
+        f'ENTRY</span><br><b style="color:#c3c1ba">₹{entry:.2f}</b></div>'
+        f'<div><span style="color:#5f636c;font-size:11px;font-family:\'Inter\'">'
+        f'STOP</span><br><b style="color:#c77070">₹{stop:.2f}</b></div>'
+        f'<div><span style="color:#5f636c;font-size:11px;font-family:\'Inter\'">'
+        f'TARGET</span><br><b style="color:#6faa84">₹{target:.2f}</b></div>'
+        f'<div><span style="color:#5f636c;font-size:11px;font-family:\'Inter\'">'
         f'R:R</span><br><b style="color:{tc}">{rr:.1f}x</b></div>'
         f'</div></div></div>'
     )

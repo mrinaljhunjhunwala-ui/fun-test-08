@@ -53,8 +53,8 @@ from analysis.qualitative_flags import (
 from data.nse_corp_info import get_last_diagnostic  # QF3: surface fetch diagnostics
 
 _SENTIMENT_COLOR = {
-    FlagSentiment.GREEN: "#26a69a",
-    FlagSentiment.RED:   "#ef5350",
+    FlagSentiment.GREEN: "#6faa84",
+    FlagSentiment.RED:   "#c77070",
     FlagSentiment.AMBER: "#f9a825",
 }
 _SENTIMENT_DOT = {

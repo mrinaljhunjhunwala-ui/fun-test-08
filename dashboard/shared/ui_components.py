@@ -27,20 +27,20 @@ from typing import Optional
 # from. Colors chosen for AA-contrast against a dark background (#0d1526).
 
 COLORS = {
-    "STRONG BUY": "#26a69a",   # teal-green — strongest bull
+    "STRONG BUY": "#6faa84",   # teal-green — strongest bull
     "BUY":        "#4CAF50",   # solid green
     "WATCH":      "#2196F3",   # blue (was WATCHLIST in some places)
     "WATCHLIST":  "#2196F3",
     "HOLD":       "#9E9E9E",   # neutral grey
     "CAUTION":    "#FF9800",   # amber
-    "EXIT":       "#ef5350",   # solid red
+    "EXIT":       "#c77070",   # solid red
     "AVOID":      "#B71C1C",   # deeper red (final-verdict veto)
     "UNAVAILABLE": "#555555",
 }
 
 REGIME_COLORS = {
-    "trend_up":   "#26a69a",
-    "trend_down": "#ef5350",
+    "trend_up":   "#6faa84",
+    "trend_down": "#c77070",
     "range":      "#FFC107",
     "risk_off":   "#B71C1C",
     "unknown":    "#666666",
@@ -163,9 +163,9 @@ _SOURCE_META = {
 }
 
 _SOURCE_TONE_COLOR = {
-    "accent": "#ff9500",
-    "dim":    "#8b8d93",
-    "faint":  "#55575e",
+    "accent": "#c88a3f",
+    "dim":    "#8b8e97",
+    "faint":  "#5f636c",
 }
 
 
@@ -205,7 +205,7 @@ def source_pill(source: str,
 
     return (
         f'<span title="{title}" '
-        f'style="display:inline-block;font-family:\'IBM Plex Mono\',monospace;'
+        f'style="display:inline-block;font-family:\'JetBrains Mono\',monospace;'
         f'font-size:10px;letter-spacing:.4px;color:{colour};'
         f'border:1px solid {colour}55;background:{colour}12;'
         f'border-radius:4px;padding:1px 6px;margin-left:6px;'
@@ -232,8 +232,8 @@ def data_as_of(when: str = "",
     when_txt = (when or "").strip() or "unknown"
     pill_html = source_pill(source, ttl_hint=ttl_hint) if source else ""
     return (
-        f'<div style="font-size:10px;color:#8b8d93;'
-        f'font-family:\'IBM Plex Mono\',monospace;margin-top:4px">'
+        f'<div style="font-size:10px;color:#8b8e97;'
+        f'font-family:\'JetBrains Mono\',monospace;margin-top:4px">'
         f'Data as of {when_txt}{pill_html}'
         f'</div>'
     )
@@ -693,10 +693,10 @@ def chip_pill(label: str, tone: str = "neutral", title: str = "") -> str:
     horizon) without forcing it into the visible label.
     """
     palette = {
-        "good":    ("var(--bull)",   "var(--tint-bull)",   "rgba(22,199,132,.4)"),
-        "warn":    ("var(--amber)",  "var(--tint-amber)",  "rgba(242,169,59,.4)"),
-        "bad":     ("var(--bear)",   "var(--tint-bear)",   "rgba(255,77,77,.4)"),
-        "accent":  ("var(--accent)", "var(--tint-accent)", "rgba(255,149,0,.4)"),
+        "good":    ("var(--bull)",   "var(--tint-bull)",   "rgba(111,170,132,.4)"),
+        "warn":    ("var(--amber)",  "var(--tint-amber)",  "rgba(214,166,76,.4)"),
+        "bad":     ("var(--bear)",   "var(--tint-bear)",   "rgba(199,112,112,.4)"),
+        "accent":  ("var(--accent)", "var(--tint-accent)", "rgba(200,138,63,.4)"),
         "neutral": ("var(--dim)",    "rgba(255,255,255,.06)", "var(--hairline)"),
     }
     fg, bg, border = palette.get(tone, palette["neutral"])
@@ -790,7 +790,7 @@ def ticker_hover_wrap(display_label: str,
     if price is not None or chg_pct is not None:
         _p_txt = f"₹{price:,.2f}" if price is not None else "—"
         if chg_pct is not None:
-            _d_col = "var(--bull, #16c784)" if chg_pct >= 0 else "var(--bear, #ff4d4d)"
+            _d_col = "var(--bull, #6faa84)" if chg_pct >= 0 else "var(--bear, #c77070)"
             _d_arr = "▲" if chg_pct >= 0 else "▼"
             _d_html = (f'<span class="thc-delta" style="color:{_d_col}">'
                        f'{_d_arr} {abs(chg_pct):.2f}%</span>')
@@ -803,11 +803,11 @@ def ticker_hover_wrap(display_label: str,
         )
     if score is not None:
         if score >= 65:
-            _s_col, _s_bg = "var(--bull, #16c784)", "var(--tint-bull, rgba(22,199,132,.16))"
+            _s_col, _s_bg = "var(--bull, #6faa84)", "var(--tint-bull, rgba(111,170,132,.16))"
         elif score >= 45:
-            _s_col, _s_bg = "var(--amber, #f2a93b)", "var(--tint-amber, rgba(242,169,59,.16))"
+            _s_col, _s_bg = "var(--amber, #d6a64c)", "var(--tint-amber, rgba(214,166,76,.16))"
         else:
-            _s_col, _s_bg = "var(--bear, #ff4d4d)", "var(--tint-bear, rgba(255,77,77,.16))"
+            _s_col, _s_bg = "var(--bear, #c77070)", "var(--tint-bear, rgba(199,112,112,.16))"
         rows_html += (
             f'<div class="thc-row">'
             f'<span class="thc-sym">Score</span>'

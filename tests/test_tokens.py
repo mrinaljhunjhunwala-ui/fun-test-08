@@ -15,8 +15,8 @@ def test_tokens_are_hex():
 
 
 def test_hex_to_rgb_and_rgba():
-    assert hex_to_rgb(COLORS["bull"]) == (22, 199, 132)
-    assert tokens.rgba("bear", 0.5) == "rgba(255,77,77,0.5)"
+    assert hex_to_rgb(COLORS["bull"]) == (111, 170, 132)
+    assert tokens.rgba("bear", 0.5) == "rgba(199,112,112,0.5)"
 
 
 def test_css_vars_cover_every_token():

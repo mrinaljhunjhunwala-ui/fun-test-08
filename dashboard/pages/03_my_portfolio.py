@@ -716,8 +716,8 @@ if _csv_source is not None:
                 except Exception:
                     pass
 
-            # Aligned to design.py's "Dealing Room v2" tokens (bull #16c784 /
-            # bear #ff4d4d / caution #f2a93b / accent #ff9500) instead of the
+            # Aligned to design.py's "Dealing Room v2" tokens (bull #6faa84 /
+            # bear #c77070 / caution #d6a64c / accent #c88a3f) instead of the
             # pre-redesign teal/material-green/blue set, so this page matches
             # the rest of the app now.
             # F1 audit -- routed through design.py tokens. The (rail, tint)
@@ -1077,7 +1077,7 @@ if _csv_source is not None:
                             mode="lines", name="NAV",
                             line=dict(color=_TK["accent"], width=2),
                             fill="tozeroy",
-                            fillcolor="rgba(255,149,0,0.06)",
+                            fillcolor="rgba(200,138,63,0.06)",
                             hovertemplate="%{x|%d %b %Y}<br>NAV Rs.%{y:,.0f}<extra></extra>",
                         ))
                         # Peak → trough drawdown band -- ties the Max Drawdown
@@ -1086,7 +1086,7 @@ if _csv_source is not None:
                                 and _rr.max_dd_peak != _rr.max_dd_trough):
                             _fig_nav.add_vrect(
                                 x0=_rr.max_dd_peak, x1=_rr.max_dd_trough,
-                                fillcolor="rgba(255,77,77,0.10)",
+                                fillcolor="rgba(199,112,112,0.10)",
                                 line_width=0,
                                 annotation_text=(
                                     f"Max DD "
@@ -1095,7 +1095,7 @@ if _csv_source is not None:
                                 annotation_position="top left",
                                 annotation_font=dict(
                                     color=_TK["bear"], size=11,
-                                    family="IBM Plex Mono",
+                                    family="JetBrains Mono",
                                 ),
                             )
                             _fig_nav.add_trace(_go.Scatter(

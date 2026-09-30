@@ -727,7 +727,7 @@ def render_sidebar(current: str = None) -> None:
         st.sidebar.markdown("VIX: *—*")
 
     for name, (price, chg, dp) in _pulse.items():
-        clr   = "#26a69a" if chg >= 0 else "#ef5350"
+        clr   = "#6faa84" if chg >= 0 else "#c77070"
         arrow = "▲" if chg >= 0 else "▼"
         st.sidebar.markdown(
             f'<span style="font-size:11px"><b>{name}</b> '
@@ -868,7 +868,7 @@ def render_sidebar(current: str = None) -> None:
         if _wl_q:
             _wl_p   = _wl_q["price"]
             _wl_chg = _wl_q.get("chg_pct", 0.0)
-            _wl_clr = "#26a69a" if _wl_chg >= 0 else "#ef5350"
+            _wl_clr = "#6faa84" if _wl_chg >= 0 else "#c77070"
             _wl_arr = "▲" if _wl_chg >= 0 else "▼"
             _wl_c2.markdown(
                 f'<span style="font-size:11px">₹{_wl_p:,.1f} '
@@ -914,7 +914,7 @@ def render_sidebar(current: str = None) -> None:
             # CC-COPY: descriptive only, no instruction (CLAUDE.md rule 1).
             _notifs.append(("🔴", f"India VIX in the {_nvr} zone", "#ff4757"))
         elif _nvr == "complacency":
-            _notifs.append(("😴", "India VIX unusually low (complacency zone)", "#ff9500"))
+            _notifs.append(("😴", "India VIX unusually low (complacency zone)", "#c88a3f"))
     except Exception as _e:
         _log.debug("nav.%s degraded: %s", "render_sidebar", _e)
         pass

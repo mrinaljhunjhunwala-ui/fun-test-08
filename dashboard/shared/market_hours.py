@@ -146,10 +146,10 @@ def market_status(dt: datetime | None = None) -> dict:
     open_flag = session == "open"
 
     _LABELS = {
-        "open":     ("🟢 Market Open",     "#26a69a"),
-        "preopen":  ("🟡 Pre-Open",         "#ff9500"),
+        "open":     ("🟢 Market Open",     "#6faa84"),
+        "preopen":  ("🟡 Pre-Open",         "#c88a3f"),
         "closing":  ("🟠 Closing Session",  "#ff6b35"),
-        "closed":   ("🔴 Market Closed",    "#ef5350"),
+        "closed":   ("🔴 Market Closed",    "#c77070"),
         "holiday":  ("🎉 Market Holiday",   "#9b59b6"),
         "weekend":  ("😴 Weekend",          "#607d8b"),
     }
