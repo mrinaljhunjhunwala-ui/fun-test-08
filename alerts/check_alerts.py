@@ -810,6 +810,9 @@ def check_portfolio_posture(state: dict, today: str) -> int:
 # trading angle without a second scan.
 # ─────────────────────────────────────────────────────────────────────────────
 
+_INTRADAY_TARGET_ATR = 1.5
+
+
 def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> int:
     """Reformat the top-picks snapshot as intraday setups. Once per day."""
     key = "intraday_watchlist"
@@ -883,8 +886,11 @@ def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> 
 
         orb_hi = y_close + 0.5 * atr
         orb_lo = y_close - 0.5 * atr
-        stop   = y_close - 0.5 * atr    # 0.5-ATR intraday stop
-        target = y_close + 1.0 * atr    # 1-ATR target = 2R on a 0.5-ATR stop
+        # Levels are read from the breakout at orb_hi: the stop at orb_lo is
+        # 1 ATR below it, so the target sits 1.5 ATR above it (1.5 : 1).
+        # It used to be y_close + 1 ATR, only 0.5 ATR past the breakout.
+        stop   = orb_lo
+        target = orb_hi + _INTRADAY_TARGET_ATR * atr
 
         lines.append(
             f"{i}. <b>{tk}</b> · y-close ₹{y_close:,.2f} · ATR₁₄ ₹{atr:.2f}"
