@@ -40,4 +40,9 @@ jobs:
           pip install --quiet pytest
 
       - name: Run test suite (offline + page smoke + valuation regression; excludes -m slow)
-        run: python -m pytest -m "not slow" -q
+        # TEST_DATABASE_URL points at the throwaway Neon `ci-tests` branch (schema
+        # only) so @pytest.mark.real_postgres tests run for real; they skip when
+        # it's unset (forks) and conftest refuses a URL equal to production.
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: python -m pytest -m "not slow" -q -rs
