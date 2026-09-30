@@ -85,6 +85,14 @@ else:
 
     psycopg2.connect = _guarded_pg_connect
 
+# Angel One: a real .streamlit/secrets.toml on the owner's machine made
+# "not connected" tests see credentials and page tests attempt live logins.
+# Blank the secrets read point session-wide; tests set ANGEL_* env vars or
+# stub angel_fetcher functions when they want a configured state.
+import data.angel_fetcher as _angel  # noqa: E402
+
+_angel._secrets_section = lambda: {}
+
 
 def pytest_configure(config):
     config.addinivalue_line(

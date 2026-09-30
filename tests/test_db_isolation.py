@@ -19,6 +19,10 @@ _PROD_LIKE = "postgresql://owner:secret@ep-prod-123.ap-southeast-1.aws.neon.tech
 
 
 def test_env_database_url_is_ignored(monkeypatch):
+    import streamlit as st
+    # Blank st.secrets: a real .streamlit/secrets.toml would win over the env
+    # var, fail the assert below and print the real URL into the test output.
+    monkeypatch.setattr(st, "secrets", {}, raising=False)
     monkeypatch.setenv("DATABASE_URL", _PROD_LIKE)
     # The unguarded resolver WOULD have picked it up — so the checks below mean something.
     assert conftest._real_database_url() == _PROD_LIKE

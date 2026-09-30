@@ -303,11 +303,17 @@ _PERIOD_DAYS: Dict[str, int] = {
 _CANDLE_CHUNK_DAYS = 700
 
 
+def _secrets_section() -> Any:
+    """The [angel_one] table from st.secrets — the single read point, so
+    tests/conftest.py can blank it and never pick up real credentials."""
+    import streamlit as st
+    return st.secrets.get("angel_one", {})
+
+
 def _get_credentials() -> Dict[str, str]:
     creds: Dict[str, str] = {}
     try:
-        import streamlit as st
-        ao = st.secrets.get("angel_one", {})
+        ao = _secrets_section()
         creds = {
             "api_key": str(ao.get("api_key", "")),
             "client_id": str(ao.get("client_id", "")),
@@ -773,8 +779,7 @@ def credential_summary() -> Dict[str, Dict[str, str]]:
     password and TOTP seed are just "stored"). Never returns a raw value."""
     from_secrets: Dict[str, str] = {}
     try:
-        import streamlit as st
-        ao = st.secrets.get("angel_one", {})
+        ao = _secrets_section()
         from_secrets = {k: str(ao.get(k, "")) for k in ("api_key", "client_id", "password", "totp_secret")}
     except Exception as e:
         _log.debug("credential_summary: st.secrets unavailable: %s", e)
