@@ -327,3 +327,71 @@ def test_weekly_digest_fires_on_sunday(_silence_dispatch, monkeypatch, tmp_path)
     msg = _silence_dispatch.call_args[0][0]
     assert "Weekly Digest" in msg
     assert "TICK0" in msg
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Send windows + morning picks hand-off (2026-09-30: 09:20 cron ran at 15:31)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("mode,hhmm,ok", [
+    ("intraday-watchlist", (9, 20), True),
+    ("intraday-watchlist", (15, 31), False),
+    ("intraday-watchlist", (9, 0), False),
+    ("morning-digest", (8, 47), True),
+    ("morning-digest", (15, 23), False),
+    ("momentum", (15, 31), True),          # no window: market-hours guard handles it
+])
+def test_send_window(mode, hhmm, ok):
+    now = datetime.datetime(2026, 9, 30, *hhmm, tzinfo=ca._IST)
+    assert ca._in_send_window(mode, now) is ok
+
+
+def test_send_window_reads_utc_clock_as_ist():
+    # 10:01 UTC = 15:31 IST — the late GitHub run that sent the watchlist
+    now = datetime.datetime(2026, 9, 30, 10, 1, tzinfo=datetime.timezone.utc)
+    assert ca._in_send_window("intraday-watchlist", now) is False
+
+
+def test_digest_saves_picks_and_labels_scan_in_ist(_silence_dispatch, monkeypatch):
+    kv = {"top_picks_snapshot": _mk_snapshot(5)}
+    gen = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=5)
+    kv["top_picks_snapshot"]["generated_at"] = gen.isoformat()
+    monkeypatch.setitem(sys.modules, "trade_store", SimpleNamespace(
+        kv_get=lambda k, d=None, user_id="default": kv.get(k, d),
+        kv_set=lambda k, v, user_id="default": kv.__setitem__(k, v)))
+
+    assert ca.check_delivery_digest({}, "2026-09-30", max_picks=3) == 1
+    assert f"scan at {gen.astimezone(ca._IST):%H:%M} IST" in _silence_dispatch.call_args[0][0]
+    saved = kv[ca._MORNING_PICKS_KEY]
+    assert saved["date"] == "2026-09-30"
+    assert [b["ticker"] for b in saved["buys"]] == ["TICK0", "TICK1", "TICK2"]
+
+
+def test_intraday_uses_morning_digest_picks_not_newer_snapshot(_silence_dispatch, monkeypatch):
+    later = _mk_snapshot(3)
+    for b in later["data"]["buys"]:
+        b["ticker"] = "LATER_" + b["ticker"]
+    kv = {"top_picks_snapshot": later,
+          ca._MORNING_PICKS_KEY: {"date": "2026-09-30",
+                                  "generated_at": "2026-09-30T03:14:00+00:00",
+                                  "buys": _mk_snapshot(2)["data"]["buys"]}}
+    monkeypatch.setitem(sys.modules, "trade_store", SimpleNamespace(
+        kv_get=lambda k, d=None, user_id="default": kv.get(k, d)))
+    monkeypatch.setattr("data.fetcher.fetch_single", lambda t, period="3mo": _mk_ohlcv())
+
+    assert ca.check_intraday_watchlist({}, "2026-09-30") == 1
+    msg = _silence_dispatch.call_args[0][0]
+    assert "TICK0" in msg and "LATER_" not in msg
+    assert "this morning's Delivery Digest (scan at 08:44 IST)" in msg
+
+
+def test_intraday_falls_back_to_snapshot_when_picks_are_old(_silence_dispatch, monkeypatch):
+    kv = {"top_picks_snapshot": _mk_snapshot(2),
+          ca._MORNING_PICKS_KEY: {"date": "2026-09-29", "buys": [{"ticker": "STALE"}]}}
+    monkeypatch.setitem(sys.modules, "trade_store", SimpleNamespace(
+        kv_get=lambda k, d=None, user_id="default": kv.get(k, d)))
+    monkeypatch.setattr("data.fetcher.fetch_single", lambda t, period="3mo": _mk_ohlcv())
+
+    assert ca.check_intraday_watchlist({}, "2026-09-30") == 1
+    msg = _silence_dispatch.call_args[0][0]
+    assert "STALE" not in msg and "the latest delivery scan" in msg
