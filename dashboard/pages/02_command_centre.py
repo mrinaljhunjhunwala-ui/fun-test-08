@@ -352,8 +352,8 @@ def _gen_at_local(gen_at: str) -> _mb_dt.datetime:
     """A snapshot's generated_at as naive local time, comparable with
     datetime.now(). The warmer stamps UTC (older stamps are naive UTC), so a
     bare fromisoformat() was 5.5 h off on an IST machine."""
-    import trade_store as _ts_store
-    _ts = _ts_store.parse_snapshot_timestamp(gen_at)
+    from utils.snapshot_time import parse_snapshot_timestamp  # not via trade_store — see cache.py
+    _ts = parse_snapshot_timestamp(gen_at)
     return _ts.astimezone().replace(tzinfo=None) if _ts else _mb_dt.datetime.now()
 
 
