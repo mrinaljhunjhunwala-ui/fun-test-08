@@ -70,6 +70,36 @@
   - Breakdown fell from 15 to 1–4.
   - Options: rank-based gates in bear regimes, or show the lists as regime-suppressed. Needs a user call.
 
+## Mockup layout rollout — complete 2026-09-30 (#210 #212 #214 #216 #218)
+
+All 11 artboards of the 2026-09-12 "proposed layout" mockup
+(https://claude.ai/artifact/TT3yhxsvDHvg4CorKC9Hv4) are on `main`, plus its palette. Earlier pages:
+#175, #178–#182.
+- **Analyze Stock (#210):** ticker head with actions (Size Position opens the Position Sizer prefilled),
+  Overview tab first, posture hero with pillar bars, one combined-read strip (3 horizons + TQS), chart +
+  thesis grid, sector-aware fundamentals card, overlay-signals and reference-levels cards. The old
+  `verdict_card` (it printed the raw action, e.g. "BUY") is gone.
+  - Bugs fixed on the way: Portfolio Fit always failed with holdings (`_th` NameError across fragments);
+    the Fundamentals tab showed Debt/Equity for banks; the "your position" lookup never matched.
+- **Live Ticker (#212):** dense price table (day high/low + VWAP) and index rail in one
+  `@st.fragment(run_every=30s)` while NSE is open; rows flash on a tick. This replaced the whole-page
+  `<meta refresh>`. Quote tiers now pass optional `high` / `low` / `vwap`.
+  **Not yet seen live during market hours.**
+- **Angel One (#214):** status panel, masked credentials, activity log, from new
+  `angel_fetcher.status()` / `credential_summary()` and an in-process event log (no network). The posture
+  tab shows descriptive labels ("Trend broken", not `EXIT_WATCH`). **The connected state has only been
+  checked by the stubbed test** (no credentials on the dev PC).
+- **Investor Guide (#216):** each tab is a chapter in a 760px reading column (contents, drop cap, callouts,
+  document tables).
+- **Palette (#218), dark only (the owner doesn't want light mode):** rust accent `#c88a3f`, muted
+  bull / bear / amber, blue-black ground `#0e1116`, and Inter + JetBrains Mono instead of IBM Plex. It's
+  driven by `dashboard/shared/tokens.py`; hard-coded copies were mapped in 13 files. A few legacy one-offs
+  remain (e.g. `trade_utils._grade_color`).
+- **Kit to reuse** (`ui_components.py`, CSS in `design.py`): `stock_head`, `kv_list`, `kit_card`,
+  `thesis_grid`, `hero_verdict(pillars=)`, `ticker_table`, `mini_index`, `sparkline`, `fmt_volume`,
+  `status_panel`, `activity_log`, plus the earlier `section_header`, `gate_strip`, `level_strip`,
+  `signal_table`, etc. Mockup numbers the app doesn't compute are left out, never invented.
+
 ## What shipped 2026-09-28, later (#200 → #204)
 
 - **Bear follow-up (#202, docs only):** on the same 10y data, #198 improves every risk_off cell and 3 of 4
@@ -210,7 +240,14 @@ as disabled.
 4. **Still to check by hand:** the mobile layout on a real phone.
 5. **Branches:** decide on `alerts/consolidate-fresh-workflow` (open PR #93) and
    `design/mockup-06-smart-screener`.
-6. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
+6. **Mockup follow-ups:**
+   - Watch Live Ticker's 30s refresh and row flash during a market session.
+   - Look at the Angel One page connected, on the deployed app.
+   - The main checkout holds **uncommitted F&O-positions changes** to `data/angel_fetcher.py` and
+     `dashboard/pages/16_angel_one.py` from another session. They were written against the pre-#214 page,
+     so they need rebasing onto the new page before commit.
+   - `FinalVerdict.primary_reason` can still read "Technical setup: Hold (…)" (`analysis/final_verdict.py`).
+7. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
    monthly circular; the drift warning in `fetch_nse_fno_bhavcopy` names the candidates.
 
 ## Gotchas
@@ -218,6 +255,8 @@ as disabled.
   original scratch folder, not the repo. Start Streamlit yourself on a spare port (e.g. 8511, with the env vars
   from `.claude/launch.json`) and open it with `preview_start url=http://localhost:8511/<page>`.
   - Page slugs drop the number: `/analyze_stock`, `/tqs_scanner`.
+  - A `launch.json` entry's `cwd` must be a relative path **inside** the repo, so to preview a worktree,
+    keep the worktree under `.claude/worktrees/`.
   - Dataframes render to a canvas, so read table colours from the code and tokens, not screenshots.
 - **Several Claude sessions work in this repo at once.** One ran `git reset --hard` in the main
   checkout and wiped another session's uncommitted edits. **Work in `.claude/worktrees/<name>` on
