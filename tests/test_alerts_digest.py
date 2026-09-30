@@ -171,7 +171,7 @@ def test_momentum_am_pm_bucket_dedup(_silence_dispatch, monkeypatch):
 
 
 def test_momentum_quiet_day_still_sends(_silence_dispatch, monkeypatch):
-    """No candidates — we still send a 'sit on hands' note so the user
+    """No candidates — we still send a 'quiet day' note so the user
     knows the pipeline ran, and dedup marks the bucket so we don't retry."""
     monkeypatch.setattr("analysis.momentum_scanner.scan_momentum", lambda *a, **kw: [])
     monkeypatch.setattr("data.fetcher.fetch_single", lambda *a, **kw: pd.DataFrame())
@@ -263,7 +263,7 @@ def test_intraday_watchlist_reformats_picks(_silence_dispatch, monkeypatch):
     assert fired == 1
     msg = _silence_dispatch.call_args[0][0]
     assert "Intraday Morning Watchlist" in msg
-    assert "ORB above" in msg
+    assert "ORB high" in msg
     assert "TICK0" in msg
 
 
