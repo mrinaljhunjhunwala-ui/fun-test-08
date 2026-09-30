@@ -37,3 +37,17 @@ def test_flat_list_splits_open_and_closed(monkeypatch):
 def test_empty_data(monkeypatch):
     _patch(monkeypatch, None)
     assert af.get_positions() == {"day": [], "net": [], "closed": []}
+
+
+def test_analyse_holdings_reports_skip_reason():
+    import pandas as pd
+    from analysis.portfolio_posture import analyse_holdings
+    short = pd.DataFrame({"Open": 1.0, "High": 1.0, "Low": 1.0, "Close": 1.0, "Volume": 1.0},
+                         index=pd.date_range("2026-06-15", periods=75))
+    skipped = []
+    out = analyse_holdings([{"symbol": "NEW", "qty": 1, "avg_price": 1, "ltp": 1},
+                            {"symbol": "GONE", "qty": 1, "avg_price": 1, "ltp": 1}],
+                           lambda s: short if s == "NEW" else None, skipped=skipped)
+    assert out == []
+    assert "only 75 trading days" in skipped[0]["reason"]
+    assert skipped[1] == {"symbol": "GONE", "reason": "price history could not be fetched"}
