@@ -565,15 +565,9 @@ def _action_emoji(action: str) -> str:
 # Phase 2 UI honesty — map internal action strings to honest display labels.
 # Internal strings (engine, DB, CSV, sort keys) are NEVER changed.
 # Only this function touches what the user actually reads.
-_ACTION_DISPLAY_LABELS = {
-    "STRONG BUY": "Strong Trend ▲▲",
-    "BUY":        "Uptrend ▲",
-    "WATCHLIST":  "Watch",
-    "HOLD":       "Neutral",
-    "CAUTION":    "Weakening ▼",
-    "EXIT":       "Broken Trend ▼▼",
-    "SELL":       "Broken Trend ▼▼",   # legacy alias from signals.py
-}
+# Single source of truth lives in the pure analysis/action_labels.py so the
+# Telegram/Gmail alerts share it without importing Streamlit.
+from analysis.action_labels import ACTION_DISPLAY_LABELS as _ACTION_DISPLAY_LABELS  # noqa: E402
 
 
 def _display_label(action: str) -> str:

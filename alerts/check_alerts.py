@@ -47,6 +47,8 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from analysis.action_labels import action_display_label  # noqa: E402
+
 _ALERTS_CSV  = os.path.join(_ROOT, "data", "alerts.csv")
 _STATE_JSON  = os.path.join(_ROOT, "data", "alert_state.json")
 _IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
@@ -374,7 +376,7 @@ def check_portfolio_alerts(state: dict, today: str) -> int:
                 key = f"pf_cost_{ticker}_{side}_{avg:.2f}"
                 if not _already_fired(state, key, today):
                     arrow = "🔼" if side == "above" else "🔽"
-                    msg = (f"{arrow} <b>{ticker}</b> crossed {side} your avg buy price "
+                    msg = (f"{arrow} <b>{ticker}</b> crossed {side} your average cost "
                            f"<b>₹{avg:,.2f}</b>\n"
                            f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
                            f"📝 Portfolio holding")
@@ -418,8 +420,8 @@ def check_vix_regime(state: dict, today: str) -> int:
         f"{icon} <b>Market volatility alert</b>\n"
         f"India VIX is in <b>{regime.upper()}</b> territory"
         + (f" at <b>{vix:.1f}</b>" if vix else "")
-        + "\nNew long entries are higher-risk — protect open positions, "
-          "tighten stops, avoid fresh leverage."
+        + "\nVolatility is elevated — daily swings in this regime run wider "
+          "than usual, in both directions."
     )
     if dispatch(msg):
         _mark_fired(state, key, today)
@@ -454,7 +456,7 @@ def check_nifty_trend(state: dict, today: str) -> int:
         f"📉 <b>Nifty 50 downtrend</b>\n"
         f"Nifty at <b>{price:,.0f}</b> ({chg5:+.1f}% 5d), now below both "
         f"SMA20 ({sma20:,.0f}) and SMA50 ({sma50:,.0f}).\n"
-        f"Trend has turned down — be defensive with new buys."
+        f"Price &lt; SMA20 &lt; SMA50 — a confirmed downtrend on this rule."
     )
     if dispatch(msg):
         _mark_fired(state, key, today)
@@ -525,7 +527,7 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
     for i, b in enumerate(buys[:max_picks], start=1):
         tk    = b.get("ticker", "?")
         score = b.get("score", 0)
-        act   = b.get("action", "").replace("_", " ")
+        act   = action_display_label(b.get("action", "").replace("_", " "))
         price = b.get("price") or b.get("last_price") or b.get("current_price")
         entry = b.get("entry_zone") or b.get("entry")
         stop  = b.get("stop_loss")  or b.get("stop")
@@ -550,7 +552,7 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
     lines.extend([
         "",
         "<i>Descriptive scan of composite-score leaders — not advice. "
-        "Verify each name on the Analyze Stock page before any action.</i>",
+        "Each name's full breakdown is on the Analyze Stock page.</i>",
     ])
     msg = "\n".join(lines)
 
@@ -707,7 +709,8 @@ def check_portfolio_posture(state: dict, today: str) -> int:
 
     try:
         from analysis.portfolio_posture import (
-            analyse_holdings, analyse_positions, format_portfolio_message,
+            NO_FLAGGED_POSTURES, analyse_holdings, analyse_positions,
+            format_portfolio_message,
         )
         from data.angel_fetcher import get_holdings, get_positions
         from data.fetcher import fetch_single
@@ -749,7 +752,7 @@ def check_portfolio_posture(state: dict, today: str) -> int:
     # Suppress the 'nothing to do' message from the daily digest — the whole
     # point of an alert is to surface something. If everything is HOLD,
     # count it as fired-successfully (dedup key set) so we don't keep polling.
-    if "Nothing to do" in msg:
+    if NO_FLAGGED_POSTURES in msg:
         _mark_fired(state, key, today)
         print("[portfolio] all HOLD/RUNNING — no message sent")
         return 0
@@ -841,16 +844,16 @@ def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> 
             f"{i}. <b>{tk}</b> · y-close ₹{y_close:,.2f} · ATR₁₄ ₹{atr:.2f}"
         )
         lines.append(
-            f"   ORB above ₹{orb_hi:,.2f} (long) / below ₹{orb_lo:,.2f} (short) · "
+            f"   ORB high ₹{orb_hi:,.2f} / ORB low ₹{orb_lo:,.2f} · "
             f"Intraday stop ₹{stop:,.2f} · Target ₹{target:,.2f}"
         )
         n_enriched += 1
 
     lines.extend([
         "",
-        "<i>Intraday framing of delivery-quality picks. Wait 15 min after open "
-        "before entering — let the true opening range establish. Descriptive "
-        "levels, not advice.</i>",
+        "<i>Intraday framing of delivery-quality names. The opening range forms "
+        "over the first 15 min after open; these ATR levels are reference points "
+        "from yesterday's close. Descriptive levels, not advice.</i>",
     ])
 
     if n_enriched == 0:
@@ -904,11 +907,11 @@ def check_weekly_digest(state: dict, today: str) -> int:
         buys = []
 
     if buys:
-        lines.append("<b>Current top delivery picks going into the week</b>")
+        lines.append("<b>Top composite scores from the delivery scan</b>")
         for i, b in enumerate(buys[:5], start=1):
             tk = b.get("ticker", "?")
             score = b.get("score", 0)
-            act   = b.get("action", "").replace("_", " ")
+            act   = action_display_label(b.get("action", "").replace("_", " "))
             lines.append(f"{i}. <b>{tk}</b> — {act} · Score {score}/90")
         lines.append("")
     else:

@@ -323,11 +323,11 @@ def format_momentum_message(candidates: List[Dict], *, max_lines: int = 8) -> st
             "📊 <b>Momentum scan</b>\n"
             "No stocks passed today's filters "
             "(55d breakout + 1.5× volume + RSI 55–75 + trend confirmed).\n"
-            "Quiet day for new positional entries — sit on hands."
+            "Quiet day — no momentum setups met the criteria in this scan."
         )
 
     lines: List[str] = [
-        "🚀 <b>Momentum opportunities</b>",
+        "🚀 <b>Momentum setups</b>",
         f"<i>{len(candidates)} setup(s) surfaced — top {min(max_lines, len(candidates))} below</i>",
         "",
     ]
@@ -345,7 +345,7 @@ def format_momentum_message(candidates: List[Dict], *, max_lines: int = 8) -> st
         )
     lines.extend([
         "",
-        "<i>Descriptive scan — not advice. Size positions per your own risk. "
+        "<i>Descriptive scan — not advice. Levels are rule-derived reference points. "
         "Filters: trend + Donchian-55 + volume + RSI + VWAP + ATR-exhaustion.</i>",
     ])
     return "\n".join(lines)

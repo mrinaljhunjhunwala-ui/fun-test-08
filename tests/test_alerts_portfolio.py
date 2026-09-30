@@ -93,7 +93,7 @@ def test_cost_cross_alerts_once_per_crossing(env):
     store = install([_h("VEDL", 253.22)], {"VEDL": {"ref": 259.95, "ref_date": "2026-09-28", "side": "above"}})
     prices["VEDL"] = 252.0                      # crossed below cost, only -3% from ref
     assert ca.check_portfolio_alerts({}, TODAY) == 1
-    assert "crossed below your avg buy price" in dispatch.call_args[0][0]
+    assert "crossed below your average cost" in dispatch.call_args[0][0]
     assert store.anchors["VEDL"]["side"] == "below"
     dispatch.reset_mock()
     assert ca.check_portfolio_alerts({}, TODAY) == 0   # still below: no repeat

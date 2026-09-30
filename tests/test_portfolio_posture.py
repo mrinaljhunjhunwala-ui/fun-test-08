@@ -185,9 +185,9 @@ def test_analyse_holdings_skips_bad_fetch():
 
 
 def test_format_message_no_urgent_says_all_hold():
-    """Zero actionable rows → the 'nothing to do' text, not an empty message."""
+    """Zero actionable rows → the 'no postures flagged' text, not an empty message."""
     msg = format_portfolio_message([], [])
-    assert "Nothing to do" in msg
+    assert "No postures flagged" in msg
     assert "Portfolio Posture" in msg
 
 

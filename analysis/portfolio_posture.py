@@ -44,6 +44,10 @@ _log = logging.getLogger("analysis.portfolio_posture")
 DELIVERY_POSTURES = ("ADD_WATCH", "HOLD", "TRIM_WATCH", "EXIT_WATCH", "STOPPED_OUT")
 INTRADAY_POSTURES = ("RUNNING", "TRAIL_TIGHTER", "STOP_HIT", "TARGET_HIT", "UNCLEAR")
 
+# Tail of the all-quiet message; alerts/check_alerts.py matches on it to
+# suppress the send, so both sides import this one constant.
+NO_FLAGGED_POSTURES = "No postures flagged."
+
 
 @dataclass
 class HoldingPosture:
@@ -389,7 +393,7 @@ def format_portfolio_message(
         return (
             "📋 <b>Portfolio Posture</b>\n"
             "All delivery holdings currently HOLD, no intraday positions need attention. "
-            "Nothing to do."
+            + NO_FLAGGED_POSTURES
         )
 
     lines = ["📋 <b>Portfolio Posture</b>", ""]
@@ -417,7 +421,7 @@ def format_portfolio_message(
 
 
 __all__ = [
-    "DELIVERY_POSTURES", "INTRADAY_POSTURES",
+    "DELIVERY_POSTURES", "INTRADAY_POSTURES", "NO_FLAGGED_POSTURES",
     "HoldingPosture", "IntradayPosture",
     "analyse_delivery_holding", "analyse_intraday_position",
     "analyse_holdings", "analyse_positions",
