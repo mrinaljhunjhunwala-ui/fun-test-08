@@ -414,6 +414,93 @@ def check_portfolio_alerts(state: dict, today: str) -> int:
     return sent
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Level alerts — automatic, no alerts.csv needed
+#
+# For every My Portfolio holding plus today's Morning Digest names: a break of
+# the prior 20-session high/low and a cross of the 50-day SMA. The levels are
+# the stock's own history (analysis/level_alerts.py). One alert per ticker per
+# event kind per day.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LEVEL_TEXT = {
+    "high20":     ("🔼", "broke above its 20-day high"),
+    "low20":      ("🔽", "broke below its 20-day low"),
+    "sma50_up":   ("📈", "crossed above its 50-day average"),
+    "sma50_down": ("📉", "crossed below its 50-day average"),
+}
+
+
+def _level_alert_universe(store, today: str) -> dict[str, str]:
+    """Base symbol → why it's watched ('holding' / 'digest pick')."""
+    def _base(t) -> str:
+        return str(t or "").upper().replace(".NS", "").replace(".BO", "").strip()
+
+    names: dict[str, str] = {}
+    try:
+        morning = store.kv_get(_MORNING_PICKS_KEY, None, user_id="_system")
+    except Exception:
+        morning = None
+    if isinstance(morning, dict) and morning.get("date") == today:
+        for b in morning.get("buys") or []:
+            if _base(b.get("ticker")):
+                names[_base(b.get("ticker"))] = "Morning Digest pick"
+    try:
+        holdings = store.kv_get(_PF_HOLDINGS_KEY, None) or []
+    except Exception:
+        holdings = []
+    for h in holdings:
+        if _base(h.get("ticker")):
+            names[_base(h.get("ticker"))] = "Portfolio holding"
+    return names
+
+
+def check_level_alerts(state: dict, today: str) -> int:
+    try:
+        import pandas as pd
+        import trade_store as store
+        from analysis.level_alerts import detect_level_events
+        from data.fetcher import fetch_single
+        from utils.live_price import get_live_quote
+    except Exception as e:
+        print(f"[levels] import failed: {e}")
+        return 0
+
+    names = _level_alert_universe(store, today)
+    if not names:
+        print("[levels] no holdings or digest picks — nothing to check")
+        return 0
+
+    sent = 0
+    for base, why in names.items():
+        try:
+            df = fetch_single(f"{base}.NS", period="6mo")
+        except Exception as e:
+            print(f"[levels] {base}: history fetch failed: {e}")
+            continue
+        if df is None or df.empty:
+            print(f"[levels] {base}: no history")
+            continue
+        # Completed sessions only; today's in-progress bar would move the levels.
+        prior = df[pd.to_datetime(df.index).strftime("%Y-%m-%d") < today]
+        q = get_live_quote(base)
+        price = float(q["price"]) if q and q.get("price") else float(df["Close"].iloc[-1])
+        chg = (q or {}).get("chg_pct", 0.0) or 0.0
+
+        for ev in detect_level_events(prior, price):
+            key = f"lvl_{ev.kind}_{base}"
+            if _already_fired(state, key, today):
+                continue
+            icon, verb = _LEVEL_TEXT[ev.kind]
+            msg = (f"{icon} <b>{base}</b> {verb} (₹{ev.level:,.2f})\n"
+                   f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
+                   f"📝 {why} · level from the stock's own price history")
+            if dispatch(msg):
+                _mark_fired(state, key, today)
+                sent += 1
+    return sent
+
+
 def check_vix_regime(state: dict, today: str) -> int:
     """Alert when India VIX is in a fear/panic regime."""
     try:
@@ -1101,6 +1188,7 @@ def main() -> int:
         _counts = {
             "price":     check_price_alerts(state, today),
             "portfolio": check_portfolio_alerts(state, today),
+            "levels":    check_level_alerts(state, today),
             "vix":       check_vix_regime(state, today),
             "nifty":     check_nifty_trend(state, today),
         }

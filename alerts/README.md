@@ -4,6 +4,15 @@ Get a Telegram message when a stock crosses your price level, when India VIX
 turns fearful, or when Nifty breaks into a downtrend — **even when the
 dashboard is closed.**
 
+Two kinds of alert need no setup:
+- **Portfolio alerts** (your My Portfolio holdings): a ±10% move, or a cross of
+  your average buy price.
+- **Level alerts** (your holdings, plus that day's Morning Digest names): a
+  break of the prior 20-day high or low, or a cross of the 50-day average. The levels come from the stock's own price history
+  (`analysis/level_alerts.py`), and each fires at most once a day per stock.
+
+`data/alerts.csv` is only needed for extra levels you pick yourself.
+
 A GitHub Actions job runs `alerts/check_alerts.py` every 15 minutes during
 NSE market hours (Mon–Fri, 09:15–15:30 IST) and sends alerts via a Telegram bot.
 
@@ -118,7 +127,7 @@ needs an external trigger. All share the same settings:
 | 1 | `warm-preopen-scan.yml` | `{"ref":"main"}` | `40 8 * * 1-5` | 08:40 | Fresh Top Picks + Tomorrow's Watchlist, then sends the **Morning Delivery Digest** |
 | 2 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"intraday-watchlist","force":"false"}}` | `20 9 * * 1-5` | 09:20 | Intraday framing of the top picks |
 | 3 | `market-alerts.yml` | `{"ref":"main"}` | `*/15 9-15 * * 1-5` | every 15 min, 09:00–15:45 | Price alerts, India VIX regime, Nifty trend |
-| 4 | `warm-top-picks.yml` | `{"ref":"main"}` | `15,45 9-15 * * 1-5` | every 30 min, 09:15–15:45 | Keeps the dashboard's Top Picks snapshot fresh |
+| 4 | `warm-top-picks.yml` | `{"ref":"main"}` | 3 jobs: `15 9,12,15 * * 1-5` · `0,45 10,13 * * 1-5` · `30 11,14 * * 1-5` | every 45 min, 09:15–15:15 | Keeps the dashboard's Top Picks snapshot fresh (~5 min per run) |
 | 5 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"momentum","force":"false"}}` | `0,30 10-14 * * 1-5` | every 30 min, 10:00–14:30 | Momentum-scan digest (max one AM + one PM) |
 | 6 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"portfolio-posture","force":"false"}}` | `0 14 * * 1-5` | 14:00 | Angel One holdings posture |
 | 7 | `warm_tomorrow_watchlist.yml` | `{"ref":"main"}` | `50 15 * * 1-5` | 15:50 | Tomorrow's Watchlist after close |
