@@ -225,6 +225,23 @@ def _is_market_hours() -> bool:
     return is_market_open()
 
 
+# Morning messages bypass the market-hours guard, so they need their own
+# clock: on 2026-09-30 GitHub ran the 09:20 cron at 15:31 and the "morning"
+# watchlist went out after the close. A trigger outside the window is dropped.
+_SEND_WINDOWS = {
+    "morning-digest":     (datetime.time(7, 0),  datetime.time(10, 0)),
+    "intraday-watchlist": (datetime.time(9, 15), datetime.time(10, 30)),
+}
+
+
+def _in_send_window(mode: str, now: datetime.datetime | None = None) -> bool:
+    window = _SEND_WINDOWS.get(mode)
+    if window is None:
+        return True
+    t = (now or datetime.datetime.now(_IST)).astimezone(_IST).time()
+    return window[0] <= t < window[1]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Checks
 # ─────────────────────────────────────────────────────────────────────────────
@@ -476,6 +493,17 @@ def check_nifty_trend(state: dict, today: str) -> int:
 
 _DIGEST_MAX_SNAPSHOT_AGE_H = 16
 
+# The names the Morning Digest actually sent, so the 09:20 intraday watchlist
+# reframes the same list instead of whatever the 15-min warmer wrote since.
+_MORNING_PICKS_KEY = "morning_digest_picks"
+
+
+def _snapshot_ist_label(gen_at) -> str:
+    """generated_at (UTC ISO) → 'HH:MM IST'; the raw stamp is UTC, not IST."""
+    from utils.snapshot_time import parse_snapshot_timestamp
+    ts = parse_snapshot_timestamp(gen_at)
+    return ts.astimezone(_IST).strftime("%H:%M IST") if ts else "unknown time"
+
 
 def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int:
     """Read persisted Top Picks snapshot and email/Telegram the top delivery
@@ -521,7 +549,7 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
     lines = [
         "📈 <b>Morning Delivery Digest</b>",
         f"<i>Top {min(max_picks, len(buys))} positional candidates from today's scan "
-        f"(snapshot {gen_at[:16] if isinstance(gen_at, str) else 'unknown'} IST)</i>",
+        f"(scan at {_snapshot_ist_label(gen_at)})</i>",
         "",
     ]
     for i, b in enumerate(buys[:max_picks], start=1):
@@ -558,6 +586,12 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
 
     if dispatch(msg, subject="Morning Delivery Digest — NSE Smart Investor"):
         _mark_fired(state, key, today)
+        try:
+            store.kv_set(_MORNING_PICKS_KEY,
+                         {"date": today, "generated_at": gen_at, "buys": buys[:max_picks]},
+                         user_id="_system")
+        except Exception as _e:
+            print(f"[digest] could not save today's picks for the intraday watchlist: {_e}")
         return 1
     return 0
 
@@ -789,17 +823,29 @@ def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> 
         print(f"[intraday] import failed: {_e}")
         return 0
 
+    # Prefer the exact list this morning's digest sent; fall back to the
+    # latest snapshot (and say so) if the digest didn't go out today.
     try:
-        snap = store.kv_get("top_picks_snapshot", user_id="_system")
-    except Exception as _e:
-        print(f"[intraday] kv_get failed: {_e}")
-        return 0
+        morning = store.kv_get(_MORNING_PICKS_KEY, user_id="_system")
+    except Exception:
+        morning = None
+    if isinstance(morning, dict) and morning.get("date") == today and morning.get("buys"):
+        buys = morning["buys"]
+        source = (f"this morning's Delivery Digest "
+                  f"(scan at {_snapshot_ist_label(morning.get('generated_at'))})")
+    else:
+        try:
+            snap = store.kv_get("top_picks_snapshot", user_id="_system")
+        except Exception as _e:
+            print(f"[intraday] kv_get failed: {_e}")
+            return 0
 
-    if not (snap and isinstance(snap, dict) and isinstance(snap.get("data"), dict)):
-        print("[intraday] no persisted top-picks snapshot — skipping")
-        return 0
+        if not (snap and isinstance(snap, dict) and isinstance(snap.get("data"), dict)):
+            print("[intraday] no persisted top-picks snapshot — skipping")
+            return 0
 
-    buys = snap["data"].get("buys") or []
+        buys = snap["data"].get("buys") or []
+        source = f"the latest delivery scan (at {_snapshot_ist_label(snap.get('generated_at'))})"
     if not buys:
         print("[intraday] snapshot has 0 buys — nothing to reformat")
         return 0
@@ -807,7 +853,7 @@ def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> 
     # Enrich each with ATR-derived intraday levels
     lines = [
         "⚡ <b>Intraday Morning Watchlist</b>",
-        f"<i>Top {min(max_picks, len(buys))} names from the delivery scan, "
+        f"<i>Top {min(max_picks, len(buys))} names from {source}, "
         f"reframed with intraday levels for today's session.</i>",
         "",
     ]
@@ -1022,6 +1068,11 @@ def main() -> int:
     )
     if mode not in _bypass_market_hours and not force and not _is_market_hours():
         print(f"[main mode={mode}] outside NSE market hours — nothing to do.")
+        return 0
+    if not force and not _in_send_window(mode):
+        _lo, _hi = _SEND_WINDOWS[mode]
+        print(f"[main mode={mode}] {datetime.datetime.now(_IST):%H:%M} IST is outside its "
+              f"{_lo:%H:%M}–{_hi:%H:%M} send window — late trigger, skipping.")
         return 0
 
     today = datetime.datetime.now(_IST).strftime("%Y-%m-%d")

@@ -132,6 +132,14 @@ change the title, URL, body and crontab. Clones start **Inactive** — flip
 is treated as a manual test (skips the market-hours guard **and** the
 once-per-day dedup), and you'd get a digest on every trigger.
 
+The two morning messages also have their own send window: the Morning Digest
+goes out between 07:00 and 10:00 IST, and the Intraday Watchlist between 09:15
+and 10:30 IST. If a trigger arrives outside its window, the run logs "late
+trigger, skipping" and sends nothing. This happened on 2026-09-30, when GitHub
+ran the 09:20 cron at 15:31. So create job #2 on cron-job.org rather than
+relying on GitHub's fallback cron. The watchlist reuses the exact names the
+Morning Digest sent that day.
+
 Start with #1 and #3 — they carry the alerts. The scripts guard the exact
 market window and NSE holidays themselves, so triggering on a holiday is a
 harmless no-op.
