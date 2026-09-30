@@ -34,11 +34,13 @@
     fine-grained token (this repo only, Actions read/write) that lives only in cron-job.org. Jobs #2 and
     #4–#8 are not created yet. The README lists the gotchas: the Content-Type header is required, clones
     start inactive, and ad blockers break the test-run button.
-  - **Stopgap:** Windows Task Scheduler on the user's PC, folder `\NSE Smart Investor\`.
-    - Pre-open at 08:40, and Market Alerts every 15 min from 09:00 to 15:45, Mon–Fri.
-    - Both have wake-to-run and catch-up enabled.
-    - Script: `C:\Users\ASUS\nse-triggers\dispatch.ps1`. Log: `dispatch.log` in the same folder.
-    - It only fires while the PC is on. Delete it once cron-job.org works.
+  - **Windows Task Scheduler stopgap: retired 2026-09-30.** Both tasks are deleted. First full market
+    morning on cron-job.org alone (30 Sep): the pre-open ran at 08:40 and sent the Morning Digest, and Market
+    Alerts ran every slot from 09:00. The 09:15 run sent the Nifty-downtrend alert, and later runs were
+    deduped. Both messages reached Telegram. `C:\Users\ASUS\nse-triggers\dispatch.ps1` is kept for manual
+    dispatches.
+  - **Every alert also goes to Gmail** (`ALERT_GMAIL_*` secrets). The user is thinking about dropping email;
+    to do that, delete the three secrets and revoke the app password. No code change is needed.
   - `market-digest.yml` dispatches must send `"force":"false"`. Otherwise they act as manual tests and skip
     the market-hours guard and dedup.
 - **Angel One candle API:** it works from GitHub runners and isn't IP-blocked. It returns 403 "exceeding
