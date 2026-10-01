@@ -91,7 +91,7 @@ def test_small_move_is_quiet(env):
 def test_cost_cross_alerts_once_per_crossing(env):
     install, prices, dispatch = env
     store = install([_h("VEDL", 253.22)], {"VEDL": {"ref": 259.95, "ref_date": "2026-09-28", "side": "above"}})
-    prices["VEDL"] = 252.0                      # crossed below cost, only -3% from ref
+    prices["VEDL"] = 250.0                      # 1.3% below cost, only -4% from ref
     assert ca.check_portfolio_alerts({}, TODAY) == 1
     assert "crossed below your average cost" in dispatch.call_args[0][0]
     assert store.anchors["VEDL"]["side"] == "below"
@@ -101,9 +101,9 @@ def test_cost_cross_alerts_once_per_crossing(env):
 
 def test_avg_price_edit_on_portfolio_page_is_picked_up(env):
     install, prices, dispatch = env
-    # Holding re-averaged to 260 on the My Portfolio page; price 259 is now below cost.
+    # Holding re-averaged to 260 on the My Portfolio page; price 257 is now >1% below cost.
     install([_h("VEDL", 260.0)], {"VEDL": {"ref": 259.95, "ref_date": "2026-09-28", "side": "above"}})
-    prices["VEDL"] = 259.0
+    prices["VEDL"] = 257.0
     assert ca.check_portfolio_alerts({}, TODAY) == 1
     assert "₹260.00" in dispatch.call_args[0][0]
 
@@ -126,3 +126,26 @@ def test_no_holdings_or_no_quote_degrades_quietly(env):
     assert ca.check_portfolio_alerts({}, TODAY) == 0      # no quote for VISL
     assert store.anchors["VISL"]["ref"] == 31.35          # untouched, not dropped
     dispatch.assert_not_called()
+
+
+def test_wobble_inside_cost_margin_is_quiet(env):
+    # 2026-10-01: ONGC at 224.12 / 223.91 around a 223.97 average sent two alerts.
+    install, prices, dispatch = env
+    store = install([_h("ONGC", 223.97)], {"ONGC": {"ref": 225.0, "ref_date": "2026-09-30", "side": "above"}})
+    for p in (223.91, 224.12, 222.0, 225.5):        # all within ±1% (221.73–226.21)
+        prices["ONGC"] = p
+        assert ca.check_portfolio_alerts({}, TODAY) == 0
+    dispatch.assert_not_called()
+    assert store.anchors["ONGC"]["side"] == "above"
+
+
+def test_one_cost_cross_alert_per_holding_per_day(env):
+    install, prices, dispatch = env
+    store = install([_h("VEDL", 253.22)], {"VEDL": {"ref": 255.0, "ref_date": "2026-09-30", "side": "above"}})
+    state: dict = {}
+    prices["VEDL"] = 250.0                          # >1% below → alert
+    assert ca.check_portfolio_alerts(state, TODAY) == 1
+    prices["VEDL"] = 256.5                          # >1% above, same day → silent
+    assert ca.check_portfolio_alerts(state, TODAY) == 0
+    assert dispatch.call_count == 1
+    assert store.anchors["VEDL"]["side"] == "above"  # side still tracked for tomorrow

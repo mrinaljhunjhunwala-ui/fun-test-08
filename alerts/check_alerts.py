@@ -328,6 +328,7 @@ def check_price_alerts(state: dict, today: str) -> int:
 _PF_HOLDINGS_KEY = "manual_portfolio_holdings"
 _PF_ANCHORS_KEY  = "portfolio_alert_anchors"
 _PF_STEP_PCT     = 10.0
+_PF_COST_MARGIN_PCT = 1.0
 
 
 def check_portfolio_alerts(state: dict, today: str) -> int:
@@ -386,23 +387,28 @@ def check_portfolio_alerts(state: dict, today: str) -> int:
                     sent += 1
                     a["ref"], a["ref_date"] = price, today
 
-        # 2) Average-cost cross
+        # 2) Average-cost cross. A cross only counts once the price is
+        # _PF_COST_MARGIN_PCT past the average, and at most one alert per
+        # holding per day: on 2026-10-01 ONGC wobbled 21 paise around its
+        # average and sent "above" then "below" 15 min apart.
         if avg:
-            side = "above" if price >= avg else "below"
-            if a.get("side") and side != a["side"]:
-                key = f"pf_cost_{ticker}_{side}_{avg:.2f}"
+            band = avg * _PF_COST_MARGIN_PCT / 100
+            side = ("above" if price >= avg + band else
+                    "below" if price <= avg - band else None)
+            if not a.get("side"):
+                a["side"] = side or ("above" if price >= avg else "below")
+            elif side and side != a["side"]:
+                a["side"] = side
+                key = f"pf_cost_{ticker}"
                 if not _already_fired(state, key, today):
                     arrow = "🔼" if side == "above" else "🔽"
                     msg = (f"{arrow} <b>{ticker}</b> crossed {side} your average cost "
                            f"<b>₹{avg:,.2f}</b>\n"
                            f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
-                           f"📝 Portfolio holding")
+                           f"📝 Portfolio holding · counted once {_PF_COST_MARGIN_PCT:g}% past the average")
                     if dispatch(msg):
                         _mark_fired(state, key, today)
                         sent += 1
-                        a["side"] = side
-            elif not a.get("side"):
-                a["side"] = side
 
     for t in [t for t in anchors if t not in held]:
         print(f"[portfolio] {t}: no longer held — dropping its reference")

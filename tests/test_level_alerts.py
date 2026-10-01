@@ -54,6 +54,12 @@ def test_cross_below_sma50_from_above():
     assert "sma50_down" in [e.kind for e in ev]
 
 
+def test_ticking_just_past_a_level_is_ignored():
+    # 20-day low 99.0: 98.8 is only 0.2% below it (margin is 0.5%).
+    assert detect_level_events(_bars(np.full(60, 100.0)), 98.8) == []
+    assert [e.kind for e in detect_level_events(_bars(np.full(60, 100.0)), 98.4)] == ["low20"]
+
+
 def test_staying_above_sma50_is_not_a_cross():
     ev = detect_level_events(_bars([100.0] * 40 + [105.0] * 20), 105.5)
     assert not any(e.kind.startswith("sma50") for e in ev)
