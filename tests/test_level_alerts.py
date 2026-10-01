@@ -93,6 +93,7 @@ def _wire(monkeypatch, kv, prices, history):
 
 
 def test_holding_and_digest_pick_breakouts_are_sent_once(sent, monkeypatch):
+    monkeypatch.setenv("ALERT_HOLDINGS", "1")
     # Today's in-progress bar (2026-10-01, a spike) must be ignored for the levels.
     ongc = pd.concat([_bars(np.full(60, 100.0)),
                       _bars([150.0], end="2026-10-01")])
@@ -117,3 +118,56 @@ def test_yesterdays_digest_picks_are_not_watched(sent, monkeypatch):
     _wire(monkeypatch, kv, {}, {})
     assert ca.check_level_alerts({}, TODAY) == 0
     assert sent == []
+
+
+def test_holdings_are_skipped_unless_opted_in(sent, monkeypatch):
+    monkeypatch.delenv("ALERT_HOLDINGS", raising=False)
+    kv = {"manual_portfolio_holdings": [{"ticker": "ONGC.NS", "avg_buy_price": 90}],
+          ca._MORNING_PICKS_KEY: {"date": TODAY, "buys": [{"ticker": "RUBICON.NS"}]}}
+    _wire(monkeypatch, kv, {"ONGC": 102.0, "RUBICON": 98.0},
+          {"ONGC.NS": _bars(np.full(60, 100.0)), "RUBICON.NS": _bars(np.full(60, 100.0))})
+    assert ca.check_level_alerts({}, TODAY) == 1
+    assert "RUBICON" in sent[0] and not any("ONGC" in m for m in sent)
+
+
+# ── check_picks_recap ───────────────────────────────────────────────────────
+
+def _recap_env(monkeypatch, prices):
+    kv = {ca._MORNING_PICKS_KEY: {
+        "date": TODAY, "generated_at": "2026-10-01T03:12:00+00:00",
+        "buys": [{"ticker": "RUBICON.NS", "price": 1600.0},
+                 {"ticker": "MARKSANS.NS", "price": 320.0}]}}
+    monkeypatch.setitem(sys.modules, "trade_store", SimpleNamespace(
+        kv_get=lambda k, d=None, user_id="default": kv.get(k, d)))
+    monkeypatch.setitem(sys.modules, "utils.live_price", SimpleNamespace(
+        get_live_quote=lambda t: {"price": prices[t], "chg_pct": 0.5}))
+
+
+def _at(h, m):
+    return pd.Timestamp(2026, 10, 1, h, m, tz=ca._IST).to_pydatetime()
+
+
+def test_recap_waits_for_1515(sent, monkeypatch):
+    _recap_env(monkeypatch, {"RUBICON": 1640.0, "MARKSANS": 312.0})
+    assert ca.check_picks_recap({}, TODAY, now=_at(15, 0)) == 0
+    assert sent == []
+
+
+def test_recap_lists_moves_since_scan_once_a_day(sent, monkeypatch):
+    _recap_env(monkeypatch, {"RUBICON": 1640.0, "MARKSANS": 312.0})
+    state = {"lvl_high20_RUBICON": TODAY}
+    assert ca.check_picks_recap(state, TODAY, now=_at(15, 15)) == 1
+    msg = sent[0]
+    assert "scan at 08:42 IST" in msg
+    assert "RUBICON</b> ₹1,600.00 → <b>₹1,640.00</b> (+2.5% since the scan" in msg
+    assert "MARKSANS</b> ₹320.00 → <b>₹312.00</b> (-2.5% since the scan" in msg
+    assert "today: broke above its 20-day high" in msg
+    assert "Average +0.0% · 1 up / 1 down or flat" in msg
+    _assert_descriptive(msg)
+    assert ca.check_picks_recap(state, TODAY, now=_at(15, 30)) == 0
+
+
+def test_recap_without_todays_picks_is_quiet(sent, monkeypatch):
+    monkeypatch.setitem(sys.modules, "trade_store", SimpleNamespace(
+        kv_get=lambda k, d=None, user_id="default": {"date": "2026-09-30", "buys": [{"ticker": "X"}]}))
+    assert ca.check_picks_recap({}, TODAY, now=_at(15, 20)) == 0
