@@ -6,10 +6,13 @@ dashboard is closed.**
 
 Two kinds of alert need no setup:
 - **Portfolio alerts** (your My Portfolio holdings): a ±10% move, or a cross of
-  your average buy price.
+  your average buy price. The cross only counts once the price is 1% past the
+  average, and each holding gets at most one of these per day, so a stock
+  sitting on its average stays quiet.
 - **Level alerts** (your holdings, plus that day's Morning Digest names): a
   break of the prior 20-day high or low, or a cross of the 50-day average. The levels come from the stock's own price history
-  (`analysis/level_alerts.py`), and each fires at most once a day per stock.
+  (`analysis/level_alerts.py`). A break or cross has to clear the level by
+  0.5%, and each fires at most once a day per stock.
 
 `data/alerts.csv` is only needed for extra levels you pick yourself.
 

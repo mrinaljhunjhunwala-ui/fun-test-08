@@ -8,6 +8,8 @@ excluded) and the current price, report which of these the price has just done:
   * broke below the prior 20-session low    -> "low20"
   * crossed above / below the 50-day SMA    -> "sma50_up" / "sma50_down"
 
+each by at least MARGIN_PCT, so noise right at the level is ignored.
+
 The levels come from the stock's own price history, not from anyone's
 opinion of where it should go, so the alert text stays descriptive.
 """
@@ -20,6 +22,9 @@ import pandas as pd
 
 LOOKBACK_HIGH_LOW = 20
 SMA_WINDOW = 50
+# A break or cross must clear the level by this much, so a price ticking a
+# few paise either side of it doesn't count (ONGC, 2026-10-01).
+MARGIN_PCT = 0.5
 
 
 @dataclass(frozen=True)
@@ -42,9 +47,10 @@ def detect_level_events(prior: pd.DataFrame, price: float) -> List[LevelEvent]:
     events: List[LevelEvent] = []
     hi = float(prior["High"].iloc[-LOOKBACK_HIGH_LOW:].max())
     lo = float(prior["Low"].iloc[-LOOKBACK_HIGH_LOW:].min())
-    if price > hi:
+    m = MARGIN_PCT / 100
+    if price > hi * (1 + m):
         events.append(LevelEvent("high20", hi, price))
-    elif price < lo:
+    elif price < lo * (1 - m):
         events.append(LevelEvent("low20", lo, price))
 
     close = prior["Close"]
@@ -53,8 +59,8 @@ def detect_level_events(prior: pd.DataFrame, price: float) -> List[LevelEvent]:
     # Today's SMA treats the current price as today's close. Sitting exactly on
     # the average yesterday (e.g. a flat stock) isn't a side, so it can't cross.
     sma_now = (float(close.iloc[-(SMA_WINDOW - 1):].sum()) + price) / SMA_WINDOW
-    if prev_close < sma_prev and price >= sma_now:
+    if prev_close < sma_prev and price >= sma_now * (1 + m):
         events.append(LevelEvent("sma50_up", sma_now, price))
-    elif prev_close > sma_prev and price < sma_now:
+    elif prev_close > sma_prev and price < sma_now * (1 - m):
         events.append(LevelEvent("sma50_down", sma_now, price))
     return events

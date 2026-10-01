@@ -96,7 +96,7 @@ def test_price_and_portfolio_alerts_are_descriptive(sent, monkeypatch, tmp_path)
     csv = tmp_path / "alerts.csv"
     csv.write_text("ticker,condition,level,note,enabled\nTCS,above,3000,,1\n", encoding="utf-8")
     monkeypatch.setattr(ca, "_ALERTS_CSV", str(csv))
-    prices = {"TCS": 3100.0, "VEDL": 252.0, "PFC": 400.0}
+    prices = {"TCS": 3100.0, "VEDL": 250.0, "PFC": 400.0}
     monkeypatch.setitem(sys.modules, "utils.live_price", SimpleNamespace(
         get_live_quote=lambda t: {"price": prices[t], "chg_pct": 1.0}))
     kv = {"manual_portfolio_holdings": [
