@@ -35,11 +35,9 @@ on:
     # (15:00 IST), Mon–Fri. First fire is after top-picks warmer has run
     # for the day; last fire leaves room to act before 15:30 close.
     - cron: "0,30 4-9 * * 1-5"
-    # Portfolio posture: 14:00 IST = 08:30 UTC. Weekdays only. Fires ~90 min
-    # before market close so any EXIT_WATCH / TARGET_HIT surfaces while you
-    # can still act. Depends on ANGEL_* secrets being set — no-ops silently
-    # otherwise.
-    - cron: "30 8 * * 1-5"
+    # Portfolio posture (holdings) has no schedule since 2026-10-01: the user
+    # doesn't want holdings alerts. It still runs on a manual / external
+    # dispatch with mode=portfolio-posture.
     # Weekly digest: 09:00 IST Sunday = 03:30 UTC on day-of-week 0 (Sunday).
     # Zooms out from the daily fires — top picks going into the week,
     # journal entries added last week, reviews due next week.

@@ -63,6 +63,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Holdings alerts (avg-cost / ±10% / levels on holdings) are off
+          # unless the repo variable ALERT_HOLDINGS is set to 1.
+          ALERT_HOLDINGS:     ${{ vars.ALERT_HOLDINGS }}
           # Portfolio alerts read the My Portfolio holdings (and persist their
           # reference prices) in the same Postgres the dashboard uses.
           DATABASE_URL:       ${{ secrets.DATABASE_URL }}

@@ -325,6 +325,13 @@ def check_price_alerts(state: dict, today: str) -> int:
 # sold holdings are pruned from it.
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _holding_alerts_on() -> bool:
+    """Holdings alerts (avg-cost, ±10%, levels on holdings) are opt-in since
+    2026-10-01 — the user wants alerts on the digest picks, not their holdings.
+    Set the repo variable ALERT_HOLDINGS=1 to bring them back."""
+    return os.getenv("ALERT_HOLDINGS", "").strip().lower() in ("1", "true", "yes")
+
+
 _PF_HOLDINGS_KEY = "manual_portfolio_holdings"
 _PF_ANCHORS_KEY  = "portfolio_alert_anchors"
 _PF_STEP_PCT     = 10.0
@@ -451,6 +458,8 @@ def _level_alert_universe(store, today: str) -> dict[str, str]:
         for b in morning.get("buys") or []:
             if _base(b.get("ticker")):
                 names[_base(b.get("ticker"))] = "Morning Digest pick"
+    if not _holding_alerts_on():
+        return names
     try:
         holdings = store.kv_get(_PF_HOLDINGS_KEY, None) or []
     except Exception:
@@ -459,6 +468,73 @@ def _level_alert_universe(store, today: str) -> dict[str, str]:
         if _base(h.get("ticker")):
             names[_base(h.get("ticker"))] = "Portfolio holding"
     return names
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Picks recap — how this morning's digest names did, once a day from 15:15
+# ─────────────────────────────────────────────────────────────────────────────
+
+_RECAP_FROM = datetime.time(15, 15)
+
+
+def check_picks_recap(state: dict, today: str, now: datetime.datetime | None = None) -> int:
+    key = "picks_recap"
+    if _already_fired(state, key, today):
+        return 0
+    now = (now or datetime.datetime.now(_IST)).astimezone(_IST)
+    if now.time() < _RECAP_FROM:
+        return 0
+    try:
+        import trade_store as store
+        from utils.live_price import get_live_quote
+        morning = store.kv_get(_MORNING_PICKS_KEY, None, user_id="_system")
+    except Exception as e:
+        print(f"[recap] setup failed: {e}")
+        return 0
+    if not (isinstance(morning, dict) and morning.get("date") == today and morning.get("buys")):
+        print("[recap] no Morning Digest picks for today — nothing to recap")
+        return 0
+
+    rows, moves = [], []
+    for i, b in enumerate(morning["buys"], start=1):
+        tk = str(b.get("ticker", "?"))
+        base = tk.upper().replace(".NS", "").replace(".BO", "")
+        try:
+            ref = float(b.get("price") or b.get("last_price") or 0)
+        except (TypeError, ValueError):
+            ref = 0.0
+        q = get_live_quote(base)
+        if not q or not q.get("price"):
+            rows.append(f"{i}. <b>{base}</b> — no live price")
+            continue
+        price = float(q["price"])
+        day = q.get("chg_pct", 0.0) or 0.0
+        if ref > 0:
+            since = (price / ref - 1) * 100
+            moves.append(since)
+            rows.append(f"{i}. <b>{base}</b> ₹{ref:,.2f} → <b>₹{price:,.2f}</b> "
+                        f"({since:+.1f}% since the scan · {day:+.2f}% today)")
+        else:
+            rows.append(f"{i}. <b>{base}</b> now <b>₹{price:,.2f}</b> ({day:+.2f}% today)")
+        hits = [_LEVEL_TEXT[k][1] for k in _LEVEL_TEXT if state.get(f"lvl_{k}_{base}") == today]
+        if hits:
+            rows.append("   today: " + "; ".join(hits))
+    if not moves and not rows:
+        return 0
+
+    lines = [f"📊 <b>Digest picks — how they did today</b> ({now:%H:%M} IST)",
+             f"<i>This morning's Delivery Digest names "
+             f"(scan at {_snapshot_ist_label(morning.get('generated_at'))}).</i>", ""]
+    lines += rows
+    if moves:
+        up = sum(m > 0 for m in moves)
+        avg_move = round(sum(moves) / len(moves), 1) + 0.0     # + 0.0 turns -0.0 into 0.0
+        lines += ["", f"Average {avg_move:+.1f}% · {up} up / {len(moves) - up} down or flat"]
+    lines += ["", "<i>Price moves since the scan — descriptive, not advice.</i>"]
+    if dispatch("\n".join(lines), subject="Digest picks recap — NSE Smart Investor"):
+        _mark_fired(state, key, today)
+        return 1
+    return 0
 
 
 def check_level_alerts(state: dict, today: str) -> int:
@@ -1193,8 +1269,9 @@ def main() -> int:
     else:   # default
         _counts = {
             "price":     check_price_alerts(state, today),
-            "portfolio": check_portfolio_alerts(state, today),
+            "portfolio": check_portfolio_alerts(state, today) if _holding_alerts_on() else 0,
             "levels":    check_level_alerts(state, today),
+            "recap":     check_picks_recap(state, today),
             "vix":       check_vix_regime(state, today),
             "nifty":     check_nifty_trend(state, today),
         }

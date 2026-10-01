@@ -4,15 +4,19 @@ Get a Telegram message when a stock crosses your price level, when India VIX
 turns fearful, or when Nifty breaks into a downtrend — **even when the
 dashboard is closed.**
 
-Two kinds of alert need no setup:
-- **Portfolio alerts** (your My Portfolio holdings): a ±10% move, or a cross of
-  your average buy price. The cross only counts once the price is 1% past the
-  average, and each holding gets at most one of these per day, so a stock
-  sitting on its average stays quiet.
-- **Level alerts** (your holdings, plus that day's Morning Digest names): a
-  break of the prior 20-day high or low, or a cross of the 50-day average. The levels come from the stock's own price history
-  (`analysis/level_alerts.py`). A break or cross has to clear the level by
-  0.5%, and each fires at most once a day per stock.
+Alerts that need no setup:
+- **Level alerts on that day's Morning Digest names:** a break of the prior
+  20-day high or low, or a cross of the 50-day average. The levels come from
+  the stock's own price history (`analysis/level_alerts.py`). A break or cross
+  has to clear the level by 0.5%, and each fires at most once a day per stock.
+- **Digest picks recap:** one message from the first run at or after 15:15
+  IST. It lists each digest name's move since the morning scan, plus any level
+  it broke that day.
+- **Holdings alerts are off by default (since 2026-10-01).** These are the
+  ±10% move, the average-cost cross (1% margin, once a day) and level alerts
+  on My Portfolio holdings. To turn them back on, set the repo variable
+  `ALERT_HOLDINGS=1` (Settings → Secrets and variables → Actions →
+  Variables). The 14:00 portfolio-posture digest (#6) is unscheduled too.
 
 `data/alerts.csv` is only needed for extra levels you pick yourself.
 
@@ -132,7 +136,7 @@ needs an external trigger. All share the same settings:
 | 3 | `market-alerts.yml` | `{"ref":"main"}` | `*/15 9-15 * * 1-5` | every 15 min, 09:00–15:45 | Price alerts, India VIX regime, Nifty trend |
 | 4 | `warm-top-picks.yml` | `{"ref":"main"}` | 3 jobs: `15 9,12,15 * * 1-5` · `0,45 10,13 * * 1-5` · `30 11,14 * * 1-5` | every 45 min, 09:15–15:15 | Keeps the dashboard's Top Picks snapshot fresh (~5 min per run) |
 | 5 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"momentum","force":"false"}}` | `0,30 10-14 * * 1-5` | every 30 min, 10:00–14:30 | Momentum-scan digest (max one AM + one PM) |
-| 6 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"portfolio-posture","force":"false"}}` | `0 14 * * 1-5` | 14:00 | Angel One holdings posture |
+| 6 *(optional — holdings)* | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"portfolio-posture","force":"false"}}` | `0 14 * * 1-5` | 14:00 | Angel One holdings posture |
 | 7 | `warm_tomorrow_watchlist.yml` | `{"ref":"main"}` | `50 15 * * 1-5` | 15:50 | Tomorrow's Watchlist after close |
 | 8 | `market-digest.yml` | `{"ref":"main","inputs":{"mode":"weekly-digest","force":"false"}}` | `0 9 * * 0` | Sunday 09:00 | Week-ahead summary |
 
