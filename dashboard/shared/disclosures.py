@@ -142,6 +142,32 @@ def render_regime_reliability_note() -> None:
         )
     # "normal" VIX deliberately gets no message here — see docstring above.
 
+    try:
+        from analysis.score import _live_regime_label
+        note = trend_regime_note(_live_regime_label())
+    except Exception as e:
+        _log.debug("trend regime note skipped: %s", e)
+        note = None
+    if note:
+        st.caption(note)
+
+
+# 5y replay, weekly rank IC vs 20-session excess return (docs/DECAY_ATTRIBUTION_2026-10-01.md):
+# trend_up +0.045 (t +5.2), range +0.000, trend_down -0.029 (t -1.5).
+_LOW_INFO_TREND_REGIMES = {"range": "range-bound", "trend_down": "falling"}
+
+
+def trend_regime_note(label) -> "str | None":
+    """Descriptive caption for NIFTY trend regimes where the 5-year replay found the
+    composite score carried no ranking information. None for every other regime."""
+    name = _LOW_INFO_TREND_REGIMES.get(str(label or "").lower())
+    if not name:
+        return None
+    return (f"ℹ️ **Historically low-information regime** — NIFTY is currently {name}. "
+            "In the 5-year replay the composite score did not rank stocks in this regime "
+            "(weekly rank correlation with 20-session excess return ≈ 0), while it did in "
+            "rising markets. Scores here describe the chart; they have not predicted returns.")
+
 
 def evidence_gated_pattern_label(
     patterns: list[str] | tuple[str, ...] | None,
