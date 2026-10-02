@@ -5,8 +5,8 @@
 - **Canonical checkout:** `D:\Kashti Claude\nse-smart-investor`.
   - `E:\code\nse-smart-investor` is an **empty folder**. Nothing should point at it.
 - **Open PRs:** none from this work.
-- **Remote branches:** `main`, plus two waiting on a user decision:
-  - `alerts/consolidate-fresh-workflow`: PR #93 is still open.
+- **Remote branches:** `main` only.
+  - `alerts/consolidate-fresh-workflow`: PR #93 closed 2026-09-30; branch deleted.
   - `design/mockup-06-smart-screener` deleted 2026-10-02: PR #176 was stacked under #178 and its commit landed in that
     squash-merge; the branch was identical to `main`.
   - Deleted on 2026-09-28: `ux2-ticker-hover-preview` (its feature shipped in #150 and #153) and 8 fully merged branches.
@@ -238,10 +238,9 @@ as disabled.
 3. **Validation gaps:** sector rank, flows, delivery % and positioning can't be replayed
    historically, and survivorship bias is not corrected. The positioning add-on stays opt-in until
    it's validated.
-4. **Branches:** decide on `alerts/consolidate-fresh-workflow` (open PR #93).
-5. **Mockup follow-ups: closed 2026-10-02.** The owner checked mobile, Live Ticker's live refresh and Angel One
+4. **Mockup follow-ups: closed 2026-10-02.** The owner checked mobile, Live Ticker's live refresh and Angel One
    connected. `FinalVerdict.primary_reason` now uses descriptive action labels.
-6. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
+5. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
    monthly circular; the drift warning in `fetch_nse_fno_bhavcopy` names the candidates.
 
 ## Gotchas
