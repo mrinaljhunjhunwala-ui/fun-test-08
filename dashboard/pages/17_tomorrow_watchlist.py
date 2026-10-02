@@ -276,7 +276,7 @@ def _sym(ticker) -> str:
 # Gate strip — five cells (UI_UX_DESIGN §4.1 ceiling)
 # ─────────────────────────────────────────────────────────────────────────────
 try:
-    _ledger = get_tw_ledger()
+    _ledger = get_tw_ledger(limit=1500)   # ~2-3 months of sessions for Past results
 except Exception:
     _ledger = None
 
@@ -358,74 +358,202 @@ _tw_regime_note()
 # ─────────────────────────────────────────────────────────────────────────────
 # Previous session's picks — follow-through strip (fix W4)
 # ─────────────────────────────────────────────────────────────────────────────
+# Shared by the follow-through cards and the Past results tab: one ledger
+# read, one live-price call (latest session only). Older sessions are judged
+# from the forward returns the ledger already holds, so no extra fetches.
+_VERDICT_PILL = {
+    "Hit": ("Following through", "good"),
+    "Miss": ("Against setup", "bad"),
+    "Flat": ("Flat", "neutral"),
+    "Pending": ("Pending", "neutral"),
+}
+
+
+def _verdict(direction: int, move) -> str:
+    """Hit / Miss / Flat against the ±_MOVE_BAND band; Pending without a move."""
+    if move is None:
+        return "Pending"
+    if direction * move >= _MOVE_BAND:
+        return "Hit"
+    if direction * move <= -_MOVE_BAND:
+        return "Miss"
+    return "Flat"
+
+
+def _prior_picks():
+    """Ledger rows from sessions before the current one, one row per
+    (session, ticker), newest session first and by score within a session."""
+    if _ledger is None or getattr(_ledger, "empty", True) or "logged_date" not in _ledger.columns:
+        return None
+    # logged_date is the NSE session (IST) the pick priced off — compare
+    # against the current session, not the server's UTC calendar date.
+    from analysis.verdict_ledger import session_date as _session_date
+    df = _ledger.copy()
+    df["logged_date"] = df["logged_date"].astype(str)
+    df = df[df["logged_date"] < _session_date().isoformat()]
+    if "composite_score" in df.columns:
+        df = df.sort_values(["logged_date", "composite_score"], ascending=[False, False])
+    return df.drop_duplicates(["logged_date", "ticker"])
+
+
+try:
+    _prior = _prior_picks()
+except Exception:
+    _prior = None
+_sessions = sorted(_prior["logged_date"].unique(), reverse=True) if _prior is not None else []
+_last_session = _sessions[0] if _sessions else None
+try:
+    _live = _picks_live_prices(tuple(
+        str(t) for t in _prior.loc[_prior["logged_date"] == _last_session, "ticker"]
+    )) if _last_session else {}
+except Exception:
+    _live = {}
+
+
+def _pick_move(r: dict):
+    """(move %, basis) for one ledger row: live price for the latest session,
+    else the stored 5-day then 1-day forward return (ledger stores percent)."""
+    if str(r.get("logged_date")) == _last_session:
+        entry = _num(r.get("entry_price"))
+        now = _num((_live.get(str(r.get("ticker"))) or {}).get("price"))
+        if entry and now:
+            return (now / entry - 1.0) * 100.0, "now"
+    for h in ("5d", "1d"):
+        v = _num(r.get(f"ret_{h}"))
+        if v is not None:
+            return v, h
+    return None, ""
+
+
+def _judge(r: dict) -> tuple:
+    """(direction, move, basis, verdict) for one ledger row."""
+    d = _setup_direction(r.get("composite_action"), r.get("composite_score"))
+    move, basis = _pick_move(r)
+    return d, move, basis, _verdict(d, move)
+
+
 def _render_follow_through() -> None:
     _hdr = "Previous picks · follow-through"
-    _prior = None
-    if _ledger is not None and not getattr(_ledger, "empty", True) and "logged_date" in _ledger.columns:
-        # logged_date is the NSE session (IST) the pick priced off — compare
-        # against the current session, not the server's UTC calendar date.
-        from analysis.verdict_ledger import session_date as _session_date
-        _dates = _ledger["logged_date"].astype(str)
-        _prior = _ledger[_dates < _session_date().isoformat()]
-    if _prior is None or _prior.empty:
+    if not _last_session:
         st.markdown(section_header(_hdr, "source: verdict_ledger"), unsafe_allow_html=True)
         st.caption("Appears once the ledger holds a previous session's picks. "
                    "Every end-of-day scan logs its shortlist.")
         return
 
-    _last = _prior["logged_date"].astype(str).max()
-    _day = _prior[_prior["logged_date"].astype(str) == _last]
-    if "composite_score" in _day.columns:
-        _day = _day.sort_values("composite_score", ascending=False)
-    _day = _day.drop_duplicates("ticker").head(5)
-    try:
-        _live = _picks_live_prices(tuple(str(t) for t in _day["ticker"]))
-    except Exception:
-        _live = {}
-
+    _all = _prior[_prior["logged_date"] == _last_session].to_dict("records")
+    _counts = {"Hit": 0, "Miss": 0, "Flat": 0, "Pending": 0}
     _cards = []
-    for _rank, _r in enumerate(_day.to_dict("records"), start=1):
+    for _rank, _r in enumerate(_all, start=1):
+        _dir, _move, _basis, _v = _judge(_r)
+        _counts[_v] += 1
+        if _rank > 5:
+            continue
         _act = _r.get("composite_action")
         _sc = _num(_r.get("composite_score"))
-        _dir = _setup_direction(_act, _sc)
-        _entry = _num(_r.get("entry_price"))
-        _now = _num((_live.get(str(_r.get("ticker"))) or {}).get("price"))
-
-        _rows = [("Entry", _px(_entry))]
-        _move = None
-        if _entry and _now:
-            _move = (_now / _entry - 1.0) * 100.0
+        _rows = [("Entry", _px(_r.get("entry_price")))]
+        if _basis == "now":
+            _now = (_live.get(str(_r.get("ticker"))) or {}).get("price")
             _rows.append(("Now", f"{_px(_now)} {chip_delta(_move)}"))
+        elif _move is not None:
+            _rows.append((f"{_basis.upper()} ret", chip_delta(_move)))
         else:
-            for _h in ("1d", "5d", "20d"):          # ledger returns are in percent
-                _v = _num(_r.get(f"ret_{_h}"))
-                if _v is not None:
-                    _move = _v
-                    _rows.append((f"{_h.upper()} ret", chip_delta(_v)))
-                    break
-            else:
-                _rows.append(("Now", '<span style="color:var(--faint)">pending</span>'))
+            _rows.append(("Now", '<span style="color:var(--faint)">pending</span>'))
 
-        if _move is None:
-            _pill, _tone = chip_pill("Pending", "neutral"), ""
-        elif _dir * _move >= _MOVE_BAND:
-            _pill, _tone = chip_pill("Following through", "good"), "good"
-        elif _dir * _move <= -_MOVE_BAND:
-            _pill, _tone = chip_pill("Against setup", "bad"), "bad"
-        else:
-            _pill, _tone = chip_pill("Flat", "neutral"), ""
-
+        _lab, _tone = _VERDICT_PILL[_v]
         _sub = (f"{_sc:.0f}/90 · " if _sc is not None else "") + html.escape(
             _display_label(str(_act or "")) or "logged")
         _sub += " · bearish setup" if _dir < 0 else " · bullish setup"
-        _cards.append(follow_card(_rank, _sym(_r.get("ticker")), _sub, _rows, _pill, _tone))
+        _cards.append(follow_card(_rank, _sym(_r.get("ticker")), _sub, _rows,
+                                  chip_pill(_lab, _tone), _tone))
 
     st.markdown(
-        section_header(_hdr, f"logged {html.escape(_last)} · top {len(_cards)} by score · "
+        section_header(_hdr, f"logged {html.escape(_last_session)} · top {len(_cards)} by score · "
                              "direction from logged posture"),
         unsafe_allow_html=True,
     )
     st.markdown(f'<div class="fu-grid">{"".join(_cards)}</div>', unsafe_allow_html=True)
+    st.caption(
+        f"All {len(_all)} picks from {_last_session}: {_counts['Hit']} hit · "
+        f"{_counts['Miss']} miss · {_counts['Flat']} flat"
+        + (f" · {_counts['Pending']} pending" if _counts["Pending"] else "")
+        + f" (±{_MOVE_BAND:.0f}% band). Full list and older sessions: 📊 Past results tab below."
+    )
+
+
+def _render_past_results() -> None:
+    """Session picker + full pick list with Hit/Miss/Flat, and a running
+    scorecard across every session in the loaded ledger."""
+    if not _sessions:
+        st.caption("Appears once the ledger holds a previous session's picks. "
+                   "Every end-of-day scan logs its full shortlist.")
+        return
+
+    _sel = st.selectbox("Session", options=_sessions, index=0, key="tw_past_session",
+                        help="The session the picks were logged on (priced off that day's close).")
+    _rows_html, _counts = [], {"Hit": 0, "Miss": 0, "Flat": 0, "Pending": 0}
+    for _i, _r in enumerate(_prior[_prior["logged_date"] == _sel].to_dict("records"), start=1):
+        _dir, _move, _basis, _v = _judge(_r)
+        _counts[_v] += 1
+        _sc = _num(_r.get("composite_score"))
+        _rets = [chip_delta(_num(_r.get(f"ret_{h}"))) if _num(_r.get(f"ret_{h}")) is not None
+                 else '<span style="color:var(--faint)">–</span>' for h in ("1d", "5d", "20d")]
+        _now = (f"{_px((_live.get(str(_r.get('ticker'))) or {}).get('price'))} {chip_delta(_move)}"
+                if _basis == "now" else '<span style="color:var(--faint)">–</span>')
+        _lab, _tone = _VERDICT_PILL[_v]
+        _rows_html.append([
+            str(_i),
+            f"<b>{_sym(_r.get('ticker'))}</b>",
+            "bearish" if _dir < 0 else "bullish",
+            f"{_sc:.0f}" if _sc is not None else "–",
+            _px(_r.get("entry_price")),
+            _now, *_rets,
+            chip_pill(_v, _tone),
+        ])
+    _n = sum(_counts.values())
+    _decided = _counts["Hit"] + _counts["Miss"] + _counts["Flat"]
+    st.markdown(
+        f"**{_sel}** · {_n} picks · {_counts['Hit']} hit · {_counts['Miss']} miss · "
+        f"{_counts['Flat']} flat" + (f" · {_counts['Pending']} pending" if _counts["Pending"] else "")
+        + (f" · hit rate {_counts['Hit'] / _decided * 100:.0f}%" if _decided else "")
+    )
+    st.markdown(signal_table(
+        [("#", "r"), ("Ticker", "l"), ("Setup", "l"), ("Score", "r"), ("Entry", "r"),
+         ("Now", "r"), ("1D", "r"), ("5D", "r"), ("20D", "r"), ("Result", "l")],
+        _rows_html), unsafe_allow_html=True)
+    st.caption(
+        f"Result = move in the setup's direction: Hit ≥ +{_MOVE_BAND:.0f}%, Miss ≤ −{_MOVE_BAND:.0f}%, "
+        "Flat in between. Judged on the live price for the latest session, else the 5-day "
+        "return, else the 1-day. Direction comes from the logged posture."
+    )
+
+    # Running scorecard — settled 5-day results only, so a session's number
+    # stops moving once it has played out.
+    _per = []
+    for _d in _sessions:
+        _c = {"Hit": 0, "Miss": 0, "Flat": 0}
+        for _r in _prior[_prior["logged_date"] == _d].to_dict("records"):
+            _m = _num(_r.get("ret_5d"))
+            if _m is not None:
+                _c[_verdict(_setup_direction(_r.get("composite_action"),
+                                             _r.get("composite_score")), _m)] += 1
+        _per.append((_d, _c))
+    _tot = {k: sum(c[k] for _, c in _per) for k in ("Hit", "Miss", "Flat")}
+    _tn = sum(_tot.values())
+    st.markdown(section_header("Scorecard · settled 5-day results",
+                               f"{len(_sessions)} sessions in the ledger"), unsafe_allow_html=True)
+    if not _tn:
+        st.caption("No session has a 5-day result yet; picks settle five sessions after logging.")
+        return
+    _m1, _m2, _m3, _m4 = st.columns(4)
+    _m1.metric("Settled picks", f"{_tn:,}")
+    _m2.metric("Hit rate", f"{_tot['Hit'] / _tn * 100:.0f}%")
+    _m3.metric("Miss rate", f"{_tot['Miss'] / _tn * 100:.0f}%")
+    _m4.metric("Flat", f"{_tot['Flat'] / _tn * 100:.0f}%")
+    st.markdown(signal_table(
+        [("Session", "l"), ("Settled", "r"), ("Hit", "r"), ("Miss", "r"), ("Flat", "r"), ("Hit rate", "r")],
+        [[html.escape(_d), str(sum(_c.values())), str(_c["Hit"]), str(_c["Miss"]), str(_c["Flat"]),
+          f"{_c['Hit'] / sum(_c.values()) * 100:.0f}%"]
+         for _d, _c in _per if sum(_c.values())]), unsafe_allow_html=True)
 
 
 try:
@@ -619,10 +747,11 @@ st.markdown(
                    "ranked by composite within each bucket · rank chip = top 3"),
     unsafe_allow_html=True,
 )
-_t1, _t2, _t3 = st.tabs([
+_t1, _t2, _t3, _t4 = st.tabs([
     f"🚀 Breakout Watch ({len(_brk_items)})",
     f"🔻 Breakdown Watch ({len(_bdn_items)})",
     f"🔄 Reversal Watch ({len(_rev_items)})",
+    f"📊 Past results ({len(_sessions)})",
 ])
 with _t1:
     st.caption(
@@ -642,6 +771,17 @@ with _t3:
         "acting; these are watch-only, not signals."
     )
     _render_bucket(_rev_items, "reversal", "tw_rev")
+with _t4:
+    st.caption(
+        "How earlier sessions' picks actually moved: every logged pick, not just the top 5. "
+        "Pick a session to see its full list."
+    )
+    try:
+        _render_past_results()
+    except Exception as _pr_err:
+        st.caption("Past results unavailable right now.")
+        import logging
+        logging.getLogger("dashboard.tomorrow_watchlist").debug("past results failed: %s", _pr_err)
 
 # FIX SCR-XREF — see the matching note in 06_smart_screener.py.
 with st.expander("↔️ Also see: Smart Screener · TQS Scanner", expanded=False):
