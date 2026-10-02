@@ -40,9 +40,40 @@ jobs:
           pip install --quiet pytest
 
       - name: Run test suite (offline + page smoke + valuation regression; excludes -m slow)
+        # real_postgres tests skip here (no TEST_DATABASE_URL) — they run in the
+        # real-postgres job below.
+        run: python -m pytest -m "not slow" -q -rs
+
+  real-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Every run shares the Neon `ci-tests` branch; concurrent runs doing DDL on
+    # it deadlocked (run 37014283387). Queue across the whole repo rather than
+    # cancel. conftest also gives each session its own schema, so this is
+    # belt-and-braces (GitHub keeps only one pending run per group).
+    concurrency:
+      group: ci-real-postgres
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --quiet -r requirements.txt
+          pip install --quiet pytest
+
+      - name: Run real-Postgres tests
         # TEST_DATABASE_URL points at the throwaway Neon `ci-tests` branch (schema
-        # only) so @pytest.mark.real_postgres tests run for real; they skip when
-        # it's unset (forks) and conftest refuses a URL equal to production.
+        # only); tests skip when it's unset (forks) and conftest refuses a URL
+        # equal to production.
         env:
           TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-        run: python -m pytest -m "not slow" -q -rs
+        run: python -m pytest -m "real_postgres and not slow" -q -rs

@@ -48,6 +48,10 @@ def _fresh_schema_flags_and_cleanup(monkeypatch):
     monkeypatch.setattr(vl, "_schema_ready_for", None)
     monkeypatch.setattr(nse_delivery, "_schema_ready_for", None)
     yield
+    # each session gets a fresh schema (conftest), so a test that never touched
+    # a table leaves it missing — create before cleaning up
+    vl.ensure_schema()
+    nse_delivery.ensure_schema()
     like = f"{PFX}%"
     _exec("DELETE FROM verdict_signal_tags WHERE verdict_log_id IN "
           "(SELECT id FROM verdict_log WHERE ticker LIKE ?)", (like,))
@@ -71,10 +75,11 @@ def test_migrations_are_idempotent_and_add_columns(monkeypatch):
     with trade_store._get_conn() as conn:
         cur = conn.cursor()
         cur.execute("SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'verdict_log'")
+                    "WHERE table_name = 'verdict_log' AND table_schema = current_schema()")
         log_cols = {r[0] for r in cur.fetchall()}
         cur.execute("SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'verdict_forward_returns'")
+                    "WHERE table_name = 'verdict_forward_returns' "
+                    "AND table_schema = current_schema()")
         fwd_cols = {r[0] for r in cur.fetchall()}
     assert "backfill_misses" in log_cols
     assert {f"sector_ret_{h}d" for h in vl.HORIZONS_DAYS} <= fwd_cols
