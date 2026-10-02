@@ -940,6 +940,7 @@ def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = Non
             note += (f" Names under {_WATCH_FLOOR:.0f} beat Nifty in {rec['beat_rate']:.0f}% of settled "
                      f"5-day windows (avg {rec['mean_vs_nifty']:+.2f}% vs Nifty, n={rec['n']}).")
         lines[-1:] = [note, ""]
+    bracketed = False   # footer explains "(…)" only when a line carries one
     for i, b in enumerate(buys[:max_picks], start=1):
         tk    = _html.escape(str(b.get("ticker", "?")))
         score = b.get("score", 0)
@@ -951,25 +952,39 @@ def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = Non
         sec   = _html.escape(str(b.get("sector", "") or "").strip())
 
         price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
-        head = f"{i}. <b>{tk}</b> — {act} · Score {score}/90 · {price_str}"
-        if _under(b):
-            head += " · <i>Watch only</i>"
+        # Under the floor the tag replaces the action label ("Watch · … ·
+        # Watch only" said the same thing twice).
+        under = _under(b)
+        label = "<i>Watch only</i>" if under else act
+        head = f"{i}. <b>{tk}</b> — {label} · Score {score}/90 · {price_str}"
         if sec:
             head += f" · {sec}"
         v = _verdict_of(b)
         if v:
-            head += (f" · read <b>{verdict_display_label(v[0])}</b> ({v[1]})"
-                     if v[0] in _VERDICT_ALERT_TIERS else f" · read {verdict_display_label(v[0])}")
+            if v[0] in _VERDICT_ALERT_TIERS:
+                head += f" · read <b>{verdict_display_label(v[0])}</b> ({v[1]})"
+                bracketed = True
+            else:
+                head += f" · read {verdict_display_label(v[0])}"
         lines.append(head)
-        detail = []
-        if entry:
-            detail.append(f"Entry {entry}")
-        if stop:
-            detail.append(f"Stop {stop}")
-        if tgt:
-            detail.append(f"Target {tgt}")
-        if detail:
-            lines.append("   " + " · ".join(str(x) for x in detail))
+        if under:
+            # Watch-only names get reference levels, not an entry/stop/target
+            # plan (rule 1: no instruction-shaped copy). sl sits just under the
+            # recent swing low and tp is a risk multiple above price, so they
+            # are named by position only, not as support/resistance.
+            detail = [f"{x} {pos}" for x, pos in ((stop, "below"), (tgt, "above")) if x]
+            if detail:
+                lines.append("   Levels to watch: " + " · ".join(detail))
+        else:
+            detail = []
+            if entry:
+                detail.append(f"Entry {entry}")
+            if stop:
+                detail.append(f"Stop {stop}")
+            if tgt:
+                detail.append(f"Target {tgt}")
+            if detail:
+                lines.append("   " + " · ".join(str(x) for x in detail))
 
     # BUY / STRONG BUY verdicts further down the scan than the top max_picks
     extra = []
@@ -978,6 +993,7 @@ def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = Non
         if v and v[0] in _VERDICT_ALERT_TIERS:
             extra.append((v, b))
     if extra:
+        bracketed = True
         extra.sort(key=lambda e: (e[0][0] != "STRONG BUY", -float(e[1].get("score") or 0)))
         lines.extend(["", "🟢 <b>Other names in this scan with a Strong trend / Uptrend read</b>"])
         for (verdict, conv), b in extra:
@@ -989,7 +1005,7 @@ def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = Non
                          + (" · <i>Watch only</i>" if _under(b) else ""))
     lines.extend([
         "",
-        "<i>Read = the dashboard's model read (conviction in brackets). "
+        "<i>Read = the dashboard's model read" + (" (conviction in brackets)" if bracketed else "") + ". "
         "Descriptive scan of composite-score leaders — not advice. "
         "Each name's full breakdown is on the Analyze Stock page.</i>",
     ])

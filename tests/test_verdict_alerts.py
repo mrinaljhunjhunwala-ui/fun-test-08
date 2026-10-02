@@ -75,7 +75,7 @@ def test_digest_lists_extra_strong_reads(monkeypatch):
 
 
 def test_digest_shows_sl_tp_and_escapes_html(monkeypatch):
-    buys = [dict(_pick("J&KBANK.NS", 58, "WATCHLIST"), entry=140.0)]
+    buys = [dict(_pick("J&KBANK.NS", 72, "BUY"), entry=140.0)]
     sent = _setup(monkeypatch, buys, {"J&KBANK.NS": "WATCH"})
     monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
     assert ca.check_delivery_digest({}, "2026-10-02") == 1
@@ -125,3 +125,30 @@ def test_digest_has_no_watch_note_when_all_clear_70(monkeypatch):
     monkeypatch.setattr(ca, "_under_floor_record", lambda: (_ for _ in ()).throw(AssertionError))
     assert ca.check_delivery_digest({}, "2026-10-02") == 1
     assert "Watch only" not in sent[0]
+
+
+def test_under_70_gets_levels_to_watch_not_a_trade_plan(monkeypatch):
+    from tests.test_alert_copy_no_advice import _assert_descriptive
+    buys = [dict(_pick("LO.NS", 58, "WATCHLIST"), entry=100.0)]
+    sent = _setup(monkeypatch, buys, {"LO.NS": "WATCH"})
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
+    monkeypatch.setattr(ca, "_under_floor_record", lambda: None)
+    assert ca.check_delivery_digest({}, "2026-10-02") == 1
+    msg = sent[0]
+    _assert_descriptive(msg)
+    assert "Levels to watch: 95.0 below · 110.0 above" in msg
+    assert "Entry" not in msg and "Stop " not in msg and "Target" not in msg
+    head = next(ln for ln in msg.splitlines() if "LO.NS" in ln)
+    assert "— <i>Watch only</i> · Score 58/90" in head and "Watch ·" not in head
+
+
+def test_footer_mentions_brackets_only_when_present(monkeypatch):
+    sent = _setup(monkeypatch, [_pick("AAA.NS", 58, "WATCHLIST")], {"AAA.NS": "WATCH"})
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
+    monkeypatch.setattr(ca, "_under_floor_record", lambda: None)
+    ca.check_delivery_digest({}, "2026-10-02")
+    assert "brackets" not in sent[0]
+    sent2 = _setup(monkeypatch, [_pick("BBB.NS", 72, "BUY")], {"BBB.NS": "BUY"})
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("BUY", 79))
+    ca.check_delivery_digest({}, "2026-10-02")
+    assert "(79)" in sent2[0] and "conviction in brackets" in sent2[0]
