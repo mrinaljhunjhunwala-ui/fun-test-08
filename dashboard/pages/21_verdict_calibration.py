@@ -130,6 +130,10 @@ _PAGE_CHANGES = [
      "A pre-registered evidence test (fixed before the data matured; 30-day floor)."),
     ("2026-09-30", "Beating NIFTY couldn't be told apart from the pick's sector simply holding up.",
      "α vs own sector: each pick against a peer basket of its sector's stocks."),
+    ("2026-10-02", "One evidence test pooled every market condition, though history shows the "
+                   "score's edge only in rising markets.",
+     "A second pre-registered test counts only verdicts logged while NIFTY was rising; the first is "
+     "unchanged."),
 ]
 
 with st.expander("🛠 What this page was meant to do — and what it does now", expanded=False):
@@ -194,37 +198,57 @@ _o2.metric("Shadow trades", f"{_by_source.get('shadow_auto', 0):,}")
 _o3.metric("Played out ≥20d", f"{_played_20d:,}")
 _o4.metric("Played out ≥60d", f"{_played_60d:,}")
 
-# ── Pre-registered evidence test (fixed 2026-09-29, before the sample matured) ─
+# ── Pre-registered evidence tests (fixed before each sample matured) ──────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def _nifty_history():
+    return _vl._fetch_history(_vl.NIFTY_BENCH)
+
+
 if _NEW_API:
-    _rule_res = _vl.evaluate_decision_rule()
-    _rule = _rule_res["rule"]
-    _rule_txt = (
-        f"At **{_rule['horizon_days']} sessions**, pooling **{' + '.join(_rule['verdicts'])}**, "
-        f"with at least **{_rule['min_verdicts']} verdicts** across **{_rule['min_days']} separate "
-        f"days**: the day-clustered Wilson lower bound on *the day's picks beat NIFTY* must be "
-        f"above **{_rule['threshold_pct']:.0f}%**. Registered {_rule['registered_on']}; changing it "
-        "after seeing results would defeat its purpose."
-    )
-    _wl = _rule_res["wilson_lower_days_vs_nifty"]
-    _progress = (f"Now: **{_rule_res['n_alpha']}** verdicts over **{_rule_res['alpha_days']}** days "
-                 "with a NIFTY return"
-                 + (f" · day-clustered Wilson lower vs NIFTY **{_wl:.1f}%**" if _wl is not None else ""))
+    _nifty_df = _nifty_history()
+    if _nifty_df is None:
+        _nifty_history.clear()          # don't pin a failed fetch for the cache TTL
     st.markdown(
-        '<div class="t-h2" style="margin:14px 0 6px 0">🧾 Pre-registered evidence test</div>',
+        '<div class="t-h2" style="margin:14px 0 6px 0">🧾 Pre-registered evidence tests</div>',
         unsafe_allow_html=True,
     )
-    st.caption(_rule_txt)
-    if _rule_res["status"] == "insufficient":
-        st.info(f"**Not enough data yet.** {_progress}. Until both floors are reached, no "
-                "conclusion either way is supported.")
-    elif _rule_res["status"] == "met":
-        st.success(f"**Criterion met.** {_progress}. On its own past calls, the model's picks beat "
-                   "NIFTY on enough days to clear the bar. Caveat: forward windows of nearby days "
-                   "overlap, so this is weaker evidence than the day count suggests. Descriptive "
-                   "only — not advice.")
-    else:
-        st.warning(f"**Criterion not met.** {_progress}. On its own past calls, the model has not "
-                   "yet shown it beats NIFTY more reliably than chance. Descriptive only.")
+    _rules = [("All market conditions", None)]
+    if hasattr(_vl, "DECISION_RULE_RISING"):
+        _rules.append(("Rising NIFTY only", _vl.DECISION_RULE_RISING))
+    for _rule_name, _rule_def in _rules:
+        _rule_res = (_vl.evaluate_decision_rule(_rule_def, nifty_df=_nifty_df) if _rule_def
+                     else _vl.evaluate_decision_rule())
+        _rule = _rule_res["rule"]
+        _scope = (f" logged on days when NIFTY was **{_rule['regime'].lower()}** over the prior "
+                  f"{_vl.REGIME_LOOKBACK_SESSIONS} sessions" if _rule.get("regime") else "")
+        _rule_txt = (
+            f"**{_rule_name}.** At **{_rule['horizon_days']} sessions**, pooling "
+            f"**{' + '.join(_rule['verdicts'])}**{_scope}, with at least **{_rule['min_verdicts']} "
+            f"verdicts** across **{_rule['min_days']} separate days**: the day-clustered Wilson lower "
+            f"bound on *the day's picks beat NIFTY* must be above **{_rule['threshold_pct']:.0f}%**. "
+            f"Registered {_rule['registered_on']}; changing it after seeing results would defeat "
+            "its purpose."
+        )
+        if _rule.get("regime"):
+            _rule_txt += (" Added because the 5-year replay found the score's edge only in rising "
+                          "markets, while early live verdicts were logged in a falling one.")
+        _wl = _rule_res["wilson_lower_days_vs_nifty"]
+        _progress = (f"Now: **{_rule_res['n_alpha']}** verdicts over **{_rule_res['alpha_days']}** "
+                     "days with a NIFTY return"
+                     + (f" · day-clustered Wilson lower vs NIFTY **{_wl:.1f}%**" if _wl is not None
+                        else ""))
+        st.caption(_rule_txt)
+        if _rule_res["status"] == "insufficient":
+            st.info(f"**Not enough data yet.** {_progress}. Until both floors are reached, no "
+                    "conclusion either way is supported.")
+        elif _rule_res["status"] == "met":
+            st.success(f"**Criterion met.** {_progress}. On its own past calls, the model's picks "
+                       "beat NIFTY on enough days to clear the bar. Caveat: forward windows of "
+                       "nearby days overlap, so this is weaker evidence than the day count "
+                       "suggests. Descriptive only — not advice.")
+        else:
+            st.warning(f"**Criterion not met.** {_progress}. On its own past calls, the model has "
+                       "not yet shown it beats NIFTY more reliably than chance. Descriptive only.")
 
 st.markdown("---")
 
@@ -339,15 +363,6 @@ if _NEW_API:
         "that only looks good in one regime has learned the market, not the stocks."
     )
 
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def _nifty_history():
-        return _vl._fetch_history(_vl.NIFTY_BENCH)
-
-
-    _nifty_df = _nifty_history()
-    if _nifty_df is None:
-        _nifty_history.clear()          # don't pin a failed fetch for the cache TTL
     _reg = _vl.regime_calibration(horizon_days=_horizon_choice, nifty_df=_nifty_df)
     if _reg.empty:
         st.info(f"No BUY/STRONG BUY calls have played out at {_horizon_choice} sessions yet.")
