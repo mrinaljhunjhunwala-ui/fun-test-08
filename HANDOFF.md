@@ -7,7 +7,8 @@
 - **Open PRs:** none from this work.
 - **Remote branches:** `main`, plus two waiting on a user decision:
   - `alerts/consolidate-fresh-workflow`: PR #93 is still open.
-  - `design/mockup-06-smart-screener`: PR #176 was closed without merging, but the branch has newer commits.
+  - `design/mockup-06-smart-screener` is safe to delete (owner to remove): PR #176 was stacked under #178 and its commit landed in that
+    squash-merge; the branch was identical to `main`.
   - Deleted on 2026-09-28: `ux2-ticker-hover-preview` (its feature shipped in #150 and #153) and 8 fully merged branches.
 - **Worktrees:** `sweet-cannon-bc10b5` belongs to another live session. `quizzical-faraday-f467bc` is no longer
   registered with git, but its folder was locked by a running process; delete it by hand once that process exits.
@@ -237,14 +238,10 @@ as disabled.
 3. **Validation gaps:** sector rank, flows, delivery % and positioning can't be replayed
    historically, and survivorship bias is not corrected. The positioning add-on stays opt-in until
    it's validated.
-4. **Still to check by hand:** the mobile layout on a real phone.
-5. **Branches:** decide on `alerts/consolidate-fresh-workflow` (open PR #93) and
-   `design/mockup-06-smart-screener`.
-6. **Mockup follow-ups:**
-   - Watch Live Ticker's 30s refresh and row flash during a market session.
-   - Look at the Angel One page connected, on the deployed app.
-   - `FinalVerdict.primary_reason` can still read "Technical setup: Hold (…)" (`analysis/final_verdict.py`).
-7. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
+4. **Branches:** decide on `alerts/consolidate-fresh-workflow` (open PR #93).
+5. **Mockup follow-ups: closed 2026-10-02.** The owner checked mobile, Live Ticker's live refresh and Angel One
+   connected. `FinalVerdict.primary_reason` now uses descriptive action labels.
+6. **Data sources:** NSE corp-info times out intermittently. Re-check the F&O list against NSE's
    monthly circular; the drift warning in `fetch_nse_fno_bhavcopy` names the candidates.
 
 ## Gotchas
