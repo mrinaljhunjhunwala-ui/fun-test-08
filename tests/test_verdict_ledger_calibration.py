@@ -153,3 +153,23 @@ def test_regime_ignores_the_logged_days_own_close():
     closes = [100.0] * 20 + [99.0] + [200.0]
     n = _nifty("2026-08-03", closes)
     assert vl.nifty_regime_at(n, n.index[-1].date()) == "Falling"
+
+
+def test_registered_rising_rule_is_frozen():
+    r = vl.DECISION_RULE_RISING
+    assert (r["registered_on"], r["regime"], r["horizon_days"], r["min_verdicts"], r["min_days"],
+            r["threshold_pct"]) == ("2026-10-02", "Rising", 20, 150, 30, 50.0)
+    assert tuple(r["verdicts"]) == ("BUY", "STRONG BUY")
+    assert "regime" not in vl.DECISION_RULE           # the original rule stays pooled
+
+
+def test_rising_rule_counts_only_rising_days():
+    closes = [100 - i for i in range(30)] + [70 + 3 * i for i in range(30)]
+    n = _nifty("2026-07-01", closes)
+    falling = [str(n.index[k].date()) for k in (25, 26, 27, 28)]
+    rising = [str(n.index[k].date()) for k in (55, 56, 57, 58, 59)]
+    _seed([(d, f"{d}-{i}.NS", "BUY", 3.0, 0.0) for d in falling + rising for i in range(2)])
+    rule = dict(vl.DECISION_RULE_RISING, min_verdicts=6, min_days=3, threshold_pct=10.0)
+    res = vl.evaluate_decision_rule(rule, nifty_df=n)
+    assert res["n_days"] == 5 and res["n"] == 10 and res["status"] == "met"
+    assert vl.evaluate_decision_rule(rule, nifty_df=None)["status"] == "insufficient"

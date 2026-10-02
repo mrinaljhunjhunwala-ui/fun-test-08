@@ -1049,7 +1049,19 @@ DECISION_RULE: Dict[str, Any] = {
 }
 
 
-def evaluate_decision_rule(rule: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+# Second pre-registered test, registered 2026-10-02 BEFORE any verdict logged in a
+# rising NIFTY had a 20-session outcome reviewed. Why: the 5y replay
+# (docs/DECAY_ATTRIBUTION_2026-10-01.md) found the score's edge only in rising
+# markets, while the live ledger so far was logged almost entirely in a falling
+# one. Same bar as DECISION_RULE, restricted to verdicts whose logging day was
+# 'Rising' by nifty_regime_at (point-in-time). Frozen by
+# test_registered_rising_rule_is_frozen. DECISION_RULE itself is unchanged.
+DECISION_RULE_RISING: Dict[str, Any] = dict(DECISION_RULE, registered_on="2026-10-02",
+                                            regime="Rising")
+
+
+def evaluate_decision_rule(rule: Optional[Dict[str, Any]] = None,
+                           nifty_df: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
     """Evaluate DECISION_RULE on the current ledger.
 
     status: 'insufficient' (verdicts / days WITH a NIFTY return below
@@ -1069,6 +1081,16 @@ def evaluate_decision_rule(rule: Optional[Dict[str, Any]] = None) -> Dict[str, A
     if df.empty or ret_col not in df.columns:
         return res
     df = df[df["verdict"].isin(rule["verdicts"]) & df[ret_col].notna()].copy()
+    if rule.get("regime"):
+        # Regime-restricted rule: keep only verdicts logged on a day of that
+        # NIFTY regime. Without NIFTY history nothing can be tagged → insufficient.
+        days = {d: None for d in df["logged_date"].astype(str).unique()}
+        for d in days:
+            try:
+                days[d] = nifty_regime_at(nifty_df, _dt.date.fromisoformat(d))
+            except ValueError:
+                pass
+        df = df[df["logged_date"].astype(str).map(days) == rule["regime"]]
     if df.empty:
         return res
     n_ret = df[nifty_col] if nifty_col in df.columns else pd.Series(np.nan, index=df.index)
