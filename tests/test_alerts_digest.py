@@ -262,8 +262,8 @@ def test_intraday_watchlist_reformats_picks(_silence_dispatch, monkeypatch):
     fired = ca.check_intraday_watchlist({}, "2026-09-09")
     assert fired == 1
     msg = _silence_dispatch.call_args[0][0]
-    assert "Intraday Morning Watchlist" in msg
-    assert "ORB high" in msg
+    assert "Intraday Watchlist" in msg
+    assert "Upside level" in msg
     assert "TICK0" in msg
 
 
@@ -397,14 +397,21 @@ def test_intraday_falls_back_to_snapshot_when_picks_are_old(_silence_dispatch, m
     assert "STALE" not in msg and "the latest delivery scan" in msg
 
 
-def test_intraday_target_is_1p5_atr_past_breakout(_silence_dispatch, monkeypatch):
-    # _mk_ohlcv: close 1000, range ±1% → ATR 20. Breakout 1010, stop 990 (1 ATR
-    # below it), target 1010 + 1.5 × 20 = 1040 → 1.5 : 1 from the breakout.
-    monkeypatch.setitem(sys.modules, "trade_store",
-                        SimpleNamespace(kv_get=lambda k, user_id: _mk_snapshot(1)))
+def test_intraday_levels_in_plain_words_and_saved(_silence_dispatch, monkeypatch):
+    # _mk_ohlcv: close 1000, range ±1% → typical move 20. Upside 1010, downside
+    # 990, next level 1010 + 1.5 × 20 = 1040.
+    kv = {"top_picks_snapshot": _mk_snapshot(1)}
+    monkeypatch.setitem(sys.modules, "trade_store", SimpleNamespace(
+        kv_get=lambda k, d=None, user_id="default": kv.get(k, d),
+        kv_set=lambda k, v, user_id="default": kv.__setitem__(k, v)))
     monkeypatch.setattr("data.fetcher.fetch_single", lambda t, period="3mo": _mk_ohlcv())
 
     assert ca.check_intraday_watchlist({}, "2026-10-01") == 1
     msg = _silence_dispatch.call_args[0][0]
-    assert "ORB high ₹1,010.00 / ORB low ₹990.00" in msg
-    assert "Intraday stop ₹990.00 · Target ₹1,040.00" in msg
+    assert "closed ₹1,000.00 yesterday · typical day's move ₹20.00 (2.0%)" in msg
+    assert "▲ Upside level ₹1,010.00 · next level above it ₹1,040.00" in msg
+    assert "▼ Downside level ₹990.00" in msg
+    for jargon in ("ORB", "ATR", "Intraday stop", "Target"):
+        assert jargon not in msg
+    assert kv["intraday_levels"]["date"] == "2026-10-01"
+    assert kv["intraday_levels"]["levels"]["TICK0"]["next_up"] == 1040.0
