@@ -323,14 +323,17 @@ _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
         "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "INDUSINDBK.NS",
         "IDFCFIRSTB.NS", "FEDERALBNK.NS", "BANDHANBNK.NS", "AUBANK.NS", "KARURVYSYA.NS", "PNB.NS",
         "UNIONBANK.NS", "IDBI.NS", "CANBK.NS", "BANKBARODA.NS", "RBLBANK.NS", "JKBANK.NS",
-        "DCBBANK.NS", "SOUTHBANK.NS", "EQUITASBNK.NS", "CREDITACC.NS", "BANKINDIA.NS", "CENTRALBK.NS",
+        "DCBBANK.NS", "SOUTHBANK.NS", "EQUITASBNK.NS", "BANKINDIA.NS", "CENTRALBK.NS",
         "CUB.NS", "INDIANB.NS", "IOB.NS", "J&KBANK.NS", "MAHABANK.NS", "UCOBANK.NS",
         "YESBANK.NS",
+        # audit 2026-10-03: moved here from Other
+        "CSBBANK.NS", "KTKBANK.NS", "TMB.NS", "JSFB.NS",
+        "UJJIVANSFB.NS",   # small finance bank (was Finance)
     ],
     "Finance": [
         "BAJFINANCE.NS", "BAJAJFINSV.NS", "SHRIRAMFIN.NS", "CHOLAFIN.NS", "MUTHOOTFIN.NS", "BAJAJHLDNG.NS",
-        "HDFCAMC.NS", "ICICIGI.NS", "ICICIPRULI.NS", "SBICARD.NS", "ABCAPITAL.NS", "SUNDARMFIN.NS",
-        "LICHSGFIN.NS", "MANAPPURAM.NS", "UJJIVANSFB.NS", "MFSL.NS", "JMFINANCIL.NS", "IIFL.NS",
+        "HDFCAMC.NS", "SBICARD.NS", "ABCAPITAL.NS", "SUNDARMFIN.NS",
+        "LICHSGFIN.NS", "MANAPPURAM.NS", "MFSL.NS", "JMFINANCIL.NS", "IIFL.NS",
         "ANGELONE.NS", "360ONE.NS", "CDSL.NS", "BSE.NS", "MCX.NS", "CAMS.NS",
         "EDELWEISS.NS", "MOTILALOFS.NS", "NUVAMA.NS", "POONAWALLA.NS", "HOMEFIRST.NS", "APTUS.NS",
         "AAVAS.NS", "POLICYBZR.NS", "PAYTM.NS", "SBFC.NS", "UGROCAP.NS", "SPANDANA.NS",
@@ -339,6 +342,12 @@ _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
         "ICICIAMC.NS", "IEX.NS", "IFCI.NS", "IREDA.NS", "LTF.NS", "M&MFIN.NS",
         "NAM-INDIA.NS", "PIRAMALFIN.NS", "PNBHOUSING.NS", "SAMMAANCAP.NS", "TATAINVEST.NS", "UTIAMC.NS",
         "GROWW.NS", "PINELABS.NS", "CHOICEIN.NS", "ANANDRATHI.NS", "AIIL.NS",
+        # audit 2026-10-03: lenders filed under operating sectors got industrial
+        # leverage warnings — PFC/RECLTD (were Energy), IRFC/HUDCO (CapitalGoods),
+        # CREDITACC (NBFC-MFI, was Banking); the rest were "Other".
+        "PFC.NS", "RECLTD.NS", "IRFC.NS", "HUDCO.NS", "CREDITACC.NS",
+        "FEDFINA.NS", "IIFLCAPS.NS", "RELIGARE.NS", "SHAREINDIA.NS", "PRUDENT.NS",
+        "TSFINV.NS", "CRAMC.NS", "MAHSCOOTER.NS",
     ],
     "Pharma": [
         "SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "TORNTPHARM.NS", "AUROPHARMA.NS",
@@ -349,11 +358,15 @@ _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
         "BIOCON.NS", "CONCORDBIO.NS", "EMCURE.NS", "JBCHEPHARM.NS", "ONESOURCE.NS", "PFIZER.NS",
         "PPLPHARMA.NS", "SAILIFE.NS", "SYNGENE.NS", "WOCKPHARMA.NS", "ANTHEM.NS", "BLUEJET.NS",
         "COHANCE.NS",
+        # audit 2026-10-03: moved here from Other
+        "AARTIDRUGS.NS", "SPARC.NS", "SHILPAMED.NS", "ALIVUS.NS", "AKUMS.NS",
     ],
     "Healthcare": [
         "APOLLOHOSP.NS", "MAXHEALTH.NS", "FORTIS.NS", "LALPATHLAB.NS", "METROPOLIS.NS", "RAINBOW.NS",
         "MEDANTA.NS", "NARAYANA.NS", "YATHARTH.NS", "ASTERDM.NS", "KIMS.NS", "NH.NS",
         "POLYMED.NS", "VIJAYA.NS",
+        # audit 2026-10-03: moved here from Other
+        "PARKHOSPS.NS", "HCG.NS", "THYROCARE.NS", "AGARWALEYE.NS",
     ],
     "Auto": [
         "MARUTI.NS", "TMCV.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS", "HEROMOTOCO.NS", "TVSMOTOR.NS",
@@ -375,7 +388,7 @@ _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
     ],
     "Energy": [
         "RELIANCE.NS", "ONGC.NS", "BPCL.NS", "NTPC.NS", "POWERGRID.NS", "TATAPOWER.NS",
-        "ADANIGREEN.NS", "ADANITRANS.NS", "PFC.NS", "RECLTD.NS", "NHPC.NS", "SJVN.NS",
+        "ADANIGREEN.NS", "ADANITRANS.NS", "NHPC.NS", "SJVN.NS",
         "NLCINDIA.NS", "IGL.NS", "MGL.NS", "PETRONET.NS", "GAIL.NS", "HINDPETRO.NS",
         "IOC.NS", "SUZLON.NS", "RPOWER.NS", "VOGL.NS", "VEDPOWER.NS", "ACMESOLAR.NS",
         "ATGL.NS", "CESC.NS", "COALINDIA.NS", "EMMVEE.NS", "GMDCLTD.NS", "JPPOWER.NS",
@@ -403,7 +416,7 @@ _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
     "CapitalGoods": [
         "LT.NS", "BEL.NS", "SIEMENS.NS", "ABB.NS", "HAVELLS.NS", "VOLTAS.NS",
         "CUMMINSIND.NS", "BHEL.NS", "RVNL.NS", "KEC.NS", "THERMAX.NS", "NBCC.NS",
-        "CONCOR.NS", "IRFC.NS", "HUDCO.NS", "RITES.NS", "POLYCAB.NS", "DIXON.NS",
+        "CONCOR.NS", "RITES.NS", "POLYCAB.NS", "DIXON.NS",
         "HFCL.NS", "TITAGARH.NS", "GRINDWELL.NS", "KAYNES.NS", "SYRMA.NS", "TEJASNET.NS",
         "IRCON.NS", "RAILTEL.NS", "VGUARD.NS", "FINOLEX.NS", "ELGIEQUIP.NS", "PARAS.NS",
         "WELSPUNLIV.NS", "3MINDIA.NS", "AIAENG.NS", "AFCONS.NS", "BDL.NS", "BEML.NS",
@@ -418,6 +431,8 @@ _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
         "ULTRACEMCO.NS", "SHREECEM.NS", "AMBUJACEM.NS", "ACC.NS", "RAMCOCEM.NS", "JKCEMENT.NS",
         "HEIDELBERG.NS", "INDIACEM.NS", "STARCEMENT.NS", "NUVOCO.NS", "DALBHARAT.NS", "JSWCEMENT.NS",
         "CEMPRO.NS",
+        # audit 2026-10-03: moved here from Other
+        "BIRLACORPN.NS", "ORIENTCEM.NS", "JKLAKSHMI.NS",
     ],
     "RealEstate": [
         "DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS", "PHOENIXLTD.NS", "PRESTIGE.NS", "SOBHA.NS",
@@ -459,6 +474,8 @@ _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
     "Insurance": [
         "HDFCLIFE.NS", "SBILIFE.NS", "GICRE.NS", "NIACL.NS", "NIVABUPA.NS", "STARHEALTH.NS",
         "GODIGIT.NS", "CANHLIFE.NS", "LICI.NS",
+        # audit 2026-10-03: insurers that were filed under Finance
+        "ICICIGI.NS", "ICICIPRULI.NS",
     ],
 }
 
