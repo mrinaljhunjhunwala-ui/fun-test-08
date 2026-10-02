@@ -173,3 +173,46 @@ def test_rising_rule_counts_only_rising_days():
     res = vl.evaluate_decision_rule(rule, nifty_df=n)
     assert res["n_days"] == 5 and res["n"] == 10 and res["status"] == "met"
     assert vl.evaluate_decision_rule(rule, nifty_df=None)["status"] == "insufficient"
+
+
+# ── source filter (Calibration page "Source" picker) ─────────────────────────
+
+def _seed_sourced(rows):
+    """rows: (ticker, source, ret_20d, tag) — one BUY each, same day."""
+    vl.ensure_schema()
+    with sqlite3.connect(trade_store._SQLITE_PATH) as con:
+        for tk, src, ret, tag in rows:
+            cur = con.execute(
+                "INSERT INTO verdict_log (logged_at, logged_date, ticker, entry_price, verdict, "
+                "horizon, source) VALUES (?,?,?,?,?,?,?)",
+                ("2026-09-01T20:00:00", "2026-09-01", tk, 100.0, "BUY", "medium", src))
+            con.execute("INSERT INTO verdict_forward_returns (verdict_log_id, ret_20d, nifty_ret_20d) "
+                        "VALUES (?,?,?)", (cur.lastrowid, ret, 0.0))
+            con.execute("INSERT INTO verdict_signal_tags (verdict_log_id, tag) VALUES (?,?)",
+                        (cur.lastrowid, tag))
+
+
+_SOURCED = [("A.NS", "tomorrow_watchlist", 4.0, "rsi_oversold"),
+            ("B.NS", "tomorrow_watchlist", 2.0, "rsi_oversold"),
+            ("C.NS", "analyze_page", -6.0, "rsi_oversold")]
+
+
+def test_calibration_by_source_keeps_only_that_source():
+    _seed_sourced(_SOURCED)
+    assert vl.calibration_by(group_col="verdict", horizon_days=20).iloc[0]["n"] == 3
+    r = vl.calibration_by(group_col="verdict", horizon_days=20, source="tomorrow_watchlist").iloc[0]
+    assert r["n"] == 2 and r["win_rate"] == 100.0
+
+
+def test_tag_calibration_by_source():
+    _seed_sourced(_SOURCED)
+    assert vl.tag_calibration(horizon_days=20, min_n=1).iloc[0]["n"] == 3
+    out = vl.tag_calibration(horizon_days=20, min_n=1, source="analyze_page")
+    assert out.iloc[0]["n"] == 1 and out.iloc[0]["win_rate"] == 0.0
+
+
+def test_regime_calibration_by_source():
+    _seed_sourced(_SOURCED)
+    out = vl.regime_calibration(horizon_days=20, nifty_df=None, source="tomorrow_watchlist")
+    assert out["n"].sum() == 2
+    assert vl.regime_calibration(horizon_days=20, nifty_df=None, source="nope").empty
