@@ -26,6 +26,9 @@ import requests
 
 _log = logging.getLogger("data.nse_corp_info")
 
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
 # Module-level session singleton; tests may reset this to force a fresh session.
 _session_singleton: Optional[requests.Session] = None
 
@@ -65,8 +68,14 @@ def _extract_status_code_from_exception(exc: Exception) -> Optional[int]:
         except Exception:
             pass
 
-    # Fallback: search for a 3-digit code in text
-    m = re.search(r"\b(\d{3})\b", str(exc))
+    # A timeout / connection failure has no HTTP status. Its text does carry
+    # "port=443", which the 3-digit fallback below used to report as
+    # status 443 (audit 2026-10-03).
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return None
+
+    # Fallback: search for a 3-digit HTTP-status-like code in text (not a port)
+    m = re.search(r"(?<!port=)(?<!:)\b([1-5]\d{2})\b", str(exc))
     if m:
         try:
             return int(m.group(1))
@@ -82,8 +91,12 @@ def _ensure_session() -> requests.Session:
     if _session_singleton is None:
         s = requests.Session()
         # Default headers mimic a real browser to reduce 403 risk in practice.
+        # FIX CORPINFO-UA (audit 2026-10-03): NSE's WAF tarpits the old custom
+        # "nse-smart-investor/1.0" agent (read timeout after ~21 s on every
+        # call) while a Chrome agent gets HTTP 200 in ~1 s — the same agent
+        # nse_delivery / fii_dii already use.
         s.headers.update({
-            "User-Agent": "nse-smart-investor/1.0 (+https://example.invalid)",
+            "User-Agent": _UA,
             "Accept": "application/json, text/plain, */*",
             "Referer": "https://www.nseindia.com/",
         })
