@@ -28,9 +28,11 @@ from __future__ import annotations
 import html as _html
 import datetime
 import json
+import re
 import logging
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -59,6 +61,17 @@ _IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 # Telegram
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _h(x) -> str:
+    """HTML-escape outside text (tickers, sectors, reasons) before it goes into
+    a parse_mode=HTML message — a bare & or < makes Telegram reject the send."""
+    return _html.escape(str(x), quote=False)
+
+
+def _plain(text: str) -> str:
+    """Strip tags and unescape entities — the plain-text fallback body."""
+    return _html.unescape(re.sub(r"<[^>]+>", "", text))
+
+
 def send_telegram(text: str) -> bool:
     """Send an HTML message to the configured Telegram chat."""
     token   = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
@@ -80,6 +93,24 @@ def send_telegram(text: str) -> bool:
             ok = r.status == 200
             print(f"[telegram] sent ({r.status})")
             return ok
+    except urllib.error.HTTPError as e:
+        if e.code != 400:
+            print(f"[telegram] FAILED: {e}")
+            return False
+        # 400 = Telegram couldn't parse the HTML. Don't lose the alert:
+        # resend the same content as plain text.
+        print(f"[telegram] HTML rejected ({e}) — resending as plain text")
+        try:
+            data = urllib.parse.urlencode({
+                "chat_id": chat_id, "text": _plain(text),
+                "disable_web_page_preview": "true",
+            }).encode()
+            with urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=15) as r:
+                print(f"[telegram] sent as plain text ({r.status})")
+                return r.status == 200
+        except Exception as e2:
+            print(f"[telegram] FAILED: {e2}")
+            return False
     except Exception as e:
         print(f"[telegram] FAILED: {e}")
         return False
@@ -301,7 +332,7 @@ def check_price_alerts(state: dict, today: str) -> int:
         arrow = "🔼" if condition == "above" else "🔽"
         chg   = q.get("chg_pct", 0.0)
         msg = (
-            f"{arrow} <b>{ticker}</b> price alert\n"
+            f"{arrow} <b>{_h(ticker)}</b> price alert\n"
             f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
             f"Crossed <b>{condition} ₹{level:,.2f}</b>"
             + (f"\n📝 {note}" if note else "")
@@ -386,7 +417,7 @@ def check_portfolio_alerts(state: dict, today: str) -> int:
             key = f"pf_step_{ticker}_{ref:.2f}"
             if not _already_fired(state, key, today):
                 arrow = "🔼" if move > 0 else "🔽"
-                msg = (f"{arrow} <b>{ticker}</b> moved <b>{move:+.1f}%</b> "
+                msg = (f"{arrow} <b>{_h(ticker)}</b> moved <b>{move:+.1f}%</b> "
                        f"since ₹{ref:,.2f} ({a.get('ref_date', '?')})\n"
                        f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
                        f"📝 Portfolio holding · next alert at ±{_PF_STEP_PCT:.0f}% from here")
@@ -410,7 +441,7 @@ def check_portfolio_alerts(state: dict, today: str) -> int:
                 key = f"pf_cost_{ticker}"
                 if not _already_fired(state, key, today):
                     arrow = "🔼" if side == "above" else "🔽"
-                    msg = (f"{arrow} <b>{ticker}</b> crossed {side} your average cost "
+                    msg = (f"{arrow} <b>{_h(ticker)}</b> crossed {side} your average cost "
                            f"<b>₹{avg:,.2f}</b>\n"
                            f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
                            f"📝 Portfolio holding · counted once {_PF_COST_MARGIN_PCT:g}% past the average")
@@ -530,10 +561,10 @@ def check_opening_update(state: dict, today: str, now: datetime.datetime | None 
         q = _quote(base)
         price = float(q["price"]) if q else (ss or {}).get("last")
         if not price:
-            rows.append(f"{i}. <b>{base}</b> — no price yet")
+            rows.append(f"{i}. <b>{_h(base)}</b> — no price yet")
             continue
         prev = float((q or {}).get("prev_close") or (lv or {}).get("y_close") or 0)
-        line = f"{i}. <b>{base}</b>"
+        line = f"{i}. <b>{_h(base)}</b>"
         if ss and prev:
             line += f" opened ₹{ss['open']:,.2f} ({(ss['open'] / prev - 1) * 100:+.1f}% vs yesterday)"
         if ss and ss.get("or_high"):
@@ -582,7 +613,7 @@ def check_pick_moves(state: dict, today: str) -> int:
         ss = _pick_session(base, today)
         lv = _pick_levels(store, base, today)
         icon = "🟢" if direction == "up" else "🔴"
-        msg = f"{icon} <b>{base} {direction} {abs(chg):.1f}% today</b> · ₹{price:,.2f}"
+        msg = f"{icon} <b>{_h(base)} {direction} {abs(chg):.1f}% today</b> · ₹{price:,.2f}"
         if prev:
             msg += f" (yesterday ₹{float(prev):,.2f})"
         detail = []
@@ -625,11 +656,11 @@ def _regime_note() -> str:
 
 
 def _format_verdict_alert(verdict: str, b: dict, fv, regime: str, gen_at) -> list:
-    base = _html.escape(_base_symbol(b.get("ticker")))
+    base = _base_symbol(b.get("ticker"))
     icon = "🟢🟢" if verdict == "STRONG BUY" else "🟢"
     price = b.get("price")
     price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
-    lines = [f"{icon} <b>{base}</b> — model read <b>{verdict_display_label(verdict)}</b> · conviction "
+    lines = [f"{icon} <b>{_h(base)}</b> — model read <b>{verdict_display_label(verdict)}</b> · conviction "
              f"{getattr(fv, 'conviction', '?')} · score {b.get('score')}/90 · {price_str}"]
     meta = [_html.escape(str(x)) for x in ((b.get("sector") or "").strip(), b.get("horizon") or "") if x]
     if meta:
@@ -723,17 +754,17 @@ def check_picks_recap(state: dict, today: str, now: datetime.datetime | None = N
             ref = 0.0
         q = _quote(base)
         if not q:
-            rows.append(f"{i}. <b>{base}</b> — no live price")
+            rows.append(f"{i}. <b>{_h(base)}</b> — no live price")
             continue
         price = float(q["price"])
         day = q.get("chg_pct", 0.0) or 0.0
         if ref > 0:
             since = (price / ref - 1) * 100
             moves.append(since)
-            rows.append(f"{i}. <b>{base}</b> ₹{ref:,.2f} → <b>₹{price:,.2f}</b> "
+            rows.append(f"{i}. <b>{_h(base)}</b> ₹{ref:,.2f} → <b>₹{price:,.2f}</b> "
                         f"({since:+.1f}% since the scan · {day:+.2f}% today)")
         else:
-            rows.append(f"{i}. <b>{base}</b> now <b>₹{price:,.2f}</b> ({day:+.2f}% today)")
+            rows.append(f"{i}. <b>{_h(base)}</b> now <b>₹{price:,.2f}</b> ({day:+.2f}% today)")
         extra = []
         ss = _pick_session(base, today)
         if ss:
@@ -1269,11 +1300,11 @@ def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> 
         lv = daily_levels(df)
         if lv is None:
             # Skip the levels for this row but still surface the name
-            lines.append(f"{i}. <b>{base}</b> — not enough price history for levels")
+            lines.append(f"{i}. <b>{_h(base)}</b> — not enough price history for levels")
             continue
         saved[base] = lv
         pct = lv["atr"] / lv["y_close"] * 100
-        lines.append(f"{i}. <b>{base}</b> · closed ₹{lv['y_close']:,.2f} yesterday · "
+        lines.append(f"{i}. <b>{_h(base)}</b> · closed ₹{lv['y_close']:,.2f} yesterday · "
                      f"typical day's move ₹{lv['atr']:,.2f} ({pct:.1f}%)")
         lines.append(f"   ▲ Upside level ₹{lv['up']:,.2f} · next level above it ₹{lv['next_up']:,.2f}")
         lines.append(f"   ▼ Downside level ₹{lv['down']:,.2f}")
@@ -1347,7 +1378,7 @@ def check_weekly_digest(state: dict, today: str) -> int:
             tk = b.get("ticker", "?")
             score = b.get("score", 0)
             act   = action_display_label(b.get("action", "").replace("_", " "))
-            lines.append(f"{i}. <b>{tk}</b> — {act} · Score {score}/90")
+            lines.append(f"{i}. <b>{_h(tk)}</b> — {act} · Score {score}/90")
         lines.append("")
     else:
         lines.append("<i>No top-picks snapshot to summarise this week.</i>")
@@ -1366,7 +1397,7 @@ def check_weekly_digest(state: dict, today: str) -> int:
     if recent:
         lines.append(f"<b>Journal entries this week — {len(recent)}</b>")
         for e in recent[:8]:
-            lines.append(f"• <b>{e.ticker}</b> ({e.status}) — {e.thesis[:80]}")
+            lines.append(f"• <b>{_h(e.ticker)}</b> ({_h(e.status)}) — {_h(e.thesis[:80])}")
         lines.append("")
 
     # Section 3 — reviews due in the next 7 days
@@ -1378,7 +1409,7 @@ def check_weekly_digest(state: dict, today: str) -> int:
     if due:
         lines.append(f"<b>Journal reviews due next week — {len(due)}</b>")
         for e in sorted(due, key=lambda x: x.review_date)[:8]:
-            lines.append(f"• <b>{e.ticker}</b> — review by {e.review_date}: {e.thesis[:80]}")
+            lines.append(f"• <b>{_h(e.ticker)}</b> — review by {e.review_date}: {_h(e.thesis[:80])}")
         lines.append("")
 
     if len(lines) <= 4:

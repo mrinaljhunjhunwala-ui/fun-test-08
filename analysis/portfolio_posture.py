@@ -18,6 +18,7 @@ can call the same functions the page uses. Follows CLAUDE.md rule 4.
 """
 from __future__ import annotations
 
+import html as _html
 import logging
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
@@ -369,6 +370,10 @@ def analyse_positions(
 # Alert-friendly summary
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _esc(x) -> str:
+    return _html.escape(str(x), quote=False)
+
+
 def format_portfolio_message(
     holdings: List[HoldingPosture],
     positions: List[IntradayPosture],
@@ -401,16 +406,16 @@ def format_portfolio_message(
         lines.append("<b>Delivery — needs attention</b>")
         for h in urgent_delivery:
             lines.append(
-                f"• <b>{h.symbol}</b> [{h.posture}] "
-                f"P&L {h.pnl_pct:+.1f}% — {h.reason}"
+                f"• <b>{_esc(h.symbol)}</b> [{h.posture}] "
+                f"P&amp;L {h.pnl_pct:+.1f}% — {_esc(h.reason)}"
             )
         lines.append("")
     if urgent_intraday:
         lines.append("<b>Intraday — needs attention</b>")
         for p in urgent_intraday:
             lines.append(
-                f"• <b>{p.symbol}</b> [{p.posture}] "
-                f"P&L {p.pnl_pct:+.2f}% — {p.reason}"
+                f"• <b>{_esc(p.symbol)}</b> [{p.posture}] "
+                f"P&amp;L {p.pnl_pct:+.2f}% — {_esc(p.reason)}"
             )
         lines.append("")
     lines.append(
