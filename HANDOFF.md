@@ -7,7 +7,7 @@
 - **Open PRs:** none from this work.
 - **Remote branches:** `main`, plus two waiting on a user decision:
   - `alerts/consolidate-fresh-workflow`: PR #93 is still open.
-  - `design/mockup-06-smart-screener` is safe to delete (owner to remove): PR #176 was stacked under #178 and its commit landed in that
+  - `design/mockup-06-smart-screener` deleted 2026-10-02: PR #176 was stacked under #178 and its commit landed in that
     squash-merge; the branch was identical to `main`.
   - Deleted on 2026-09-28: `ux2-ticker-hover-preview` (its feature shipped in #150 and #153) and 8 fully merged branches.
 - **Worktrees:** `sweet-cannon-bc10b5` belongs to another live session. `quizzical-faraday-f467bc` is no longer
