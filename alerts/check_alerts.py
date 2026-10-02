@@ -1220,10 +1220,24 @@ def check_portfolio_posture(state: dict, today: str, *, test: bool = False) -> i
         nifty_df = None
 
     print(f"[portfolio] analysing {len(holdings)} holdings + {len(positions)} intraday positions")
-    hpost = analyse_holdings(holdings, _fetch, nifty_history=nifty_df)
+    skipped: list = []
+    hpost = analyse_holdings(holdings, _fetch, nifty_history=nifty_df, skipped=skipped)
     ipost = analyse_positions(positions, _fetch)
+    for sk in skipped:
+        print(f"[portfolio] could not analyse {sk['symbol']}: {sk['reason']}")
 
     msg = format_portfolio_message(hpost, ipost, only_actionable=not test)
+    # FIX POSTURE-SKIP (2026-10-03): holdings that produced no posture used to
+    # vanish, so "couldn't analyse anything" read as "all HOLD". Say so instead.
+    if skipped:
+        skip_lines = "\n".join(f"• <b>{_h(sk['symbol'])}</b> — {_h(sk['reason'])}" for sk in skipped)
+        skip_block = (f"\n\n⚠️ <b>Not analysed ({len(skipped)} of {len(holdings)} holdings)</b>\n"
+                      f"{skip_lines}")
+        if NO_FLAGGED_POSTURES in msg and not hpost and not ipost:
+            msg = ("📋 <b>Portfolio Posture</b>\n"
+                   "No holding could be analysed, so no posture is available." + skip_block)
+        else:
+            msg += skip_block
     if test:
         msg = ("🧪 <b>TEST — Portfolio Posture format</b> (all rows shown, incl. HOLD)\n\n"
                + msg)
@@ -1231,9 +1245,15 @@ def check_portfolio_posture(state: dict, today: str, *, test: bool = False) -> i
     # Suppress the 'nothing to do' message from the daily digest — the whole
     # point of an alert is to surface something. If everything is HOLD,
     # count it as fired-successfully (dedup key set) so we don't keep polling.
-    if NO_FLAGGED_POSTURES in msg:
+    if NO_FLAGGED_POSTURES in msg and not skipped:
         _mark_fired(state, key, today)
         print("[portfolio] all HOLD/RUNNING — no message sent")
+        return 0
+    if not hpost and not ipost and skipped:
+        # Nothing analysable: report it once a day rather than staying silent.
+        if dispatch(msg, subject="Portfolio Posture — holdings could not be analysed"):
+            _mark_fired(state, key, today)
+            return 1
         return 0
 
     if dispatch(msg, subject=f"Portfolio Posture — {len(hpost)+len(ipost)} row(s) need attention"):

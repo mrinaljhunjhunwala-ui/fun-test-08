@@ -75,6 +75,39 @@ def test_test_posture_sends_hold_rows_without_dedup(monkeypatch):
     assert ca.check_portfolio_posture(state, "2026-10-03") == 0   # real path still deduped
 
 
+def _posture_env(monkeypatch, analysed, skipped_rows):
+    import analysis.portfolio_posture as pp
+    import data.angel_fetcher as af
+    import data.fetcher as df_
+    monkeypatch.setattr(af, "get_holdings", lambda: [{"symbol": "A"}, {"symbol": "B"}])
+    monkeypatch.setattr(af, "get_positions", lambda: {"day": []})
+    monkeypatch.setattr(df_, "fetch_single", lambda *a, **k: None)
+
+    def fake_analyse(holdings, fetch, nifty_history=None, skipped=None):
+        if skipped is not None:
+            skipped.extend(skipped_rows)
+        return analysed
+    monkeypatch.setattr(pp, "analyse_holdings", fake_analyse)
+    monkeypatch.setattr(pp, "analyse_positions", lambda *a, **k: [])
+    sent = []
+    monkeypatch.setattr(ca, "dispatch", lambda m, **k: sent.append(m) or True)
+    return sent
+
+
+def test_posture_reports_unanalysed_holdings_instead_of_all_hold(monkeypatch):
+    sent = _posture_env(monkeypatch, [], [{"symbol": "A&B", "reason": "price history could not be fetched"},
+                                          {"symbol": "C", "reason": "only 40 trading days of history"}])
+    assert ca.check_portfolio_posture({}, "2026-10-03") == 1
+    assert "No holding could be analysed" in sent[0] and "currently HOLD" not in sent[0]
+    assert "A&amp;B" in sent[0] and "Not analysed (2 of 2 holdings)" in sent[0]
+
+
+def test_posture_all_hold_and_nothing_skipped_stays_silent(monkeypatch):
+    hold = SimpleNamespace(symbol="A", posture="HOLD", pnl_pct=1.0, reason="ok")
+    sent = _posture_env(monkeypatch, [hold], [])
+    assert ca.check_portfolio_posture({}, "2026-10-03") == 0 and not sent
+
+
 def test_telegram_other_errors_do_not_retry(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")
