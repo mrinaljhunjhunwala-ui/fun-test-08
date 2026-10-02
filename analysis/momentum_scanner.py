@@ -41,6 +41,7 @@ the network, so it stays fast and testable.
 """
 from __future__ import annotations
 
+import html as _html
 import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional
@@ -334,7 +335,7 @@ def format_momentum_message(candidates: List[Dict], *, max_lines: int = 8) -> st
     for i, c in enumerate(candidates[:max_lines], start=1):
         rs_str = f"RS {c['rs_63d']:+.1f}%" if c["rs_63d"] is not None else "RS n/a"
         lines.append(
-            f"{i}. <b>{c['ticker']}</b> — ₹{c['price']:,.2f} "
+            f"{i}. <b>{_html.escape(str(c['ticker']), quote=False)}</b> — ₹{c['price']:,.2f} "
             f"(broke 55d high +{c['breakout_pct']:.1f}%, vol {c['volume_ratio']:.1f}×, "
             f"RSI {c['rsi']:.0f}, {rs_str})"
         )
