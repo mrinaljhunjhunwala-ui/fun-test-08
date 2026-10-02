@@ -185,16 +185,46 @@ if _ledger.empty:
     )
     st.stop()
 
+# ── Source filter ─────────────────────────────────────────────────────────────
+# Each surface logs its own verdicts. "All" keeps the pooled view; a single
+# source shows how that surface's calls did on their own. The pre-registered
+# evidence tests and Shadow trades keep their fixed scope regardless.
+_SOURCE_LABELS = {
+    "analyze_page": "Analyze Stock",
+    "tomorrow_watchlist": "Tomorrow's Watchlist",
+    "shadow_auto": "Shadow trades (auto)",
+}
+_by_source = _ledger.groupby("source").size().to_dict()
+_src_choice = st.selectbox(
+    "Source",
+    options=[None, *sorted(_by_source, key=lambda s: -_by_source[s])],
+    format_func=lambda s: (f"All sources ({len(_ledger):,})" if s is None else
+                           f"{_SOURCE_LABELS.get(s, s.replace('_', ' ').title())} ({_by_source[s]:,})"),
+    key="_cal_source",
+    help="Which surface's verdicts to score. Evidence tests and Shadow trades are unaffected.",
+)
+if _src_choice:
+    _ledger = _ledger[_ledger["source"] == _src_choice]
+
+
+def _src_kw(fn) -> dict:
+    """{'source': choice} when `fn` takes it — an in-memory ledger module from
+    before a redeploy may not (same failure as the stale-code guard above)."""
+    import inspect
+    try:
+        return {"source": _src_choice} if "source" in inspect.signature(fn).parameters else {}
+    except (TypeError, ValueError):
+        return {}
+
 # ── Overview strip ────────────────────────────────────────────────────────────
 _total = len(_ledger)
-_by_source = _ledger.groupby("source").size().to_dict()
 _by_verdict = _ledger.groupby("verdict").size().to_dict()
 _played_20d = int(_ledger.get("ret_20d", pd.Series()).notna().sum())
 _played_60d = int(_ledger.get("ret_60d", pd.Series()).notna().sum())
 
 _o1, _o2, _o3, _o4 = st.columns(4)
 _o1.metric("Verdicts logged", f"{_total:,}")
-_o2.metric("Shadow trades", f"{_by_source.get('shadow_auto', 0):,}")
+_o2.metric("Shadow trades", f"{int((_ledger['source'] == 'shadow_auto').sum()):,}")
 _o3.metric("Played out ≥20d", f"{_played_20d:,}")
 _o4.metric("Played out ≥60d", f"{_played_60d:,}")
 
@@ -237,7 +267,8 @@ if _NEW_API:
                      "days with a NIFTY return"
                      + (f" · day-clustered Wilson lower vs NIFTY **{_wl:.1f}%**" if _wl is not None
                         else ""))
-        st.caption(_rule_txt)
+        st.caption(_rule_txt + (" Scored on **all sources**: the registered rule is not "
+                                "re-cut by the source filter." if _src_choice else ""))
         if _rule_res["status"] == "insufficient":
             st.info(f"**Not enough data yet.** {_progress}. Until both floors are reached, no "
                     "conclusion either way is supported.")
@@ -317,7 +348,8 @@ _horizon_choice = st.radio(
     key="_cal_horizon",
 )
 
-_cal = _vl.calibration_by(group_col="verdict", horizon_days=_horizon_choice)
+_cal = _vl.calibration_by(group_col="verdict", horizon_days=_horizon_choice,
+                          **_src_kw(_vl.calibration_by))
 if _cal.empty:
     st.info(
         f"No verdicts have played out for the **{_horizon_choice}-session** horizon "
@@ -363,7 +395,8 @@ if _NEW_API:
         "that only looks good in one regime has learned the market, not the stocks."
     )
 
-    _reg = _vl.regime_calibration(horizon_days=_horizon_choice, nifty_df=_nifty_df)
+    _reg = _vl.regime_calibration(horizon_days=_horizon_choice, nifty_df=_nifty_df,
+                                  **_src_kw(_vl.regime_calibration))
     if _reg.empty:
         st.info(f"No BUY/STRONG BUY calls have played out at {_horizon_choice} sessions yet.")
     else:
@@ -449,7 +482,8 @@ _sub_choice = st.selectbox(
     }[k],
     key="_cal_subsystem",
 )
-_sub_tbl = _vl.calibration_by(group_col=_sub_choice, horizon_days=_horizon_choice)
+_sub_tbl = _vl.calibration_by(group_col=_sub_choice, horizon_days=_horizon_choice,
+                               **_src_kw(_vl.calibration_by))
 if _sub_tbl.empty:
     st.info("Not enough data with this subsystem populated yet.")
 else:
@@ -478,7 +512,8 @@ st.caption(
 )
 _min_n = st.slider("Minimum firings per tag", 3, 30, 5, 1,
                     key="_cal_tag_minn")
-_tag_tbl = _vl.tag_calibration(horizon_days=_horizon_choice, min_n=_min_n)
+_tag_tbl = _vl.tag_calibration(horizon_days=_horizon_choice, min_n=_min_n,
+                                **_src_kw(_vl.tag_calibration))
 if _tag_tbl.empty:
     st.info(
         "No signal tags with enough firings yet. Every time you open Analyze "
@@ -504,6 +539,8 @@ st.markdown(
 st.caption(
     "Every STRONG BUY / BUY the model surfaced (whether or not you paper-"
     "traded it), with the actual return had you held to the horizon."
+    + (" Always the auto-logged shadow source; the source filter above doesn't apply."
+       if _src_choice else "")
 )
 _sh_horizon = st.select_slider(
     "Hold horizon",

@@ -901,14 +901,16 @@ def _aggregate(df: pd.DataFrame, *, group_col: str, id_col: str) -> pd.DataFrame
     return out.drop(columns=["alpha_wins"])
 
 
-def tag_calibration(*, horizon_days: int, min_n: int = 5) -> pd.DataFrame:
+def tag_calibration(*, horizon_days: int, min_n: int = 5,
+                    source: Optional[str] = None) -> pd.DataFrame:
     """
     Per-signal-tag win rate + mean forward return at `horizon_days`.
 
     Joins verdict_signal_tags → verdict_log → verdict_forward_returns so
     the same forward-return numbers already computed for verdict-level
     calibration are re-used per tag. Filters to tags with n >= min_n
-    to avoid noisy rankings on singleton signals.
+    to avoid noisy rankings on singleton signals. `source` limits it to
+    verdicts logged by one surface (e.g. 'tomorrow_watchlist').
     """
     ensure_schema()
     ret_col   = f"ret_{horizon_days}d"
@@ -924,10 +926,10 @@ def tag_calibration(*, horizon_days: int, min_n: int = 5) -> pd.DataFrame:
             FROM verdict_signal_tags t
             JOIN verdict_log v ON v.id = t.verdict_log_id
             JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
-            WHERE r.{ret_col} IS NOT NULL
+            WHERE r.{ret_col} IS NOT NULL{" AND v.source = ?" if source else ""}
         """)
         with _store._get_conn() as conn:
-            df = read_sql_df(sql, conn)
+            df = read_sql_df(sql, conn, params=(source,) if source else ())
     except Exception as e:
         _log.warning("tag_calibration failed: %s: %s", type(e).__name__, e)
         return pd.DataFrame()
@@ -1008,10 +1010,14 @@ def nifty_regime_at(nifty_df: Optional[pd.DataFrame], logged: _dt.date,
 
 
 def regime_calibration(*, horizon_days: int, nifty_df: Optional[pd.DataFrame],
-                       verdicts: tuple = BULLISH_VERDICTS) -> pd.DataFrame:
+                       verdicts: tuple = BULLISH_VERDICTS,
+                       source: Optional[str] = None) -> pd.DataFrame:
     """Calibration for `verdicts` split by the NIFTY regime on the day each
-    verdict was logged. Rows whose regime can't be determined are 'Unknown'."""
+    verdict was logged. Rows whose regime can't be determined are 'Unknown'.
+    `source` limits it to verdicts logged by one surface."""
     df = _load_full_ledger()
+    if source and not df.empty and "source" in df.columns:
+        df = df[df["source"] == source]
     ret_col, nifty_col = f"ret_{horizon_days}d", f"nifty_ret_{horizon_days}d"
     if df.empty or ret_col not in df.columns:
         return pd.DataFrame()

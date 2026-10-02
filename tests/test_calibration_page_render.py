@@ -104,3 +104,31 @@ def test_unrecoverable_stale_module_hides_new_sections(offline, monkeypatch):
     assert any("still running older calibration code" in str(w.value) for w in at.warning)
     text = " ".join(str(m.value) for m in (*at.markdown, *at.caption))
     assert "Pre-registered evidence test" not in text and "By market regime" not in text
+
+
+def test_source_filter_narrows_the_tables(offline):
+    _seed()                                              # 30 shadow_auto rows
+    with sqlite3.connect(trade_store._SQLITE_PATH) as con:
+        for i in range(4):
+            cur = con.execute(
+                "INSERT INTO verdict_log (logged_at, logged_date, ticker, entry_price, verdict, "
+                "conviction, horizon, composite_action, source) VALUES (?,?,?,?,?,?,?,?,?)",
+                (f"2026-08-12T20:00:1{i}", "2026-08-12", f"W{i}.NS", 100.0, "BUY", 60,
+                 "medium", "WATCH", "tomorrow_watchlist"))
+            con.execute("INSERT INTO verdict_forward_returns (verdict_log_id, ret_20d, nifty_ret_20d) "
+                        "VALUES (?,?,?)", (cur.lastrowid, 3.0, 1.0))
+    at = AppTest.from_file(_PAGE, default_timeout=120).run()
+    assert not at.exception, at.exception
+    src = next(s for s in at.selectbox if s.key == "_cal_source")
+    assert set(src.options[1:]) >= {"Shadow trades (auto) (30)", "Tomorrow's Watchlist (4)"}
+
+    def _verdict_n(app):
+        f = next(d.value for d in app.dataframe if "verdict" in d.value.columns)
+        return int(f["N"].sum())
+
+    assert _verdict_n(at) == 34
+    src.set_value("tomorrow_watchlist").run()
+    assert not at.exception, at.exception
+    assert _verdict_n(at) == 4
+    text = " ".join(str(m.value) for m in at.caption)
+    assert "Scored on **all sources**" in text            # evidence test keeps its scope
