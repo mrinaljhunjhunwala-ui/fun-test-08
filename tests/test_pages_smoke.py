@@ -77,7 +77,18 @@ def _join_page_threads():
     yield
     deadline = time.monotonic() + 120
     for t in set(threading.enumerate()) - before:
-        t.join(timeout=max(0.0, deadline - time.monotonic()))
+        # threading.enumerate() also lists threads still in "limbo" (start()
+        # called, bootstrap not yet run); join() on one raises "cannot join
+        # thread before it is started" — seen as a CI flake on a pool worker.
+        # Wait for it to finish starting, then join as usual.
+        while True:
+            try:
+                t.join(timeout=max(0.0, deadline - time.monotonic()))
+                break
+            except RuntimeError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
 
 
 def test_all_pages_present():
