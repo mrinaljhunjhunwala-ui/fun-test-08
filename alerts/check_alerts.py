@@ -598,6 +598,86 @@ def check_pick_moves(state: dict, today: str) -> int:
     return sent
 
 
+_VERDICT_ALERT_TIERS = ("STRONG BUY", "BUY")
+_VERDICT_MAX_SNAPSHOT_AGE_H = 2      # the warmer refreshes every 15 min in market hours
+
+
+def _regime_note() -> str:
+    try:
+        from analysis.score import _live_regime_label
+        lbl = _live_regime_label()
+    except Exception:
+        return ""
+    return f"NIFTY regime: {str(lbl).replace('_', ' ')}" if lbl else ""
+
+
+def check_verdict_alerts(state: dict, today: str) -> int:
+    """Telegram/Gmail when a stock in the latest Top Picks scan carries a BUY or
+    STRONG BUY verdict — the same verdict the dashboard pick cards show
+    (dashboard.shared.pick_freshness.compose_finalverdict_for_card, composite
+    score + action + horizon). Once per stock per verdict tier per day; an
+    upgrade BUY → STRONG BUY fires again. Descriptive, not advice."""
+    try:
+        import trade_store as store
+        from dashboard.shared.pick_freshness import compose_finalverdict_for_card
+        from utils.snapshot_time import snapshot_age_seconds
+    except Exception as e:
+        print(f"[verdicts] import failed: {e}")
+        return 0
+    try:
+        snap = store.kv_get("top_picks_snapshot", user_id="_system")
+    except Exception as e:
+        print(f"[verdicts] kv_get failed: {e}")
+        return 0
+    if not (snap and isinstance(snap, dict) and isinstance(snap.get("data"), dict)):
+        print("[verdicts] no top-picks snapshot")
+        return 0
+    gen_at = snap.get("generated_at", "unknown")
+    _age = snapshot_age_seconds(gen_at)
+    if _age is None or _age / 3600 > _VERDICT_MAX_SNAPSHOT_AGE_H:
+        print(f"[verdicts] snapshot is stale (generated_at={gen_at}) — skipping")
+        return 0
+
+    hits = []
+    for b in snap["data"].get("buys") or []:
+        try:
+            fv = compose_finalverdict_for_card(b, tqs=None, log_source=None)
+        except Exception as e:
+            print(f"[verdicts] {b.get('ticker')}: verdict failed: {e}")
+            continue
+        verdict = str(getattr(fv, "verdict", "") or "").upper()
+        if verdict in _VERDICT_ALERT_TIERS:
+            hits.append((verdict, b, fv))
+    print(f"[verdicts] {len(hits)} BUY/STRONG BUY in scan at {_snapshot_ist_label(gen_at)}")
+
+    sent = 0
+    regime = _regime_note()
+    for verdict, b, fv in sorted(hits, key=lambda h: (h[0] != "STRONG BUY", -float(h[1].get("score") or 0))):
+        base = _base_symbol(b.get("ticker"))
+        key = f"verdict_{verdict.replace(' ', '_').lower()}_{base}"
+        if _already_fired(state, key, today):
+            continue
+        icon = "🟢🟢" if verdict == "STRONG BUY" else "🟢"
+        price = b.get("price")
+        price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
+        lines = [f"{icon} <b>{base}</b> — model verdict <b>{verdict}</b> · conviction "
+                 f"{getattr(fv, 'conviction', '?')} · score {b.get('score')}/90 · {price_str}"]
+        meta = [x for x in (b.get("sector", "").strip(), b.get("horizon", "")) if x]
+        if meta:
+            lines.append("   " + " · ".join(meta))
+        if b.get("sl") and b.get("tp"):
+            lines.append(f"   Model reference levels: invalidation ₹{float(b['sl']):,.2f} · "
+                         f"target ₹{float(b['tp']):,.2f}")
+        if regime:
+            lines.append(f"   {regime}")
+        lines.append(f"<i>Scan at {_snapshot_ist_label(gen_at)}. Model output from past price data — "
+                     "not investment advice; live track record on the Verdict Calibration page.</i>")
+        if dispatch("\n".join(lines)):
+            _mark_fired(state, key, today)
+            sent += 1
+    return sent
+
+
 def check_picks_recap(state: dict, today: str, now: datetime.datetime | None = None) -> int:
     key = "picks_recap"
     if _already_fired(state, key, today):
@@ -1325,6 +1405,7 @@ def main() -> int:
             "opening":   check_opening_update(state, today),
             "moves":     check_pick_moves(state, today),
             "recap":     check_picks_recap(state, today),
+            "verdicts":  check_verdict_alerts(state, today),
             "vix":       check_vix_regime(state, today),
             "nifty":     check_nifty_trend(state, today),
         }
