@@ -91,3 +91,37 @@ def test_test_digest_ignores_staleness_and_saves_nothing(monkeypatch):
     monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
     assert ca.check_test_digest({}, "2026-10-03") == 1
     assert sent[0].startswith("🧪") and "TEST" in sent[0] and not saved
+
+
+def test_digest_marks_under_70_watch_only_with_record(monkeypatch):
+    from tests.test_alert_copy_no_advice import _assert_descriptive
+    buys = [_pick("HI.NS", 74, "BUY"), _pick("LO.NS", 58, "WATCHLIST")]
+    sent = _setup(monkeypatch, buys, {"HI.NS": "BUY", "LO.NS": "WATCH"})
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
+    monkeypatch.setattr(ca, "_under_floor_record",
+                        lambda: {"n": 114, "beat_rate": 39.0, "mean_vs_nifty": -0.84})
+    assert ca.check_delivery_digest({}, "2026-10-02") == 1
+    msg = sent[0]
+    _assert_descriptive(msg)
+    assert "1 of 2 names scored under 70" in msg and "39%" in msg and "n=114" in msg
+    lo_line = next(ln for ln in msg.splitlines() if "LO.NS" in ln)
+    hi_line = next(ln for ln in msg.splitlines() if "HI.NS" in ln)
+    assert "Watch only" in lo_line and "Watch only" not in hi_line
+
+
+def test_digest_still_sends_when_nothing_reaches_70(monkeypatch):
+    buys = [_pick(f"T{i}.NS", 57 - i, "WATCHLIST") for i in range(5)]
+    sent = _setup(monkeypatch, buys, {f"T{i}.NS": "WATCH" for i in range(5)})
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
+    monkeypatch.setattr(ca, "_under_floor_record", lambda: None)   # ledger unreachable
+    assert ca.check_delivery_digest({}, "2026-10-02") == 1
+    assert "None of today's top names scored 70+" in sent[0]
+    assert sum("Watch only" in ln for ln in sent[0].splitlines() if ".NS" in ln) == 5
+
+
+def test_digest_has_no_watch_note_when_all_clear_70(monkeypatch):
+    sent = _setup(monkeypatch, [_pick("HI.NS", 72, "BUY")], {"HI.NS": "BUY"})
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
+    monkeypatch.setattr(ca, "_under_floor_record", lambda: (_ for _ in ()).throw(AssertionError))
+    assert ca.check_delivery_digest({}, "2026-10-02") == 1
+    assert "Watch only" not in sent[0]
