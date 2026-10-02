@@ -4,14 +4,19 @@ Get a Telegram message when a stock crosses your price level, when India VIX
 turns fearful, or when Nifty breaks into a downtrend — **even when the
 dashboard is closed.**
 
-Alerts that need no setup:
-- **Level alerts on that day's Morning Digest names:** a break of the prior
-  20-day high or low, or a cross of the 50-day average. The levels come from
-  the stock's own price history (`analysis/level_alerts.py`). A break or cross
-  has to clear the level by 0.5%, and each fires at most once a day per stock.
-- **Digest picks recap:** one message from the first run at or after 15:15
-  IST. It lists each digest name's move since the morning scan, plus any level
-  it broke that day.
+Alerts that need no setup. All of them follow that day's Morning Digest names:
+- **Intraday Watchlist (09:20):** each name's upside and downside reference
+  levels, half a typical day's move either side of yesterday's close, in plain
+  words.
+- **Opening update (first run from 09:30, until 10:30):** where each name
+  opened, its gap from yesterday's close, its first-15-minute range, and where
+  it is now against those levels.
+- **±2% moves (any run, 09:15–15:30):** sent when a name's change from
+  yesterday's close passes +2% or −2%. One alert per direction per day, so a
+  stock that falls 2% and then rallies 2% sends both. Each alert includes the
+  day's range so far.
+- **Picks recap (first run from 15:15):** each name's move since the morning
+  scan, its day range, and whether it swung ±2% that day.
 - **Holdings alerts are off by default (since 2026-10-01).** These are the
   ±10% move, the average-cost cross (1% margin, once a day) and level alerts
   on My Portfolio holdings. To turn them back on, set the repo variable

@@ -428,53 +428,174 @@ def check_portfolio_alerts(state: dict, today: str) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Level alerts — automatic, no alerts.csv needed
-#
-# For every My Portfolio holding plus today's Morning Digest names: a break of
-# the prior 20-session high/low and a cross of the 50-day SMA. The levels are
-# the stock's own history (analysis/level_alerts.py). One alert per ticker per
-# event kind per day.
+# Digest picks through the day — the user follows the suggested stocks, not
+# their holdings (2026-10-02). Three messages, all about today's Morning
+# Digest names:
+#   * Opening update  — first run from 09:30: open, gap, first-15-min range
+#   * ±2% moves       — day change from yesterday's close crosses ±2%, once
+#                       per direction per stock per day (a stock that falls
+#                       2% and then rallies 2% sends both)
+#   * Picks recap     — first run from 15:15: move since the scan + day range
+# Levels come from analysis/intraday_levels.py and are saved by the 09:20
+# watchlist (KV intraday_levels) so later runs reuse the same numbers.
 # ─────────────────────────────────────────────────────────────────────────────
 
-_LEVEL_TEXT = {
-    "high20":     ("🔼", "broke above its 20-day high"),
-    "low20":      ("🔽", "broke below its 20-day low"),
-    "sma50_up":   ("📈", "crossed above its 50-day average"),
-    "sma50_down": ("📉", "crossed below its 50-day average"),
-}
+_MOVE_PCT = 2.0
+_OPENING_FROM = datetime.time(9, 30)
+_OPENING_UNTIL = datetime.time(10, 30)
+_RECAP_FROM = datetime.time(15, 15)
+_LEVELS_KEY = "intraday_levels"
 
 
-def _level_alert_universe(store, today: str) -> dict[str, str]:
-    """Base symbol → why it's watched ('holding' / 'digest pick')."""
-    def _base(t) -> str:
-        return str(t or "").upper().replace(".NS", "").replace(".BO", "").strip()
+def _base_symbol(t) -> str:
+    return str(t or "").upper().replace(".NS", "").replace(".BO", "").strip()
 
-    names: dict[str, str] = {}
+
+def _today_picks(store, today: str) -> dict | None:
+    """Today's saved Morning Digest picks, or None."""
     try:
         morning = store.kv_get(_MORNING_PICKS_KEY, None, user_id="_system")
     except Exception:
-        morning = None
-    if isinstance(morning, dict) and morning.get("date") == today:
-        for b in morning.get("buys") or []:
-            if _base(b.get("ticker")):
-                names[_base(b.get("ticker"))] = "Morning Digest pick"
-    if not _holding_alerts_on():
-        return names
+        return None
+    if isinstance(morning, dict) and morning.get("date") == today and morning.get("buys"):
+        return morning
+    return None
+
+
+def _pick_levels(store, base: str, today: str) -> dict | None:
+    """The watchlist's saved levels for `base`, else computed from daily bars."""
     try:
-        holdings = store.kv_get(_PF_HOLDINGS_KEY, None) or []
+        saved = store.kv_get(_LEVELS_KEY, None, user_id="_system")
     except Exception:
-        holdings = []
-    for h in holdings:
-        if _base(h.get("ticker")):
-            names[_base(h.get("ticker"))] = "Portfolio holding"
-    return names
+        saved = None
+    if isinstance(saved, dict) and saved.get("date") == today and base in (saved.get("levels") or {}):
+        return saved["levels"][base]
+    try:
+        import pandas as pd
+        from analysis.intraday_levels import daily_levels
+        from data.fetcher import fetch_single
+        df = fetch_single(f"{base}.NS", period="3mo")
+        df = df[pd.to_datetime(df.index).strftime("%Y-%m-%d") < today]
+        return daily_levels(df)
+    except Exception as e:
+        _log.debug("levels for %s failed: %s", base, e)
+        return None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Picks recap — how this morning's digest names did, once a day from 15:15
-# ─────────────────────────────────────────────────────────────────────────────
+def _pick_session(base: str, today: str) -> dict | None:
+    """Today's open / high / low / last / opening range from 5-min bars."""
+    try:
+        from analysis.intraday_levels import session_stats
+        from data.fetcher import fetch_intraday
+        bars = fetch_intraday(f"{base}.NS", interval="5m", days=1)
+        return session_stats(bars, datetime.date.fromisoformat(today))
+    except Exception as e:
+        _log.debug("session for %s failed: %s", base, e)
+        return None
 
-_RECAP_FROM = datetime.time(15, 15)
+
+def _quote(base: str) -> dict | None:
+    try:
+        from utils.live_price import get_live_quote
+        q = get_live_quote(base)
+    except Exception:
+        return None
+    return q if q and q.get("price") else None
+
+
+def check_opening_update(state: dict, today: str, now: datetime.datetime | None = None) -> int:
+    key = "opening_update"
+    if _already_fired(state, key, today):
+        return 0
+    now = (now or datetime.datetime.now(_IST)).astimezone(_IST)
+    if not (_OPENING_FROM <= now.time() < _OPENING_UNTIL):
+        return 0
+    try:
+        import trade_store as store
+        from analysis.intraday_levels import position_vs_levels
+    except Exception as e:
+        print(f"[opening] import failed: {e}")
+        return 0
+    morning = _today_picks(store, today)
+    if not morning:
+        print("[opening] no Morning Digest picks for today — nothing to update")
+        return 0
+
+    rows = []
+    for i, b in enumerate(morning["buys"], start=1):
+        base = _base_symbol(b.get("ticker"))
+        lv = _pick_levels(store, base, today)
+        ss = _pick_session(base, today)
+        q = _quote(base)
+        price = float(q["price"]) if q else (ss or {}).get("last")
+        if not price:
+            rows.append(f"{i}. <b>{base}</b> — no price yet")
+            continue
+        prev = float((q or {}).get("prev_close") or (lv or {}).get("y_close") or 0)
+        line = f"{i}. <b>{base}</b>"
+        if ss and prev:
+            line += f" opened ₹{ss['open']:,.2f} ({(ss['open'] / prev - 1) * 100:+.1f}% vs yesterday)"
+        if ss and ss.get("or_high"):
+            line += f" · first 15 min ₹{ss['or_low']:,.2f}–₹{ss['or_high']:,.2f}"
+        day = f" ({(price / prev - 1) * 100:+.1f}%)" if prev else ""
+        rows.append(line + f"\n   Now ₹{price:,.2f}{day}"
+                    + (f" · {position_vs_levels(price, lv)}" if lv else ""))
+
+    lines = [f"🔔 <b>Opening update — today's picks</b> ({now:%H:%M} IST)", ""] + rows + [
+        "",
+        f"<i>The first 15 minutes set the opening range. Moves of ±{_MOVE_PCT:g}% from "
+        f"yesterday's close are flagged during the day. Descriptive, not advice.</i>"]
+    if dispatch("\n".join(lines), subject="Opening update — NSE Smart Investor"):
+        _mark_fired(state, key, today)
+        return 1
+    return 0
+
+
+def check_pick_moves(state: dict, today: str) -> int:
+    try:
+        import trade_store as store
+        from analysis.intraday_levels import position_vs_levels
+    except Exception as e:
+        print(f"[moves] import failed: {e}")
+        return 0
+    morning = _today_picks(store, today)
+    if not morning:
+        return 0
+
+    sent = 0
+    for b in morning["buys"]:
+        base = _base_symbol(b.get("ticker"))
+        q = _quote(base)
+        if not q:
+            print(f"[moves] {base}: no quote")
+            continue
+        chg = float(q.get("chg_pct") or 0.0)
+        if abs(chg) < _MOVE_PCT:
+            continue
+        direction = "up" if chg > 0 else "down"
+        key = f"mv_{direction}_{base}"
+        if _already_fired(state, key, today):
+            continue
+        price = float(q["price"])
+        prev = q.get("prev_close")
+        ss = _pick_session(base, today)
+        lv = _pick_levels(store, base, today)
+        icon = "🟢" if direction == "up" else "🔴"
+        msg = f"{icon} <b>{base} {direction} {abs(chg):.1f}% today</b> · ₹{price:,.2f}"
+        if prev:
+            msg += f" (yesterday ₹{float(prev):,.2f})"
+        detail = []
+        if ss:
+            detail.append(f"day range so far ₹{ss['low']:,.2f}–₹{ss['high']:,.2f}")
+        if lv:
+            detail.append(position_vs_levels(price, lv))
+        if detail:
+            msg += "\n   " + " · ".join(detail)
+        msg += "\n📝 Morning Digest pick"
+        if dispatch(msg):
+            _mark_fired(state, key, today)
+            sent += 1
+    return sent
 
 
 def check_picks_recap(state: dict, today: str, now: datetime.datetime | None = None) -> int:
@@ -486,25 +607,23 @@ def check_picks_recap(state: dict, today: str, now: datetime.datetime | None = N
         return 0
     try:
         import trade_store as store
-        from utils.live_price import get_live_quote
-        morning = store.kv_get(_MORNING_PICKS_KEY, None, user_id="_system")
     except Exception as e:
-        print(f"[recap] setup failed: {e}")
+        print(f"[recap] import failed: {e}")
         return 0
-    if not (isinstance(morning, dict) and morning.get("date") == today and morning.get("buys")):
+    morning = _today_picks(store, today)
+    if not morning:
         print("[recap] no Morning Digest picks for today — nothing to recap")
         return 0
 
     rows, moves = [], []
     for i, b in enumerate(morning["buys"], start=1):
-        tk = str(b.get("ticker", "?"))
-        base = tk.upper().replace(".NS", "").replace(".BO", "")
+        base = _base_symbol(b.get("ticker"))
         try:
             ref = float(b.get("price") or b.get("last_price") or 0)
         except (TypeError, ValueError):
             ref = 0.0
-        q = get_live_quote(base)
-        if not q or not q.get("price"):
+        q = _quote(base)
+        if not q:
             rows.append(f"{i}. <b>{base}</b> — no live price")
             continue
         price = float(q["price"])
@@ -516,11 +635,14 @@ def check_picks_recap(state: dict, today: str, now: datetime.datetime | None = N
                         f"({since:+.1f}% since the scan · {day:+.2f}% today)")
         else:
             rows.append(f"{i}. <b>{base}</b> now <b>₹{price:,.2f}</b> ({day:+.2f}% today)")
-        hits = [_LEVEL_TEXT[k][1] for k in _LEVEL_TEXT if state.get(f"lvl_{k}_{base}") == today]
-        if hits:
-            rows.append("   today: " + "; ".join(hits))
-    if not moves and not rows:
-        return 0
+        extra = []
+        ss = _pick_session(base, today)
+        if ss:
+            extra.append(f"day range ₹{ss['low']:,.2f}–₹{ss['high']:,.2f}")
+        extra += [f"{d} {_MOVE_PCT:g}%+ at one point"
+                  for d in ("up", "down") if state.get(f"mv_{d}_{base}") == today]
+        if extra:
+            rows.append("   " + " · ".join(extra))
 
     lines = [f"📊 <b>Digest picks — how they did today</b> ({now:%H:%M} IST)",
              f"<i>This morning's Delivery Digest names "
@@ -535,52 +657,6 @@ def check_picks_recap(state: dict, today: str, now: datetime.datetime | None = N
         _mark_fired(state, key, today)
         return 1
     return 0
-
-
-def check_level_alerts(state: dict, today: str) -> int:
-    try:
-        import pandas as pd
-        import trade_store as store
-        from analysis.level_alerts import detect_level_events
-        from data.fetcher import fetch_single
-        from utils.live_price import get_live_quote
-    except Exception as e:
-        print(f"[levels] import failed: {e}")
-        return 0
-
-    names = _level_alert_universe(store, today)
-    if not names:
-        print("[levels] no holdings or digest picks — nothing to check")
-        return 0
-
-    sent = 0
-    for base, why in names.items():
-        try:
-            df = fetch_single(f"{base}.NS", period="6mo")
-        except Exception as e:
-            print(f"[levels] {base}: history fetch failed: {e}")
-            continue
-        if df is None or df.empty:
-            print(f"[levels] {base}: no history")
-            continue
-        # Completed sessions only; today's in-progress bar would move the levels.
-        prior = df[pd.to_datetime(df.index).strftime("%Y-%m-%d") < today]
-        q = get_live_quote(base)
-        price = float(q["price"]) if q and q.get("price") else float(df["Close"].iloc[-1])
-        chg = (q or {}).get("chg_pct", 0.0) or 0.0
-
-        for ev in detect_level_events(prior, price):
-            key = f"lvl_{ev.kind}_{base}"
-            if _already_fired(state, key, today):
-                continue
-            icon, verb = _LEVEL_TEXT[ev.kind]
-            msg = (f"{icon} <b>{base}</b> {verb} (₹{ev.level:,.2f})\n"
-                   f"Now <b>₹{price:,.2f}</b> ({chg:+.2f}% today)\n"
-                   f"📝 {why} · level from the stock's own price history")
-            if dispatch(msg):
-                _mark_fired(state, key, today)
-                sent += 1
-    return sent
 
 
 def check_vix_regime(state: dict, today: str) -> int:
@@ -969,27 +1045,22 @@ def check_portfolio_posture(state: dict, today: str) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 # Intraday morning watchlist — 09:20 IST
 #
-# Not a true ORB scan (that needs intraday tick data — PR 4). Instead, reads
-# the persisted top-picks snapshot and reformats the top 5 delivery-quality
-# names as intraday setups: yesterday's close as the anchor, ATR-derived
-# ORB high/low, tighter stops (0.5-ATR), tighter targets (1-ATR).
-#
-# The rationale: names that pass the delivery-quality composite filter also
-# tend to trend intraday. Framing them with intraday levels gives a same-day
-# trading angle without a second scan.
+# The Morning Digest names with reference levels in plain words (no ORB /
+# ATR / stop / target jargon — the user asked for clearer intraday language,
+# 2026-10-02): yesterday's close ± half a typical day's move (ATR-14), and a
+# next level 1.5 typical moves above the upside one. The levels are saved
+# (KV intraday_levels) for the opening update and the ±2% move alerts.
 # ─────────────────────────────────────────────────────────────────────────────
 
-_INTRADAY_TARGET_ATR = 1.5
-
-
 def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> int:
-    """Reformat the top-picks snapshot as intraday setups. Once per day."""
+    """Reference levels for today's picks, in plain language. Once per day."""
     key = "intraday_watchlist"
     if _already_fired(state, key, today):
         return 0
 
     try:
         import trade_store as store
+        from analysis.intraday_levels import daily_levels
         from data.fetcher import fetch_single
     except Exception as _e:
         print(f"[intraday] import failed: {_e}")
@@ -997,11 +1068,8 @@ def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> 
 
     # Prefer the exact list this morning's digest sent; fall back to the
     # latest snapshot (and say so) if the digest didn't go out today.
-    try:
-        morning = store.kv_get(_MORNING_PICKS_KEY, user_id="_system")
-    except Exception:
-        morning = None
-    if isinstance(morning, dict) and morning.get("date") == today and morning.get("buys"):
+    morning = _today_picks(store, today)
+    if morning:
         buys = morning["buys"]
         source = (f"this morning's Delivery Digest "
                   f"(scan at {_snapshot_ist_label(morning.get('generated_at'))})")
@@ -1022,68 +1090,52 @@ def check_intraday_watchlist(state: dict, today: str, *, max_picks: int = 5) -> 
         print("[intraday] snapshot has 0 buys — nothing to reformat")
         return 0
 
-    # Enrich each with ATR-derived intraday levels
     lines = [
-        "⚡ <b>Intraday Morning Watchlist</b>",
-        f"<i>Top {min(max_picks, len(buys))} names from {source}, "
-        f"reframed with intraday levels for today's session.</i>",
+        "⚡ <b>Intraday Watchlist — today's picks</b>",
+        f"<i>Top {min(max_picks, len(buys))} names from {source}.</i>",
         "",
     ]
-    n_enriched = 0
+    saved: dict[str, dict] = {}
     for i, b in enumerate(buys[:max_picks], start=1):
         tk = b.get("ticker", "?")
+        base = _base_symbol(tk)
         try:
             df = fetch_single(tk, period="3mo")
         except Exception as _fe:
             _log.debug("intraday fetch failed for %s: %s", tk, _fe)
             df = None
-
-        if df is None or df.empty or len(df) < 20:
-            # Skip enrichment for this row but still surface the name
-            lines.append(f"{i}. <b>{tk}</b> — data unavailable for intraday levels")
+        lv = daily_levels(df)
+        if lv is None:
+            # Skip the levels for this row but still surface the name
+            lines.append(f"{i}. <b>{base}</b> — not enough price history for levels")
             continue
-
-        # Yesterday's close as anchor
-        y_close = float(df["Close"].iloc[-1])
-        # Simple ATR(14) — same convention as momentum_scanner
-        high, low, close = df["High"], df["Low"], df["Close"]
-        prev_close = close.shift(1)
-        tr = (high - low).combine(
-            (high - prev_close).abs(), max
-        ).combine((low - prev_close).abs(), max)
-        atr = float(tr.ewm(alpha=1/14, adjust=False, min_periods=14).mean().iloc[-1])
-
-        orb_hi = y_close + 0.5 * atr
-        orb_lo = y_close - 0.5 * atr
-        # Levels are read from the breakout at orb_hi: the stop at orb_lo is
-        # 1 ATR below it, so the target sits 1.5 ATR above it (1.5 : 1).
-        # It used to be y_close + 1 ATR, only 0.5 ATR past the breakout.
-        stop   = orb_lo
-        target = orb_hi + _INTRADAY_TARGET_ATR * atr
-
-        lines.append(
-            f"{i}. <b>{tk}</b> · y-close ₹{y_close:,.2f} · ATR₁₄ ₹{atr:.2f}"
-        )
-        lines.append(
-            f"   ORB high ₹{orb_hi:,.2f} / ORB low ₹{orb_lo:,.2f} · "
-            f"Intraday stop ₹{stop:,.2f} · Target ₹{target:,.2f}"
-        )
-        n_enriched += 1
+        saved[base] = lv
+        pct = lv["atr"] / lv["y_close"] * 100
+        lines.append(f"{i}. <b>{base}</b> · closed ₹{lv['y_close']:,.2f} yesterday · "
+                     f"typical day's move ₹{lv['atr']:,.2f} ({pct:.1f}%)")
+        lines.append(f"   ▲ Upside level ₹{lv['up']:,.2f} · next level above it ₹{lv['next_up']:,.2f}")
+        lines.append(f"   ▼ Downside level ₹{lv['down']:,.2f}")
 
     lines.extend([
         "",
-        "<i>Intraday framing of delivery-quality names. The opening range forms "
-        "over the first 15 min after open; these ATR levels are reference points "
-        "from yesterday's close. Descriptive levels, not advice.</i>",
+        "<i>How to read it: the upside and downside levels sit half a typical day's "
+        "move either side of yesterday's close. A move above ▲ means the stock is "
+        "pushing past its normal range on the way up; below ▼, on the way down; "
+        "between them it's moving normally. An opening update follows at about 09:30. "
+        "Price arithmetic, not advice.</i>",
     ])
 
-    if n_enriched == 0:
+    if not saved:
         print("[intraday] no rows could be enriched — skipping send")
         return 0
 
     msg = "\n".join(lines)
-    if dispatch(msg, subject="Intraday Morning Watchlist — NSE Smart Investor"):
+    if dispatch(msg, subject="Intraday Watchlist — NSE Smart Investor"):
         _mark_fired(state, key, today)
+        try:
+            store.kv_set(_LEVELS_KEY, {"date": today, "levels": saved}, user_id="_system")
+        except Exception as _e:
+            print(f"[intraday] could not save today's levels: {_e}")
         return 1
     return 0
 
@@ -1270,7 +1322,8 @@ def main() -> int:
         _counts = {
             "price":     check_price_alerts(state, today),
             "portfolio": check_portfolio_alerts(state, today) if _holding_alerts_on() else 0,
-            "levels":    check_level_alerts(state, today),
+            "opening":   check_opening_update(state, today),
+            "moves":     check_pick_moves(state, today),
             "recap":     check_picks_recap(state, today),
             "vix":       check_vix_regime(state, today),
             "nifty":     check_nifty_trend(state, today),
