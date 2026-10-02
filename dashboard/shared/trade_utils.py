@@ -586,10 +586,17 @@ def _display_label(action: str) -> str:
 # FinalVerdict (analysis/final_verdict.VERDICTS) → descriptive display label.
 # Internal verdict strings are unchanged; this is display-only (CLAUDE.md rule 1).
 # Single source in analysis/action_labels.py (pure) so alerts/ share it.
-from analysis.action_labels import (  # noqa: E402
-    VERDICT_DISPLAY_LABELS as _VERDICT_DISPLAY_LABELS,
-    verdict_display_label,
-)
+# Streamlit Cloud's in-place redeploy can keep an older action_labels in
+# sys.modules (from before these names existed), which made this import raise
+# ImportError and took down every page (2026-10-03). Reload it from disk once
+# if the names are missing — same guard as the Verdict Calibration page.
+import importlib as _importlib  # noqa: E402
+import analysis.action_labels as _action_labels  # noqa: E402
+
+if not hasattr(_action_labels, "verdict_display_label"):
+    _action_labels = _importlib.reload(_action_labels)
+_VERDICT_DISPLAY_LABELS = _action_labels.VERDICT_DISPLAY_LABELS
+verdict_display_label = _action_labels.verdict_display_label
 
 
 def _grade_color(grade: str) -> str:
