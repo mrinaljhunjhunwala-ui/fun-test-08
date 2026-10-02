@@ -687,15 +687,14 @@ def _render_top_picks_section(vix_regime: str, sector_tuple: tuple) -> None:
         st.markdown(
             '<div style="background:var(--sunken);border:1px solid var(--sunken);border-radius:8px;'
             'padding:10px 14px;margin-bottom:10px">'
-            '<span style="font-size:13px;color:var(--amber)">⚠️ <b>No strong BUY-grade setups '
+            '<span style="font-size:13px;color:var(--amber)">⚠️ <b>No strong-trend setups '
             'in today\'s scan.</b> The names below are the closest watchlist-grade '
-            'candidates — none currently meet the bar for a confident new entry. '
-            'Consider waiting for a cleaner setup.</span></div>',
+            'candidates — none currently clear the strong-trend score bar.</span></div>',
             unsafe_allow_html=True,
         )
     elif _picks_meta.get("n_strong_buys", 0) < len(_picks["buys"]):
         st.caption(
-            f"📊 {_picks_meta.get('n_strong_buys', 0)} genuine strong BUY-grade setup(s) today — "
+            f"📊 {_picks_meta.get('n_strong_buys', 0)} strong-trend setup(s) in today's scan — "
             "remaining cards below are watchlist-grade backfill, marked accordingly."
         )
 
@@ -1076,7 +1075,7 @@ def _render_open_positions_section():
             _empty_cc_pt(
                 title="No open paper positions",
                 hint="Use the **Paper Trades** page, or click "
-                     "**Paper Trade** on any BUY signal below.",
+                     "**Paper Trade** on any setup card below.",
                 icon="📌",
             ),
             unsafe_allow_html=True,

@@ -2497,9 +2497,13 @@ if analyze_btn or _prefill_active or (
                     "(e.g. RELIANCE, INFY, TCS)."
                 )
             else:
-                st.error(f"Analysis failed: {e}")
-                import traceback
-                st.code(traceback.format_exc())
+                # FIX TRACE-LEAK (audit 2026-10-03): the full traceback went to
+                # every viewer (file paths, driver errors). Log it; show a
+                # short message.
+                logging.getLogger("dashboard.analyze_stock").exception(
+                    "Analyze Stock failed for %s", ticker)
+                st.error(f"❌ Analysis failed for {ticker.replace('.NS', '')} "
+                         f"({type(e).__name__}). Try again in a minute; details are in the server log.")
 
 
 # ── AI Co-Pilot panel — moved higher, see the block right after the Verdict
