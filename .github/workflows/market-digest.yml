@@ -36,6 +36,7 @@ on:
         type: choice
         options:
           - test               # diagnostic — proves both channels deliver
+          - test-verdict       # one sample STRONG BUY verdict alert, marked TEST
           - morning-digest
           - intraday-watchlist
           - momentum

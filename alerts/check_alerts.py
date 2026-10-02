@@ -611,6 +611,26 @@ def _regime_note() -> str:
     return f"NIFTY regime: {str(lbl).replace('_', ' ')}" if lbl else ""
 
 
+def _format_verdict_alert(verdict: str, b: dict, fv, regime: str, gen_at) -> list:
+    base = _base_symbol(b.get("ticker"))
+    icon = "🟢🟢" if verdict == "STRONG BUY" else "🟢"
+    price = b.get("price")
+    price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
+    lines = [f"{icon} <b>{base}</b> — model verdict <b>{verdict}</b> · conviction "
+             f"{getattr(fv, 'conviction', '?')} · score {b.get('score')}/90 · {price_str}"]
+    meta = [x for x in (b.get("sector", "").strip(), b.get("horizon", "")) if x]
+    if meta:
+        lines.append("   " + " · ".join(meta))
+    if b.get("sl") and b.get("tp"):
+        lines.append(f"   Model reference levels: invalidation ₹{float(b['sl']):,.2f} · "
+                     f"target ₹{float(b['tp']):,.2f}")
+    if regime:
+        lines.append(f"   {regime}")
+    lines.append(f"<i>Scan at {_snapshot_ist_label(gen_at)}. Model output from past price data — "
+                 "not investment advice; live track record on the Verdict Calibration page.</i>")
+    return lines
+
+
 def check_verdict_alerts(state: dict, today: str) -> int:
     """Telegram/Gmail when a stock in the latest Top Picks scan carries a BUY or
     STRONG BUY verdict — the same verdict the dashboard pick cards show
@@ -657,21 +677,7 @@ def check_verdict_alerts(state: dict, today: str) -> int:
         key = f"verdict_{verdict.replace(' ', '_').lower()}_{base}"
         if _already_fired(state, key, today):
             continue
-        icon = "🟢🟢" if verdict == "STRONG BUY" else "🟢"
-        price = b.get("price")
-        price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
-        lines = [f"{icon} <b>{base}</b> — model verdict <b>{verdict}</b> · conviction "
-                 f"{getattr(fv, 'conviction', '?')} · score {b.get('score')}/90 · {price_str}"]
-        meta = [x for x in (b.get("sector", "").strip(), b.get("horizon", "")) if x]
-        if meta:
-            lines.append("   " + " · ".join(meta))
-        if b.get("sl") and b.get("tp"):
-            lines.append(f"   Model reference levels: invalidation ₹{float(b['sl']):,.2f} · "
-                         f"target ₹{float(b['tp']):,.2f}")
-        if regime:
-            lines.append(f"   {regime}")
-        lines.append(f"<i>Scan at {_snapshot_ist_label(gen_at)}. Model output from past price data — "
-                     "not investment advice; live track record on the Verdict Calibration page.</i>")
+        lines = _format_verdict_alert(verdict, b, fv, regime, gen_at)
         if dispatch("\n".join(lines)):
             _mark_fired(state, key, today)
             sent += 1
@@ -995,6 +1001,19 @@ def check_momentum_opportunities(state: dict, today: str, *, top_n: int = 8) -> 
 # it will tell you exactly which channel is broken (or that both worked
 # and the mail landed in Promotions / All Mail / a filter).
 # ─────────────────────────────────────────────────────────────────────────────
+
+def check_test_verdict_alert(state: dict, today: str) -> int:
+    """Send ONE sample verdict alert, formatted by the real formatter, for a
+    made-up ticker and clearly marked TEST. No dedup, no market data read."""
+    class _FV:
+        conviction = 88
+    sample = {"ticker": "SAMPLE.NS", "score": 70.0, "price": 1234.50, "sl": 1180.00,
+              "tp": 1340.00, "sector": "Pharma", "horizon": "Positional (2–4 weeks)"}
+    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    lines = ["🧪 <b>TEST — sample of a STRONG BUY verdict alert (not a real stock or signal)</b>", ""]
+    lines += _format_verdict_alert("STRONG BUY", sample, _FV(), "NIFTY regime: trend down", now_utc)
+    return 1 if dispatch("\n".join(lines), subject="NSE Smart Investor — sample verdict alert") else 0
+
 
 def check_test_alert(state: dict, today: str) -> int:
     """Fire a one-shot diagnostic message via Telegram AND Gmail with per-
@@ -1370,7 +1389,7 @@ def main() -> int:
     # trade). Test mode must ALWAYS run — its whole purpose is diagnostics.
     # Other modes still enforce the market-hours guard unless --force.
     _bypass_market_hours = (
-        "morning-digest", "portfolio-posture", "test",
+        "morning-digest", "portfolio-posture", "test", "test-verdict",
         "weekly-digest", "intraday-watchlist",
     )
     if mode not in _bypass_market_hours and not force and not _is_market_hours():
@@ -1398,6 +1417,8 @@ def main() -> int:
         total += check_weekly_digest(state, today)
     elif mode == "test":
         total += check_test_alert(state, today)
+    elif mode == "test-verdict":
+        total += check_test_verdict_alert(state, today)
     else:   # default
         _counts = {
             "price":     check_price_alerts(state, today),
