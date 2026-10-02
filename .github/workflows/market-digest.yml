@@ -24,24 +24,9 @@ name: Market Digest
 # tick happen to overlap at 09:15.
 
 on:
-  schedule:
-    # 09:00 IST = 03:30 UTC — GitHub cron can't express :30 with slashes but
-    # a plain minute value works. Weekdays only.
-    - cron: "30 3 * * 1-5"
-    # Intraday watchlist: 09:20 IST = 03:50 UTC. Weekdays only. Reformats
-    # the same top-picks with intraday levels for same-day trading.
-    - cron: "50 3 * * 1-5"
-    # Momentum scan: every 30 min from 04:30 UTC (10:00 IST) to 09:30 UTC
-    # (15:00 IST), Mon–Fri. First fire is after top-picks warmer has run
-    # for the day; last fire leaves room to act before 15:30 close.
-    - cron: "0,30 4-9 * * 1-5"
-    # Portfolio posture (holdings) has no schedule since 2026-10-01: the user
-    # doesn't want holdings alerts. It still runs on a manual / external
-    # dispatch with mode=portfolio-posture.
-    # Weekly digest: 09:00 IST Sunday = 03:30 UTC on day-of-week 0 (Sunday).
-    # Zooms out from the daily fires — top picks going into the week,
-    # journal entries added last week, reviews due next week.
-    - cron: "30 3 * * 0"
+  # No GitHub schedule (removed 2026-10-02): cron-job.org triggers this via
+  # workflow_dispatch (alerts/README.md). GitHub's cron fired hours late and
+  # only cost Actions minutes.
   workflow_dispatch:
     inputs:
       mode:

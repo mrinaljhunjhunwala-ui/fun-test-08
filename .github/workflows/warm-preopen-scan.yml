@@ -30,8 +30,9 @@ name: Warm Pre-Open Scan
 # the deployed app's snapshot), so a misconfigured secret degrades gracefully.
 
 on:
-  schedule:
-    - cron: "20 3 * * 1-5"   # 03:20 UTC = 08:50 IST, Mon-Fri (10 min before pre-open)
+  # No GitHub schedule (removed 2026-10-02): cron-job.org triggers this via
+  # workflow_dispatch (alerts/README.md). GitHub's cron fired hours late and
+  # only cost Actions minutes.
   workflow_dispatch:          # allow manual "Run workflow" from the Actions tab
 
 concurrency:
