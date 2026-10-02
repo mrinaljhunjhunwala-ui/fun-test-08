@@ -47,10 +47,10 @@ def test_nse_corp_info_live_canary_returns_expected_shape() -> None:
     THIS test starts failing in prod, the qualitative-flags pipeline is
     going dark and someone needs to look at data/nse_corp_info.py.
 
-    NSE is WAF-fronted and well-known for intermittent slowness / timeouts.
-    Retry once (session is warm after first attempt); a persistent timeout
-    is treated as SKIP rather than FAIL - the canary's purpose is schema-
-    drift detection, not liveness monitoring.
+    NSE is WAF-fronted and well-known for intermittent slowness, so it
+    retries once. A timeout on BOTH attempts now FAILS: the 2026-10-03 audit
+    found the WAF tarpitting this module's User-Agent on every call, and the
+    old SKIP hid a total outage of the flags pipeline.
     """
     result: dict | None = None
     last_diag: dict | None = None
@@ -62,12 +62,6 @@ def test_nse_corp_info_live_canary_returns_expected_shape() -> None:
 
     assert last_diag is not None, "diagnostic must be recorded on any call"
     if not last_diag.get("ok"):
-        reason = str(last_diag.get("reason", ""))
-        if "timed out" in reason.lower() or "read timeout" in reason.lower():
-            pytest.skip(
-                f"NSE endpoint timed out on both attempts (transient WAF "
-                f"slowness, not schema drift): {last_diag}"
-            )
         pytest.fail(
             f"NSE corp-info canary failed: {last_diag}. "
             f"Endpoint may have moved again - see docs/DATA_PROVENANCE_2026-09.md finding #4."

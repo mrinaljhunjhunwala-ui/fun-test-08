@@ -117,3 +117,25 @@ def test_get_corp_info_hits_top_corp_info_endpoint(monkeypatch):
     assert "/api/corporate-info" not in api_url, (
         "retired /api/corporate-info path must not be used"
     )
+
+
+# ── Audit 2026-10-03: timeouts were reported as "status 443" (the port) ──────
+def test_timeout_has_no_status_code():
+    import requests
+    from data.nse_corp_info import _extract_status_code_from_exception as _sc
+    exc = requests.ReadTimeout("HTTPSConnectionPool(host='www.nseindia.com', port=443): "
+                               "Read timed out. (read timeout=20)")
+    assert _sc(exc) is None
+    assert _sc(Exception("connect to www.nseindia.com:443 refused")) is None
+    assert _sc(Exception("403 Client Error: Forbidden for url")) == 403
+
+
+def test_session_uses_a_browser_user_agent():
+    # NSE's WAF tarpits the old custom "nse-smart-investor/1.0" agent.
+    import data.nse_corp_info as m
+    m._session_singleton = None
+    try:
+        ua = m._ensure_session().headers["User-Agent"]
+    finally:
+        m._session_singleton = None
+    assert ua.startswith("Mozilla/5.0") and "Chrome/" in ua
