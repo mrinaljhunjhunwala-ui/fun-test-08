@@ -95,3 +95,7 @@ logs/
 *.h5
 *.pt
 *.pth
+
+# Local git-bundle backups of retired checkouts (kept off-repo: they carry a
+# real portfolio.csv in their history)
+archive/
