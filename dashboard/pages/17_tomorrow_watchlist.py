@@ -57,6 +57,7 @@ from dashboard.shared.cache import (
     _tomorrow_watchlist, get_tomorrow_watchlist, get_display_name,
     get_tw_ledger, get_regime_snapshot, _picks_live_prices,
 )
+from analysis.tw_scorecard import settle_stats, split_by_market
 from dashboard.shared.trade_utils import _display_label, _paper_trade_popover
 from dashboard.shared.flags_ui import render_flag_badge_html  # QF2: shortlist-only flag badge
 from dashboard.shared.ui_components import (
@@ -251,12 +252,23 @@ def _row_direction(r: dict) -> int:
 
 
 
-def _conviction(score) -> tuple:
-    """Composite-band conviction label (same bands as the grade thresholds)."""
+_BULL_FLOOR = 70.0   # bullish setups below this read "Watch only" (settled 5D record, Oct 2026)
+
+
+def _is_bullish_item(it: dict, kind: str) -> bool:
+    """Breakout picks and bullish-divergence reversals are up-calls (same
+    split as cache._tomorrow_watchlist's reversal_bull / reversal_bear tag)."""
+    return kind == "breakout" or (kind == "reversal" and "Bearish" not in str(it.get("signal_type")))
+
+
+def _conviction(score, bullish: bool = False) -> tuple:
+    """Composite-band conviction label (same bands as the grade thresholds).
+    Bullish setups get no "Developing" band: under _BULL_FLOOR their settled
+    5-day record has been worse than Nifty, so they stay watch-only."""
     sc = _num(score) or 0.0
     if sc >= 70:
         return "High", "good"
-    if sc >= 55:
+    if sc >= 55 and not bullish:
         return "Developing", "warn"
     return "Watch only", "neutral"
 
@@ -292,20 +304,26 @@ except Exception:
     _ledger = None
 
 
+def _settled_triples(records) -> list:
+    """(direction, 5-day return, Nifty 5-day return) for settled ledger rows."""
+    return [(_row_direction(r), _num(r.get("ret_5d")), _num(r.get("nifty_ret_5d")))
+            for r in records if _num(r.get("ret_5d")) is not None]
+
+
 def _follow_through_rate(ledger):
-    """(hit %, n) over settled 5-day picks, one per (session, ticker), using the
-    same ±_MOVE_BAND Hit rule as the Past results scorecard; (None, n) under 5."""
+    """(hit %, n, stats) over settled 5-day picks, one per (session, ticker),
+    using the same ±_MOVE_BAND Hit rule as the Past results scorecard; hit %
+    is None under 5. stats carries the vs-Nifty figures (settle_stats)."""
     if ledger is None or getattr(ledger, "empty", True) or "ret_5d" not in ledger.columns:
-        return None, 0
+        return None, 0, {}
     df = ledger[ledger["ret_5d"].notna()]
     if "logged_date" in df.columns:
         df = df.drop_duplicates(["logged_date", "ticker"])
-    n = len(df)
+    stats = settle_stats(_settled_triples(df.to_dict("records")), _MOVE_BAND)
+    n = stats["n"]
     if n < 5:
-        return None, n
-    hits = sum(_verdict(_row_direction(r), _num(r.get("ret_5d"))) == "Hit"
-               for r in df.to_dict("records"))
-    return hits / n * 100.0, n
+        return None, n, stats
+    return stats["hit_rate"], n, stats
 
 
 def _gate_cells() -> list:
@@ -321,10 +339,13 @@ def _gate_cells() -> list:
         ("Split", f"{len(_brk_items)} · {len(_bdn_items)} · {len(_rev_items)}",
          "breakout · breakdown · reversal"),
     ]
-    _ft, _ft_n = _follow_through_rate(_ledger)
+    _ft, _ft_n, _ft_s = _follow_through_rate(_ledger)
+    _beat = _ft_s.get("beat_rate") if _ft is not None else None
     cells.append(("5D follow-through",
                   f"{_ft:.0f}%" if _ft is not None else "–",
-                  f"n={_ft_n} · ≥{_MOVE_BAND:.0f}% with the setup" if _ft is not None
+                  (f"n={_ft_n} · ≥{_MOVE_BAND:.0f}% with the setup"
+                   + (f" · {_beat:.0f}% beat Nifty" if _beat is not None else ""))
+                  if _ft is not None
                   else f"{_ft_n} settled so far, needs 5"))
     try:
         _reg = get_regime_snapshot() or {}
@@ -540,31 +561,67 @@ def _render_past_results() -> None:
 
     # Running scorecard — settled 5-day results only, so a session's number
     # stops moving once it has played out.
-    _per = []
-    for _d in _sessions:
-        _c = {"Hit": 0, "Miss": 0, "Flat": 0}
-        for _r in _prior[_prior["logged_date"] == _d].to_dict("records"):
-            _m = _num(_r.get("ret_5d"))
-            if _m is not None:
-                _c[_verdict(_row_direction(_r), _m)] += 1
-        _per.append((_d, _c))
-    _tot = {k: sum(c[k] for _, c in _per) for k in ("Hit", "Miss", "Flat")}
-    _tn = sum(_tot.values())
+    _all_tr = _settled_triples(_prior.to_dict("records"))
+    _tot = settle_stats(_all_tr, _MOVE_BAND)
+    _tn = _tot["n"]
     st.markdown(section_header("Scorecard · settled 5-day results",
                                f"{len(_sessions)} sessions in the ledger"), unsafe_allow_html=True)
     if not _tn:
         st.caption("No session has a 5-day result yet; picks settle five sessions after logging.")
         return
-    _m1, _m2, _m3, _m4 = st.columns(4)
+
+    def _pct(v) -> str:
+        return f"{v:.0f}%" if v is not None else "–"
+
+    def _signed(v) -> str:
+        return chip_delta(v) if v is not None else '<span style="color:var(--faint)">–</span>'
+
+    _m1, _m2, _m3, _m4, _m5 = st.columns(5)
     _m1.metric("Settled picks", f"{_tn:,}")
-    _m2.metric("Hit rate", f"{_tot['Hit'] / _tn * 100:.0f}%")
-    _m3.metric("Miss rate", f"{_tot['Miss'] / _tn * 100:.0f}%")
-    _m4.metric("Flat", f"{_tot['Flat'] / _tn * 100:.0f}%")
+    _m2.metric("Hit rate", _pct(_tot["hit_rate"]))
+    _m3.metric("Miss rate", f"{_tot['miss'] / _tn * 100:.0f}%")
+    _m4.metric("Beat Nifty", _pct(_tot["beat_rate"]),
+               help="Share of picks that did better than Nifty in the setup's direction over the "
+                    "same 5 days (a down-call beats Nifty when the stock falls more than the index).")
+    _m5.metric("Avg vs Nifty",
+               f"{_tot['mean_vs_nifty']:+.2f}%" if _tot["mean_vs_nifty"] is not None else "–",
+               help="Average 5-day move in the setup's direction, minus Nifty's move.")
+    st.caption(
+        "Hit rate counts any move with the setup, so it rises for down-calls whenever the whole "
+        "market falls. Beat Nifty and Avg vs Nifty take the index's move out: they show whether "
+        "the picks themselves did better than the market."
+    )
+
+    _per = []
+    for _d in _sessions:
+        _s = settle_stats(_settled_triples(_prior[_prior["logged_date"] == _d].to_dict("records")),
+                          _MOVE_BAND)
+        if _s["n"]:
+            _per.append((_d, _s))
     st.markdown(signal_table(
-        [("Session", "l"), ("Settled", "r"), ("Hit", "r"), ("Miss", "r"), ("Flat", "r"), ("Hit rate", "r")],
-        [[html.escape(_d), str(sum(_c.values())), str(_c["Hit"]), str(_c["Miss"]), str(_c["Flat"]),
-          f"{_c['Hit'] / sum(_c.values()) * 100:.0f}%"]
-         for _d, _c in _per if sum(_c.values())]), unsafe_allow_html=True)
+        [("Session", "l"), ("Settled", "r"), ("Hit", "r"), ("Miss", "r"), ("Flat", "r"),
+         ("Hit rate", "r"), ("Beat Nifty", "r"), ("Avg vs Nifty", "r")],
+        [[html.escape(_d), str(_s["n"]), str(_s["hit"]), str(_s["miss"]), str(_s["flat"]),
+          _pct(_s["hit_rate"]), _pct(_s["beat_rate"]), _signed(_s["mean_vs_nifty"])]
+         for _d, _s in _per]), unsafe_allow_html=True)
+
+    # By market direction — does the edge survive when Nifty moves the other way?
+    _split = split_by_market(_all_tr, _MOVE_BAND)
+    if _split:
+        st.markdown(section_header("By market direction · settled 5-day results",
+                                   "Nifty's move over each pick's own 5 days"),
+                    unsafe_allow_html=True)
+        st.markdown(signal_table(
+            [("Market", "l"), ("Setup", "l"), ("Picks", "r"), ("Hit rate", "r"),
+             ("Beat Nifty", "r"), ("Avg with setup", "r"), ("Avg vs Nifty", "r"), ("Worst", "r")],
+            [[_mk, _side, str(_s["n"]), _pct(_s["hit_rate"]), _pct(_s["beat_rate"]),
+              _signed(_s["mean_with"]), _signed(_s["mean_vs_nifty"]), _signed(_s["worst"])]
+             for _mk, _side, _s in _split]), unsafe_allow_html=True)
+        st.caption(
+            "Worst = the biggest 5-day move against the setup in that group, close to close "
+            "(an intraday swing could have been larger). A setup type that only works when "
+            "Nifty moves its way is following the market, not picking stocks."
+        )
 
 
 try:
@@ -593,12 +650,12 @@ _TABLE_COLS = [("#", "l"), ("Ticker", "l"), ("Entry", "r"), ("Stop", "r"), ("Tar
                ("R:R", "r"), ("Score", "r"), ("Conviction", "l"), ("Setup", "l")]
 
 
-def _table_row(rank: int, it: dict) -> list:
+def _table_row(rank: int, it: dict, kind: str) -> list:
     _s = _sym(it.get("ticker"))
     _name = html.escape(get_display_name(str(it.get("ticker", ""))))
     _co = f'<span class="co">{_name}</span>' if _name and _name != _s else ""
     _rr_v = _rr(it)
-    _conv, _conv_tone = _conviction(it.get("score"))
+    _conv, _conv_tone = _conviction(it.get("score"), _is_bullish_item(it, kind))
     _hz = str(it.get("horizon") or "").split(" (")[0]
     if _hz.lower().startswith("watch only"):   # the conviction pill already says so
         _hz = ""
@@ -637,7 +694,7 @@ def _render_detail(it: dict, rank: int, kind: str, key_prefix: str) -> None:
         _flag_badge = render_flag_badge_html(it["ticker"])
     except Exception:
         _flag_badge = ""
-    _conv, _conv_tone = _conviction(it.get("score"))
+    _conv, _conv_tone = _conviction(it.get("score"), _is_bullish_item(it, kind))
 
     st.markdown(
         f'<div style="background:{_BG[kind]};border-left:4px solid {accent};'
@@ -710,6 +767,27 @@ def _bear_scoring_active() -> bool:
         return False
 
 
+def _regime_label() -> str:
+    try:
+        return str((get_regime_snapshot() or {}).get("label") or "unknown")
+    except Exception:
+        return "unknown"
+
+
+def _down_regime() -> bool:
+    return _regime_label() in ("trend_down", "risk_off")
+
+
+def _bull_low_record():
+    """settle_stats over settled bullish picks scoring under _BULL_FLOOR, or None."""
+    if _prior is None or getattr(_prior, "empty", True):
+        return None
+    _rows = [r for r in _prior.to_dict("records")
+             if _row_direction(r) > 0 and (_num(r.get("composite_score")) or 0.0) < _BULL_FLOOR]
+    _s = settle_stats(_settled_triples(_rows), _MOVE_BAND)
+    return _s if _s["n"] >= 5 else None
+
+
 def _render_bucket(items: list, kind: str, key_prefix: str) -> None:
     if not items:
         if kind in ("breakout", "breakdown") and _bear_scoring_active():
@@ -741,16 +819,45 @@ def _render_bucket(items: list, kind: str, key_prefix: str) -> None:
         return
     # Items arrive ranked by _tomorrow_watchlist (desc score for breakout /
     # reversal, asc for breakdown), so enumerate() from 1 is the rank.
-    st.markdown(signal_table(_TABLE_COLS, [_table_row(i, it) for i, it in enumerate(items, 1)]),
-                unsafe_allow_html=True)
+    # Down regime: bullish setups under _BULL_FLOOR fold into a collapsed
+    # table. View-only; the scan still logs them, so their record stays measured.
+    _ranked = list(enumerate(items, 1))
+    _low = [(i, it) for i, it in _ranked
+            if _down_regime() and _is_bullish_item(it, kind)
+            and (_num(it.get("score")) or 0.0) < _BULL_FLOOR]
+    if _low:
+        _low_ids = {id(it) for _, it in _low}
+        _ranked = [(i, it) for i, it in _ranked if id(it) not in _low_ids]
+    if _ranked:
+        st.markdown(signal_table(_TABLE_COLS, [_table_row(i, it, kind) for i, it in _ranked]),
+                    unsafe_allow_html=True)
+    if _low:
+        _rec = _bull_low_record()
+        with st.expander(f"{len(_low)} bullish setup{'s' if len(_low) != 1 else ''} below "
+                         f"{_BULL_FLOOR:.0f}, folded away in the "
+                         f"{_regime_label().replace('_', ' ')} regime", expanded=not _ranked):
+            st.caption(
+                f"Bullish setups scoring under {_BULL_FLOOR:.0f} have a weak settled record"
+                + (f": {_rec['hit_rate']:.0f}% hit and {_rec['mean_vs_nifty']:+.1f}% vs Nifty "
+                   f"on average over 5 days (n={_rec['n']})"
+                   if _rec and _rec.get("hit_rate") is not None and _rec.get("mean_vs_nifty") is not None
+                   else "")
+                + ". They are still logged and scored; they show here only when Nifty's trend "
+                "is down."
+            )
+            st.markdown(signal_table(_TABLE_COLS, [_table_row(i, it, kind) for i, it in _low]),
+                        unsafe_allow_html=True)
+        if not _ranked:
+            return
+    # Options index _ranked so a pick keeps its bucket rank after the fold.
     _sel = st.selectbox(
         "Setup detail & actions",
-        options=list(range(len(items))),
-        format_func=lambda i: (f"#{i + 1}  {str(items[i]['ticker']).replace('.NS', '')}"
-                               f" · {_num(items[i].get('score')) or 0:.0f}/90"),
+        options=list(range(len(_ranked))),
+        format_func=lambda i: (f"#{_ranked[i][0]}  {str(_ranked[i][1]['ticker']).replace('.NS', '')}"
+                               f" · {_num(_ranked[i][1].get('score')) or 0:.0f}/90"),
         key=f"{key_prefix}_sel",
     )
-    _render_detail(items[_sel], _sel + 1, kind, key_prefix)
+    _render_detail(_ranked[_sel][1], _ranked[_sel][0], kind, key_prefix)
 
 
 st.markdown(
