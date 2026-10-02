@@ -48,6 +48,10 @@ def _fresh_schema_flags_and_cleanup(monkeypatch):
     monkeypatch.setattr(vl, "_schema_ready_for", None)
     monkeypatch.setattr(nse_delivery, "_schema_ready_for", None)
     yield
+    # each session gets a fresh schema (conftest), so a test that never touched
+    # a table leaves it missing — create before cleaning up
+    vl.ensure_schema()
+    nse_delivery.ensure_schema()
     like = f"{PFX}%"
     _exec("DELETE FROM verdict_signal_tags WHERE verdict_log_id IN "
           "(SELECT id FROM verdict_log WHERE ticker LIKE ?)", (like,))
