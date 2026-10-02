@@ -29,7 +29,7 @@ _FIXTURE = {
 }
 
 
-def _fake_score(tk):
+def _fake_score(tk, **_kw):
     act, sc, tech, mom, vol = _FIXTURE[tk]
     return SimpleNamespace(
         price=100.0, score=sc, grade="B", action=act, headline="h", entry=100.0,

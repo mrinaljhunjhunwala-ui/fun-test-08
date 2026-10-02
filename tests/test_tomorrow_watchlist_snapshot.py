@@ -124,7 +124,7 @@ def test_tomorrow_watchlist_threads_horizon_through(monkeypatch):
         horizon="Swing (3-10 trading days)", valid_until="2026-08-01",
     )
 
-    monkeypatch.setattr("analysis.score.score_stock", lambda tk: fake_score)
+    monkeypatch.setattr("analysis.score.score_stock", lambda tk, **_kw: fake_score)
 
     result = cache_mod._tomorrow_watchlist(n=15)
     all_items = (result["breakout_candidates"] + result["breakdown_watch"]
