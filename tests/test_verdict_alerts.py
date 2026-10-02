@@ -72,3 +72,22 @@ def test_digest_lists_extra_strong_reads(monkeypatch):
     msg = sent[0]
     _assert_descriptive(msg)
     assert "Other names in this scan" in msg and "T6.NS" in msg and "T5.NS" not in msg
+
+
+def test_digest_shows_sl_tp_and_escapes_html(monkeypatch):
+    buys = [dict(_pick("J&KBANK.NS", 58, "WATCHLIST"), entry=140.0)]
+    sent = _setup(monkeypatch, buys, {"J&KBANK.NS": "WATCH"})
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
+    assert ca.check_delivery_digest({}, "2026-10-02") == 1
+    assert "J&amp;KBANK" in sent[0] and "J&KBANK" not in sent[0]
+    assert "Stop 95.0" in sent[0] and "Target 110.0" in sent[0]
+
+
+def test_test_digest_ignores_staleness_and_saves_nothing(monkeypatch):
+    import trade_store
+    sent = _setup(monkeypatch, [_pick("AAA.NS", 58, "WATCHLIST")], {"AAA.NS": "WATCH"}, age_h=40)
+    saved = []
+    monkeypatch.setattr(trade_store, "kv_set", lambda *a, **k: saved.append(a), raising=False)
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
+    assert ca.check_test_digest({}, "2026-10-03") == 1
+    assert sent[0].startswith("🧪") and "TEST" in sent[0] and not saved
