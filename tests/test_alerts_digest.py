@@ -100,6 +100,7 @@ def test_delivery_digest_respects_max_picks(_silence_dispatch, monkeypatch):
     """Snapshot has 10 buys but we should surface only max_picks."""
     fake_store = SimpleNamespace(kv_get=lambda k, user_id: _mk_snapshot(10))
     monkeypatch.setitem(sys.modules, "trade_store", fake_store)
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))   # no extra-names section
 
     ca.check_delivery_digest({}, "2026-09-08", max_picks=3)
     msg = _silence_dispatch.call_args[0][0]

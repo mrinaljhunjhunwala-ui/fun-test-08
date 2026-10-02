@@ -24,4 +24,20 @@ def action_display_label(action: str) -> str:
     return ACTION_DISPLAY_LABELS.get(action, action)
 
 
-__all__ = ["ACTION_DISPLAY_LABELS", "action_display_label"]
+# FinalVerdict (analysis/final_verdict.VERDICTS) → descriptive display label.
+VERDICT_DISPLAY_LABELS = {
+    "STRONG BUY": "Strong trend ▲▲",
+    "BUY":        "Uptrend ▲",
+    "WATCH":      "Mixed signals",
+    "HOLD":       "Neutral",
+    "AVOID":      "Weak / broken trend ▼",
+}
+
+
+def verdict_display_label(verdict: str) -> str:
+    """Descriptive label for a FinalVerdict value (never an instruction)."""
+    return VERDICT_DISPLAY_LABELS.get(verdict, verdict)
+
+
+__all__ = ["ACTION_DISPLAY_LABELS", "action_display_label",
+           "VERDICT_DISPLAY_LABELS", "verdict_display_label"]

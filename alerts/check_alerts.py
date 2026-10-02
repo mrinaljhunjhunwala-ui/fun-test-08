@@ -47,7 +47,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from analysis.action_labels import action_display_label  # noqa: E402
+from analysis.action_labels import action_display_label, verdict_display_label  # noqa: E402
 
 _ALERTS_CSV  = os.path.join(_ROOT, "data", "alerts.csv")
 _STATE_JSON  = os.path.join(_ROOT, "data", "alert_state.json")
@@ -602,6 +602,18 @@ _VERDICT_ALERT_TIERS = ("STRONG BUY", "BUY")
 _VERDICT_MAX_SNAPSHOT_AGE_H = 2      # the warmer refreshes every 15 min in market hours
 
 
+def _verdict_of(b: dict):
+    """(verdict, conviction) for a snapshot pick, computed exactly as the
+    dashboard cards do. None if it can't be computed."""
+    try:
+        from dashboard.shared.pick_freshness import compose_finalverdict_for_card
+        fv = compose_finalverdict_for_card(b, tqs=None, log_source=None)
+        return str(fv.verdict).upper(), getattr(fv, "conviction", "?")
+    except Exception as e:
+        print(f"[verdicts] {b.get('ticker')}: verdict failed: {e}")
+        return None
+
+
 def _regime_note() -> str:
     try:
         from analysis.score import _live_regime_label
@@ -616,7 +628,7 @@ def _format_verdict_alert(verdict: str, b: dict, fv, regime: str, gen_at) -> lis
     icon = "🟢🟢" if verdict == "STRONG BUY" else "🟢"
     price = b.get("price")
     price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
-    lines = [f"{icon} <b>{base}</b> — model verdict <b>{verdict}</b> · conviction "
+    lines = [f"{icon} <b>{base}</b> — model read <b>{verdict_display_label(verdict)}</b> · conviction "
              f"{getattr(fv, 'conviction', '?')} · score {b.get('score')}/90 · {price_str}"]
     meta = [x for x in (b.get("sector", "").strip(), b.get("horizon", "")) if x]
     if meta:
@@ -897,6 +909,10 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
         head = f"{i}. <b>{tk}</b> — {act} · Score {score}/90 · {price_str}"
         if sec:
             head += f" · {sec}"
+        v = _verdict_of(b)
+        if v:
+            head += (f" · read <b>{verdict_display_label(v[0])}</b> ({v[1]})"
+                     if v[0] in _VERDICT_ALERT_TIERS else f" · read {verdict_display_label(v[0])}")
         lines.append(head)
         detail = []
         if entry:
@@ -908,9 +924,24 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
         if detail:
             lines.append("   " + " · ".join(str(x) for x in detail))
 
+    # BUY / STRONG BUY verdicts further down the scan than the top max_picks
+    extra = []
+    for b in buys[max_picks:]:
+        v = _verdict_of(b)
+        if v and v[0] in _VERDICT_ALERT_TIERS:
+            extra.append((v, b))
+    if extra:
+        extra.sort(key=lambda e: (e[0][0] != "STRONG BUY", -float(e[1].get("score") or 0)))
+        lines.extend(["", "🟢 <b>Other names in this scan with a Strong trend / Uptrend read</b>"])
+        for (verdict, conv), b in extra:
+            p = b.get("price")
+            p_str = f"₹{float(p):,.2f}" if isinstance(p, (int, float)) else "n/a"
+            lines.append(f"• <b>{b.get('ticker', '?')}</b> — {verdict_display_label(verdict)} ({conv}) · "
+                         f"Score {b.get('score', 0)}/90 · {p_str}")
     lines.extend([
         "",
-        "<i>Descriptive scan of composite-score leaders — not advice. "
+        "<i>Read = the dashboard's model read (conviction in brackets). "
+        "Descriptive scan of composite-score leaders — not advice. "
         "Each name's full breakdown is on the Analyze Stock page.</i>",
     ])
     msg = "\n".join(lines)
@@ -1010,9 +1041,9 @@ def check_test_verdict_alert(state: dict, today: str) -> int:
     sample = {"ticker": "SAMPLE.NS", "score": 70.0, "price": 1234.50, "sl": 1180.00,
               "tp": 1340.00, "sector": "Pharma", "horizon": "Positional (2–4 weeks)"}
     now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    lines = ["🧪 <b>TEST — sample of a STRONG BUY verdict alert (not a real stock or signal)</b>", ""]
+    lines = ["🧪 <b>TEST — sample of a Strong trend ▲▲ alert (not a real stock or signal)</b>", ""]
     lines += _format_verdict_alert("STRONG BUY", sample, _FV(), "NIFTY regime: trend down", now_utc)
-    return 1 if dispatch("\n".join(lines), subject="NSE Smart Investor — sample verdict alert") else 0
+    return 1 if dispatch("\n".join(lines), subject="NSE Smart Investor — sample model-read alert") else 0
 
 
 def check_test_alert(state: dict, today: str) -> int:

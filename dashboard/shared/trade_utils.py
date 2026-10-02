@@ -585,18 +585,11 @@ def _display_label(action: str) -> str:
 
 # FinalVerdict (analysis/final_verdict.VERDICTS) → descriptive display label.
 # Internal verdict strings are unchanged; this is display-only (CLAUDE.md rule 1).
-_VERDICT_DISPLAY_LABELS = {
-    "STRONG BUY": "Strong trend ▲▲",
-    "BUY":        "Uptrend ▲",
-    "WATCH":      "Mixed signals",
-    "HOLD":       "Neutral",
-    "AVOID":      "Weak / broken trend ▼",
-}
-
-
-def verdict_display_label(verdict: str) -> str:
-    """Descriptive UI label for a FinalVerdict value (never an instruction)."""
-    return _VERDICT_DISPLAY_LABELS.get(verdict, verdict)
+# Single source in analysis/action_labels.py (pure) so alerts/ share it.
+from analysis.action_labels import (  # noqa: E402
+    VERDICT_DISPLAY_LABELS as _VERDICT_DISPLAY_LABELS,
+    verdict_display_label,
+)
 
 
 def _grade_color(grade: str) -> str:
