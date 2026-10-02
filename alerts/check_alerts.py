@@ -880,6 +880,38 @@ def _snapshot_ist_label(gen_at) -> str:
     return ts.astimezone(_IST).strftime("%H:%M IST") if ts else "unknown time"
 
 
+# Bullish names under this composite score are labelled "Watch only" in the
+# digest: in the shadow ledger they beat Nifty over 5 days less often than
+# not, while 70+ did better (see the Tomorrow's Watchlist scorecard, #253).
+# Labelled, not hidden: in a bear regime scores cluster mid-range by design
+# (#168/#198), so hiding would empty the digest and every follow-up alert
+# that reuses its names (opening update, pick moves, recap, 09:20 watchlist).
+_WATCH_FLOOR = 70.0
+_BEARISH_ACTIONS = frozenset({"EXIT", "CAUTION", "AVOID", "SELL", "STRONG SELL"})
+
+
+def _under_floor_record() -> "dict | None":
+    """Settled 5-day record of bullish Top Picks names scoring under
+    _WATCH_FLOOR (shadow ledger), as analysis.tw_scorecard.settle_stats; None
+    when the ledger is unreachable or holds fewer than 20 settled names."""
+    try:
+        import pandas as pd
+        from analysis.tw_scorecard import settle_stats
+        from analysis.verdict_ledger import load_ledger
+        df = load_ledger(source="shadow_auto", limit=5000)
+        if df is None or df.empty or "ret_5d" not in df.columns:
+            return None
+        df = df.drop_duplicates(["logged_date", "ticker"])
+        sc = pd.to_numeric(df["composite_score"], errors="coerce")
+        bear = df["composite_action"].astype(str).str.strip().str.upper().isin(_BEARISH_ACTIONS)
+        sub = df[(sc < _WATCH_FLOOR) & ~bear]
+        s = settle_stats(list(zip([1] * len(sub), sub["ret_5d"], sub["nifty_ret_5d"])))
+        return s if s["n"] >= 20 and s["beat_rate"] is not None else None
+    except Exception as _e:
+        _log.debug("under-floor record unavailable: %s", _e)
+        return None
+
+
 def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = None) -> list:
     """Message lines for the Morning Delivery Digest (shared by the real
     digest and --mode=test-digest)."""
@@ -889,6 +921,25 @@ def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = Non
         f"(scan at {_snapshot_ist_label(gen_at)})</i>",
         "",
     ]
+
+    def _under(b) -> bool:
+        try:
+            return float(b.get("score") or 0) < _WATCH_FLOOR
+        except (TypeError, ValueError):
+            return True
+
+    shown = buys[:max_picks]
+    n_under = sum(1 for b in shown if _under(b))
+    if n_under:
+        rec = _under_floor_record()
+        note = (f"⚠️ None of today's top names scored {_WATCH_FLOOR:.0f}+; all are <b>Watch only</b>."
+                if n_under == len(shown) else
+                f"⚠️ {n_under} of {len(shown)} names scored under {_WATCH_FLOOR:.0f} and are marked "
+                f"<b>Watch only</b>.")
+        if rec:
+            note += (f" Names under {_WATCH_FLOOR:.0f} beat Nifty in {rec['beat_rate']:.0f}% of settled "
+                     f"5-day windows (avg {rec['mean_vs_nifty']:+.2f}% vs Nifty, n={rec['n']}).")
+        lines[-1:] = [note, ""]
     for i, b in enumerate(buys[:max_picks], start=1):
         tk    = _html.escape(str(b.get("ticker", "?")))
         score = b.get("score", 0)
@@ -901,6 +952,8 @@ def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = Non
 
         price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
         head = f"{i}. <b>{tk}</b> — {act} · Score {score}/90 · {price_str}"
+        if _under(b):
+            head += " · <i>Watch only</i>"
         if sec:
             head += f" · {sec}"
         v = _verdict_of(b)
@@ -932,7 +985,8 @@ def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = Non
             p_str = f"₹{float(p):,.2f}" if isinstance(p, (int, float)) else "n/a"
             tk_x = _html.escape(str(b.get("ticker", "?")))
             lines.append(f"• <b>{tk_x}</b> — {verdict_display_label(verdict)} ({conv}) · "
-                         f"Score {b.get('score', 0)}/90 · {p_str}")
+                         f"Score {b.get('score', 0)}/90 · {p_str}"
+                         + (" · <i>Watch only</i>" if _under(b) else ""))
     lines.extend([
         "",
         "<i>Read = the dashboard's model read (conviction in brackets). "
