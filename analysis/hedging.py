@@ -1,39 +1,33 @@
 """
 analysis/hedging.py
-Portfolio-level hedging analysis for Indian equity portfolios.
+Market-sensitivity (beta) analysis for Indian equity portfolios.
 
 Functions
 ─────────
     calculate_stock_beta(ticker, period)           → float
     calculate_portfolio_beta(holdings, period)     → dict
-    hedge_sizing(portfolio_value, beta)            → dict
-    suggest_hedge(portfolio_value, holdings, vix)  → dict (full recommendation)
 
 All data is fetched from yfinance (EOD daily bars).
 Benchmark: Nifty 50 (^NSEI)
+
+FIX HEDGE-AUDIT (2026-10-03) — hedge_sizing() / suggest_hedge() were removed:
+nothing called them, they sized with a stale 25-unit Nifty lot (65 since Jan
+2026) and they emitted "Short N Nifty Futures" instructions (rule 1).
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import urllib.request
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from data.fetcher import fetch_single
 
 _log = logging.getLogger("analysis.hedging")
 
-# NSE Nifty 50 — hedge benchmark
+# NSE Nifty 50 — beta benchmark
 _NIFTY = "^NSEI"
-
-# Nifty futures lot size (standard)
-_NIFTY_LOT = 25
-
-# Approximate Nifty 50-lot notional for index hedge instruments
-_NIFTY_FUTURE_LOT_VALUE_RS = 25 * 23_000  # ~5.75L per lot at Nifty ~23,000
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -105,12 +99,19 @@ def calculate_portfolio_beta(
 
     Returns dict:
         {
-            "portfolio_beta" : float,
-            "total_value_rs" : float,
-            "holdings_beta"  : [{"ticker", "value_rs", "weight", "beta", "contrib"},...],
-            "interpretation" : str,
-            "needs_hedge"    : bool,
+            "portfolio_beta"    : float, or None when no holding's beta is measurable,
+            "beta_coverage_pct" : % of book value whose beta could be measured,
+            "total_value_rs"    : float,
+            "holdings_beta"     : [{"ticker", "value_rs", "weight", "beta", "contrib"},...],
+            "interpretation"    : str,
+            "needs_hedge"       : bool,
         }
+
+    FIX BETA-NAN (2026-10-03): a holding whose beta can't be measured (no
+    history, or the Nifty fetch failed) used to add 0.0 to the weighted sum,
+    so a network blip reported the whole book as beta 0.0 "defensive". Unknown
+    betas are now excluded and the measured weights renormalised; with none
+    measurable the book beta is None.
     """
     if not holdings:
         return {"portfolio_beta": 1.0, "total_value_rs": 0.0,
@@ -130,6 +131,7 @@ def calculate_portfolio_beta(
 
     holding_details = []
     weighted_beta = 0.0
+    measured_weight = 0.0
 
     for h in holdings:
         tkr    = h.get("ticker", "")
@@ -137,8 +139,11 @@ def calculate_portfolio_beta(
         weight = val / total_value
         beta   = calculate_stock_beta(tkr, period=period, nifty_df=nifty_df)
 
-        contrib = weight * beta if not np.isnan(beta) else 0.0
-        weighted_beta += contrib
+        known   = beta is not None and not np.isnan(beta)
+        contrib = weight * beta if known else 0.0
+        if known:
+            weighted_beta += contrib
+            measured_weight += weight
 
         holding_details.append({
             "ticker":  tkr,
@@ -148,7 +153,20 @@ def calculate_portfolio_beta(
             "contrib":  round(contrib, 4),
         })
 
-    pb = round(weighted_beta, 3)
+    coverage_pct = round(measured_weight * 100, 1)
+
+    if measured_weight <= 0:
+        return {
+            "portfolio_beta":    None,
+            "beta_coverage_pct": 0.0,
+            "total_value_rs":    round(total_value, 0),
+            "holdings_beta":     holding_details,
+            "interpretation":    "Beta unavailable — no holding had enough price history "
+                                 "aligned with Nifty 50 to measure it.",
+            "needs_hedge":       False,
+        }
+
+    pb = round(weighted_beta / measured_weight, 3)
 
     if pb < 0.5:
         interpretation = f"Low beta ({pb}) — portfolio is defensive / lower-volatility than market."
@@ -159,187 +177,17 @@ def calculate_portfolio_beta(
     elif pb < 1.5:
         interpretation = f"High beta ({pb}) — portfolio amplifies market moves."
     else:
-        interpretation = f"Very high beta ({pb}) — portfolio is highly leveraged to market. Hedge recommended."
+        interpretation = f"Very high beta ({pb}) — portfolio moves well beyond the market in both directions."
+    if coverage_pct < 99.5:
+        interpretation += f" Measured on {coverage_pct:.0f}% of portfolio value."
 
     needs_hedge = pb > 1.2
 
     return {
         "portfolio_beta":  pb,
+        "beta_coverage_pct": coverage_pct,
         "total_value_rs":  round(total_value, 0),
         "holdings_beta":   holding_details,
         "interpretation":  interpretation,
         "needs_hedge":     needs_hedge,
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Hedge sizing
-# ─────────────────────────────────────────────────────────────────────────────
-
-def hedge_sizing(
-    portfolio_value: float,
-    portfolio_beta:  float,
-    hedge_ratio:     float = 0.5,     # hedge 50% of market exposure by default
-    nifty_spot:      float = 23_000,  # approximate; fetched live if 0
-) -> Dict:
-    """
-    Compute the number of Nifty Futures lots needed to hedge a portfolio.
-
-    Hedge notional = portfolio_value × portfolio_beta × hedge_ratio
-    Lots needed    = hedge_notional / (nifty_spot × _NIFTY_LOT)
-
-    Args:
-        portfolio_value : Total portfolio market value in Rs
-        portfolio_beta  : Weighted portfolio beta vs Nifty
-        hedge_ratio     : Fraction of beta exposure to hedge (0–1)
-        nifty_spot      : Current Nifty 50 level (uses live fetch if 0)
-
-    Returns dict:
-        hedge_notional_rs, lots_needed, hedge_pct, description
-    """
-    # Live Nifty price if not provided
-    if nifty_spot <= 0:
-        try:
-            nifty_df   = fetch_single(_NIFTY, period="5d")
-            nifty_spot = float(nifty_df["Close"].iloc[-1])
-        except Exception as e:
-            _log.warning(
-                "hedge_sizing: live Nifty spot fetch failed, falling back to hardcoded "
-                "23,000 — hedge sizing may be inaccurate if the index has moved "
-                "significantly since this constant was last updated: %s", e
-            )
-            nifty_spot = 23_000   # fallback
-
-    lot_value      = nifty_spot * _NIFTY_LOT
-    hedge_notional = portfolio_value * portfolio_beta * hedge_ratio
-    lots_needed    = max(0, round(hedge_notional / lot_value))
-
-    actual_hedge_pct = (lots_needed * lot_value) / max(portfolio_value, 1) * 100
-
-    return {
-        "nifty_spot":       round(nifty_spot, 0),
-        "lot_size":         _NIFTY_LOT,
-        "lot_value_rs":     round(lot_value, 0),
-        "hedge_ratio":      hedge_ratio,
-        "hedge_notional_rs": round(hedge_notional, 0),
-        "lots_needed":      lots_needed,
-        "hedge_value_rs":   round(lots_needed * lot_value, 0),
-        "actual_hedge_pct": round(actual_hedge_pct, 1),
-        "description":      (
-            f"Short {lots_needed} Nifty Futures lot(s) to hedge "
-            f"~{actual_hedge_pct:.0f}% of portfolio beta exposure "
-            f"(portfolio beta={portfolio_beta}, hedge ratio={hedge_ratio*100:.0f}%)"
-        ),
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Full hedge recommendation
-# ─────────────────────────────────────────────────────────────────────────────
-
-def suggest_hedge(
-    portfolio_value: float,
-    holdings:        List[Dict],
-    vix:             Optional[float] = None,
-    period:          str = "1y",
-) -> Dict:
-    """
-    End-to-end hedge recommendation for an Indian equity portfolio.
-
-    Steps:
-        1. Compute portfolio beta from holdings
-        2. Compute VIX-adjusted hedge ratio (higher VIX → hedge more)
-        3. Compute Nifty futures lots needed
-        4. Return plain-English recommendation
-
-    Args:
-        portfolio_value : Total portfolio value in Rs
-        holdings        : [{"ticker": str, "value_rs": float}, ...]
-        vix             : India VIX level (fetched live if None)
-        period          : Beta lookback window
-
-    Returns:
-        Full dict with beta_result, sizing_result, recommendation, urgency
-    """
-    # Fetch VIX if not provided — Yahoo Finance chart API with cookie+crumb
-    if vix is None:
-        try:
-            from data.fetcher import _get_yf_crumb
-            import urllib.parse as _up
-            _opener, _crumb = _get_yf_crumb()
-            _cqs = f"&crumb={_up.quote(_crumb)}" if _crumb else ""
-            _url = (f"https://query1.finance.yahoo.com/v8/finance/chart/%5EINDIAVIX"
-                    f"?interval=1d&range=5d&includePrePost=false{_cqs}")
-            _req = urllib.request.Request(
-                _url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
-            with _opener.open(_req, timeout=8) as _r:
-                _d = json.loads(_r.read())
-            _closes = _d["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-            _valid  = [v for v in _closes if v is not None]
-            vix = float(_valid[-1]) if _valid else 16.0
-        except Exception as e:
-            _log.warning(
-                "suggest_hedge: live VIX fetch failed, falling back to hardcoded "
-                "16.0 — hedge recommendation may not reflect current volatility regime: %s", e
-            )
-            vix = 16.0
-
-    beta_result = calculate_portfolio_beta(holdings, period=period)
-    pb          = beta_result["portfolio_beta"]
-
-    # VIX-adjusted hedge ratio
-    #   VIX < 14 → hedge 25%  (calm market, minimal insurance)
-    #   VIX 14-18 → hedge 40%
-    #   VIX 18-22 → hedge 60%
-    #   VIX > 22  → hedge 80% (elevated fear, hedge aggressively)
-    if vix < 14:
-        hedge_ratio = 0.25
-        urgency     = "Low"
-    elif vix < 18:
-        hedge_ratio = 0.40
-        urgency     = "Moderate"
-    elif vix < 22:
-        hedge_ratio = 0.60
-        urgency     = "High"
-    else:
-        hedge_ratio = 0.80
-        urgency     = "Urgent"
-
-    sizing = hedge_sizing(
-        portfolio_value=portfolio_value,
-        portfolio_beta=pb,
-        hedge_ratio=hedge_ratio,
-    )
-
-    # Build recommendation
-    if pb <= 0.8:
-        recommendation = (
-            f"Portfolio beta {pb} is defensive — no hedge needed. "
-            "Monitor if beta rises above 1.2 after new additions."
-        )
-        action = "HOLD — No hedge required"
-    elif pb <= 1.2 and urgency in ("Low", "Moderate"):
-        recommendation = (
-            f"Portfolio beta {pb} is near market. "
-            f"VIX={vix:.1f} ({urgency}). Consider optional {sizing['lots_needed']} lot hedge "
-            f"if you expect volatility."
-        )
-        action = "OPTIONAL hedge"
-    else:
-        recommendation = (
-            f"Portfolio beta {pb} is elevated. VIX={vix:.1f} ({urgency} risk). "
-            f"Recommend: Short {sizing['lots_needed']} Nifty Futures lot(s) — "
-            f"hedges ~{sizing['actual_hedge_pct']:.0f}% of beta exposure. "
-            f"Cost: ~Rs {sizing['hedge_value_rs']:,.0f} margin required."
-        )
-        action = f"HEDGE: Short {sizing['lots_needed']} Nifty Futures"
-
-    return {
-        "action":          action,
-        "urgency":         urgency,
-        "recommendation":  recommendation,
-        "vix":             round(vix, 1),
-        "hedge_ratio_pct": round(hedge_ratio * 100, 0),
-        "beta_result":     beta_result,
-        "sizing":          sizing,
     }
