@@ -59,3 +59,25 @@ These numbers use today's universe, so they carry survivorship bias. The
 historical scores have no delivery-% input. There are only 27 trend_down weeks
 in 5 years. A 10-year replay would add bear weeks, but it would not make a
 sign-flipping candidate trustworthy.
+
+## Addendum 2026-10-02 — volume pillar ablation
+
+The adoption rule was fixed before running: the paired weekly IC gain over the
+current score needs t > 2 when all weeks are pooled, must be positive in both
+folds, must hold at both 20 and 60 sessions, and trend_up IC must not drop.
+
+| | 20 sessions | 60 sessions |
+|---|---|---|
+| current score | +0.0247 | +0.0291 |
+| without volume (other parts unchanged) | +0.0298 | +0.0334 |
+| paired gain | +0.0051 (t +2.0); fold A +0.004, B +0.007 | +0.0043 (t +1.6); fold A −0.002, B +0.011 |
+| volume pillar alone | +0.0037 | +0.0038 |
+
+Dropping volume helps a little in most regimes (trend_up +0.045 → +0.048 at
+20 sessions), but it misses the bar: t is exactly 2.0 at 20 sessions, and at 60
+sessions it is 1.6 with fold A negative. **Not adopted; scoring is unchanged.**
+
+The replay also has no delivery-% input, and the live volume pillar uses
+delivery %. `nse_delivery_daily` only covers 2026-08-27 onward, so the
+delivery input cannot be judged on history yet. Re-test once roughly a year of
+delivery data has built up.
