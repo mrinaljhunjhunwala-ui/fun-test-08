@@ -846,18 +846,26 @@ with tab_options:
     st.markdown("---")
     st.markdown(
         '<div class="t-h2" style="margin:14px 0 6px 0">'
-        'NSE Lot Sizes *(verify quarterly)*</div>',
+        'NSE Index Lot Sizes</div>',
         unsafe_allow_html=True,
     )
+    # FIX LOT-2026 (audit 2026-10-03): the old table mixed lot sizes from
+    # different revisions (Nifty 75, FinNifty 65) and carried stale stock lots
+    # and margins. Index lots below are NSE/FAOP/70616, in force for every
+    # contract expiring from Jan 2026. Stock lots and margins move with each
+    # half-yearly review and with price, so they are no longer hard-coded.
     st.dataframe(pd.DataFrame([
-        {"Contract": "Nifty 50",  "Lot Size": 75,  "Approx Margin": "₹1.0–1.5L"},
-        {"Contract": "BankNifty", "Lot Size": 30,  "Approx Margin": "₹0.8–1.2L"},
-        {"Contract": "FinNifty",  "Lot Size": 65,  "Approx Margin": "₹0.5–0.8L"},
-        {"Contract": "RELIANCE",  "Lot Size": 250, "Approx Margin": "₹3–4L"},
-        {"Contract": "HDFC Bank", "Lot Size": 550, "Approx Margin": "₹6–8L"},
-        {"Contract": "TCS",       "Lot Size": 175, "Approx Margin": "₹6–8L"},
-        {"Contract": "Infosys",   "Lot Size": 400, "Approx Margin": "₹5–6L"},
+        {"Contract": "Nifty 50",         "Lot Size": 65},
+        {"Contract": "Bank Nifty",       "Lot Size": 30},
+        {"Contract": "Fin Nifty",        "Lot Size": 60},
+        {"Contract": "Midcap Nifty",     "Lot Size": 120},
+        {"Contract": "Nifty Next 50",    "Lot Size": 25},
     ]), hide_index=True)
+    st.caption(
+        "Per NSE circular NSE/FAOP/70616 (effective Jan-2026 expiries). NSE reviews lot "
+        "sizes twice a year; stock F&O lots and margins change with each review and with "
+        "price, so check your broker's contract specs for single-stock futures."
+    )
 
 # ── TAB 6: Max Pain Calculator (FIX MERGE1 — from old OI & Options page) ──
 with tab_maxpain:
