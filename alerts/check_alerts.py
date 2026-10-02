@@ -25,6 +25,7 @@ Exit codes: always 0 (a failed alert check should not fail the workflow).
 
 from __future__ import annotations
 
+import html as _html
 import datetime
 import json
 import logging
@@ -624,13 +625,13 @@ def _regime_note() -> str:
 
 
 def _format_verdict_alert(verdict: str, b: dict, fv, regime: str, gen_at) -> list:
-    base = _base_symbol(b.get("ticker"))
+    base = _html.escape(_base_symbol(b.get("ticker")))
     icon = "🟢🟢" if verdict == "STRONG BUY" else "🟢"
     price = b.get("price")
     price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
     lines = [f"{icon} <b>{base}</b> — model read <b>{verdict_display_label(verdict)}</b> · conviction "
              f"{getattr(fv, 'conviction', '?')} · score {b.get('score')}/90 · {price_str}"]
-    meta = [x for x in (b.get("sector", "").strip(), b.get("horizon", "")) if x]
+    meta = [_html.escape(str(x)) for x in ((b.get("sector") or "").strip(), b.get("horizon") or "") if x]
     if meta:
         lines.append("   " + " · ".join(meta))
     if b.get("sl") and b.get("tp"):
@@ -848,6 +849,68 @@ def _snapshot_ist_label(gen_at) -> str:
     return ts.astimezone(_IST).strftime("%H:%M IST") if ts else "unknown time"
 
 
+def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = None) -> list:
+    """Message lines for the Morning Delivery Digest (shared by the real
+    digest and --mode=test-digest)."""
+    lines = [
+        header or "📈 <b>Morning Delivery Digest</b>",
+        f"<i>Top {min(max_picks, len(buys))} positional candidates from today's scan "
+        f"(scan at {_snapshot_ist_label(gen_at)})</i>",
+        "",
+    ]
+    for i, b in enumerate(buys[:max_picks], start=1):
+        tk    = _html.escape(str(b.get("ticker", "?")))
+        score = b.get("score", 0)
+        act   = action_display_label(b.get("action", "").replace("_", " "))
+        price = b.get("price") or b.get("last_price") or b.get("current_price")
+        entry = b.get("entry_zone") or b.get("entry")
+        stop  = b.get("stop_loss") or b.get("stop") or b.get("sl")
+        tgt   = b.get("target") or b.get("tp")
+        sec   = _html.escape(str(b.get("sector", "") or "").strip())
+
+        price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
+        head = f"{i}. <b>{tk}</b> — {act} · Score {score}/90 · {price_str}"
+        if sec:
+            head += f" · {sec}"
+        v = _verdict_of(b)
+        if v:
+            head += (f" · read <b>{verdict_display_label(v[0])}</b> ({v[1]})"
+                     if v[0] in _VERDICT_ALERT_TIERS else f" · read {verdict_display_label(v[0])}")
+        lines.append(head)
+        detail = []
+        if entry:
+            detail.append(f"Entry {entry}")
+        if stop:
+            detail.append(f"Stop {stop}")
+        if tgt:
+            detail.append(f"Target {tgt}")
+        if detail:
+            lines.append("   " + " · ".join(str(x) for x in detail))
+
+    # BUY / STRONG BUY verdicts further down the scan than the top max_picks
+    extra = []
+    for b in buys[max_picks:]:
+        v = _verdict_of(b)
+        if v and v[0] in _VERDICT_ALERT_TIERS:
+            extra.append((v, b))
+    if extra:
+        extra.sort(key=lambda e: (e[0][0] != "STRONG BUY", -float(e[1].get("score") or 0)))
+        lines.extend(["", "🟢 <b>Other names in this scan with a Strong trend / Uptrend read</b>"])
+        for (verdict, conv), b in extra:
+            p = b.get("price")
+            p_str = f"₹{float(p):,.2f}" if isinstance(p, (int, float)) else "n/a"
+            tk_x = _html.escape(str(b.get("ticker", "?")))
+            lines.append(f"• <b>{tk_x}</b> — {verdict_display_label(verdict)} ({conv}) · "
+                         f"Score {b.get('score', 0)}/90 · {p_str}")
+    lines.extend([
+        "",
+        "<i>Read = the dashboard's model read (conviction in brackets). "
+        "Descriptive scan of composite-score leaders — not advice. "
+        "Each name's full breakdown is on the Analyze Stock page.</i>",
+    ])
+    return lines
+
+
 def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int:
     """Read persisted Top Picks snapshot and email/Telegram the top delivery
     candidates for the day. One fire per day (state-deduplicated)."""
@@ -889,62 +952,7 @@ def check_delivery_digest(state: dict, today: str, *, max_picks: int = 5) -> int
         print("[digest] snapshot has 0 buys — nothing to send")
         return 0
 
-    lines = [
-        "📈 <b>Morning Delivery Digest</b>",
-        f"<i>Top {min(max_picks, len(buys))} positional candidates from today's scan "
-        f"(scan at {_snapshot_ist_label(gen_at)})</i>",
-        "",
-    ]
-    for i, b in enumerate(buys[:max_picks], start=1):
-        tk    = b.get("ticker", "?")
-        score = b.get("score", 0)
-        act   = action_display_label(b.get("action", "").replace("_", " "))
-        price = b.get("price") or b.get("last_price") or b.get("current_price")
-        entry = b.get("entry_zone") or b.get("entry")
-        stop  = b.get("stop_loss")  or b.get("stop")
-        tgt   = b.get("target")
-        sec   = b.get("sector", "").strip()
-
-        price_str = f"₹{float(price):,.2f}" if isinstance(price, (int, float)) else "n/a"
-        head = f"{i}. <b>{tk}</b> — {act} · Score {score}/90 · {price_str}"
-        if sec:
-            head += f" · {sec}"
-        v = _verdict_of(b)
-        if v:
-            head += (f" · read <b>{verdict_display_label(v[0])}</b> ({v[1]})"
-                     if v[0] in _VERDICT_ALERT_TIERS else f" · read {verdict_display_label(v[0])}")
-        lines.append(head)
-        detail = []
-        if entry:
-            detail.append(f"Entry {entry}")
-        if stop:
-            detail.append(f"Stop {stop}")
-        if tgt:
-            detail.append(f"Target {tgt}")
-        if detail:
-            lines.append("   " + " · ".join(str(x) for x in detail))
-
-    # BUY / STRONG BUY verdicts further down the scan than the top max_picks
-    extra = []
-    for b in buys[max_picks:]:
-        v = _verdict_of(b)
-        if v and v[0] in _VERDICT_ALERT_TIERS:
-            extra.append((v, b))
-    if extra:
-        extra.sort(key=lambda e: (e[0][0] != "STRONG BUY", -float(e[1].get("score") or 0)))
-        lines.extend(["", "🟢 <b>Other names in this scan with a Strong trend / Uptrend read</b>"])
-        for (verdict, conv), b in extra:
-            p = b.get("price")
-            p_str = f"₹{float(p):,.2f}" if isinstance(p, (int, float)) else "n/a"
-            lines.append(f"• <b>{b.get('ticker', '?')}</b> — {verdict_display_label(verdict)} ({conv}) · "
-                         f"Score {b.get('score', 0)}/90 · {p_str}")
-    lines.extend([
-        "",
-        "<i>Read = the dashboard's model read (conviction in brackets). "
-        "Descriptive scan of composite-score leaders — not advice. "
-        "Each name's full breakdown is on the Analyze Stock page.</i>",
-    ])
-    msg = "\n".join(lines)
+    msg = "\n".join(_digest_lines(buys, gen_at, max_picks))
 
     if dispatch(msg, subject="Morning Delivery Digest — NSE Smart Investor"):
         _mark_fired(state, key, today)
@@ -1044,6 +1052,30 @@ def check_test_verdict_alert(state: dict, today: str) -> int:
     lines = ["🧪 <b>TEST — sample of a Strong trend ▲▲ alert (not a real stock or signal)</b>", ""]
     lines += _format_verdict_alert("STRONG BUY", sample, _FV(), "NIFTY regime: trend down", now_utc)
     return 1 if dispatch("\n".join(lines), subject="NSE Smart Investor — sample model-read alert") else 0
+
+
+def check_test_digest(state: dict, today: str, *, max_picks: int = 5) -> int:
+    """Send the Morning Digest built from the latest saved scan, even if stale,
+    under a TEST header. No dedup, no staleness gate, and it does NOT save
+    today's picks, so the real digest and intraday checks are unaffected."""
+    try:
+        import trade_store as store
+        snap = store.kv_get("top_picks_snapshot", user_id="_system")
+    except Exception as _e:
+        print(f"[test-digest] snapshot read failed: {_e}")
+        return 0
+    if not (snap and isinstance(snap, dict) and isinstance(snap.get("data"), dict)):
+        print("[test-digest] no persisted top-picks snapshot")
+        return 0
+    gen_at = snap.get("generated_at", "unknown")
+    buys = snap["data"].get("buys") or []
+    if not buys:
+        print("[test-digest] snapshot has 0 picks")
+        return 0
+    header = (f"🧪 <b>TEST — Morning Delivery Digest format</b> "
+              f"(built from the last saved scan, {_snapshot_ist_label(gen_at)}; may be stale)")
+    msg = "\n".join(_digest_lines(buys, gen_at, max_picks, header=header))
+    return 1 if dispatch(msg, subject="NSE Smart Investor — TEST morning digest") else 0
 
 
 def check_test_alert(state: dict, today: str) -> int:
@@ -1420,7 +1452,7 @@ def main() -> int:
     # trade). Test mode must ALWAYS run — its whole purpose is diagnostics.
     # Other modes still enforce the market-hours guard unless --force.
     _bypass_market_hours = (
-        "morning-digest", "portfolio-posture", "test", "test-verdict",
+        "morning-digest", "portfolio-posture", "test", "test-verdict", "test-digest",
         "weekly-digest", "intraday-watchlist",
     )
     if mode not in _bypass_market_hours and not force and not _is_market_hours():
@@ -1450,6 +1482,8 @@ def main() -> int:
         total += check_test_alert(state, today)
     elif mode == "test-verdict":
         total += check_test_verdict_alert(state, today)
+    elif mode == "test-digest":
+        total += check_test_digest(state, today)
     else:   # default
         _counts = {
             "price":     check_price_alerts(state, today),
