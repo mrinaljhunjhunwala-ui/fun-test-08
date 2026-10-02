@@ -1171,12 +1171,15 @@ def check_test_alert(state: dict, today: str) -> int:
 # (only_actionable=True by default in format_portfolio_message).
 # ─────────────────────────────────────────────────────────────────────────────
 
-def check_portfolio_posture(state: dict, today: str) -> int:
+def check_portfolio_posture(state: dict, today: str, *, test: bool = False) -> int:
     """Fetch Angel One holdings + positions, run posture analysis, alert only
     on actionable rows. Requires ANGEL_* env vars — silently no-ops otherwise
-    (Angel One is optional; we can't analyse a portfolio we can't see)."""
+    (Angel One is optional; we can't analyse a portfolio we can't see).
+
+    test=True (--mode=test-posture): every row incl. HOLD, under a TEST
+    header, no dedup read or write."""
     key = "portfolio_posture"
-    if _already_fired(state, key, today):
+    if not test and _already_fired(state, key, today):
         return 0
 
     try:
@@ -1220,7 +1223,11 @@ def check_portfolio_posture(state: dict, today: str) -> int:
     hpost = analyse_holdings(holdings, _fetch, nifty_history=nifty_df)
     ipost = analyse_positions(positions, _fetch)
 
-    msg = format_portfolio_message(hpost, ipost, only_actionable=True)
+    msg = format_portfolio_message(hpost, ipost, only_actionable=not test)
+    if test:
+        msg = ("🧪 <b>TEST — Portfolio Posture format</b> (all rows shown, incl. HOLD)\n\n"
+               + msg)
+        return 1 if dispatch(msg, subject="NSE Smart Investor — TEST portfolio posture") else 0
     # Suppress the 'nothing to do' message from the daily digest — the whole
     # point of an alert is to surface something. If everything is HOLD,
     # count it as fired-successfully (dedup key set) so we don't keep polling.
@@ -1484,6 +1491,7 @@ def main() -> int:
     # Other modes still enforce the market-hours guard unless --force.
     _bypass_market_hours = (
         "morning-digest", "portfolio-posture", "test", "test-verdict", "test-digest",
+        "test-posture",
         "weekly-digest", "intraday-watchlist",
     )
     if mode not in _bypass_market_hours and not force and not _is_market_hours():
@@ -1515,6 +1523,8 @@ def main() -> int:
         total += check_test_verdict_alert(state, today)
     elif mode == "test-digest":
         total += check_test_digest(state, today)
+    elif mode == "test-posture":
+        total += check_portfolio_posture(state, today, test=True)
     else:   # default
         _counts = {
             "price":     check_price_alerts(state, today),
