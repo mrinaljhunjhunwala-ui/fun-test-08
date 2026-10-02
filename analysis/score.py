@@ -179,6 +179,7 @@ def _bench_is_stale(b) -> bool:
 # failures (None) use the short negative TTL.
 _FLOWS_CACHE: Dict[str, object] = {}
 _FLOWS_TTL_S = 60 * 60
+_FLOWS_MAX_AGE_DAYS = 9          # 5 sessions + a weekend + a holiday or two
 
 
 def _get_flows_cached() -> Optional[Dict]:
@@ -191,6 +192,14 @@ def _get_flows_cached() -> Optional[Dict]:
     try:
         from analysis.fii_dii import load_history as _fd_load
         _fd = _fd_load(days=5)
+        if _fd is not None and not _fd.empty:
+            # FIX FLOWS-STALE (2026-10-02): the table has holes (NSE only serves
+            # the latest day, missed nightly runs aren't backfilled), so "last 5
+            # rows" could silently reach weeks back. Keep rows within
+            # _FLOWS_MAX_AGE_DAYS calendar days of the newest market session.
+            _cut = (pd.Timestamp(_expected_last_session())
+                    - pd.Timedelta(days=_FLOWS_MAX_AGE_DAYS))
+            _fd = _fd[pd.to_datetime(_fd["date"], errors="coerce") >= _cut]
         if _fd is not None and not _fd.empty and len(_fd) >= 3:
             v: Optional[Dict] = {
                 "fii_5d": float(_fd["fii_net"].fillna(0).sum()),
