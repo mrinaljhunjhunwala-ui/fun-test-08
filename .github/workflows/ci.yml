@@ -48,12 +48,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Every run shares the Neon `ci-tests` branch; concurrent runs doing DDL on
-    # it deadlocked (run 37014283387). Queue across the whole repo rather than
-    # cancel. conftest also gives each session its own schema, so this is
-    # belt-and-braces (GitHub keeps only one pending run per group).
-    concurrency:
-      group: ci-real-postgres
-      cancel-in-progress: false
+    # the same tables deadlocked (run 37014283387). tests/conftest.py now gives
+    # each pytest session its own schema (search_path pinned to it, dropped at
+    # session end), so runs never touch each other's objects and can overlap.
+    # No repo-wide concurrency group here: GitHub keeps only ONE pending run per
+    # group and cancels the older pending ones, which kept cancelling this job
+    # with zero steps whenever several PRs were open (run 37058538111).
     steps:
       - name: Checkout
         uses: actions/checkout@v5

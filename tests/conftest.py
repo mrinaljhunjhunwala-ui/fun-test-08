@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 import uuid
 
 import pytest
@@ -96,6 +97,9 @@ else:
 # search_path at it, and drops it at session end.
 _RUN_SCHEMA = f"ci_{os.getpid()}_{uuid.uuid4().hex[:10]}"
 _run_schema_created = False
+# Concurrent first connects (e.g. the 8-thread real-PG test) would race on
+# CREATE SCHEMA IF NOT EXISTS, which raises a unique violation in Postgres.
+_run_schema_lock = threading.Lock()
 
 
 def _direct_endpoint(url: str) -> str:
@@ -107,9 +111,11 @@ def _direct_endpoint(url: str) -> str:
 def _enter_run_schema(conn) -> None:
     global _run_schema_created
     cur = conn.cursor()
-    if not _run_schema_created:
-        cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{_RUN_SCHEMA}"')
-        _run_schema_created = True
+    with _run_schema_lock:
+        if not _run_schema_created:
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{_RUN_SCHEMA}"')
+            conn.commit()
+            _run_schema_created = True
     cur.execute(f'SET search_path TO "{_RUN_SCHEMA}"')
     conn.commit()
 

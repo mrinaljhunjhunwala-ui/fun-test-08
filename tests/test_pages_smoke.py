@@ -72,12 +72,28 @@ def _join_page_threads():
     conftest's isolation does, so late writes land in this test's own DB.
     With the network blocked the threads finish within seconds; the deadline
     only guards against a genuine hang.
+
+    ``threading.enumerate()`` also lists threads still inside ``start()``
+    (not yet marked started), and ``join()`` on one of those raises
+    "cannot join thread before it is started" (main run 37058272654, a
+    ThreadPoolExecutor worker being spawned as the test ended). So only
+    alive threads are joined, and the set is re-read until no new thread is
+    left — that also catches threads spawned while we were joining.
     """
     before = set(threading.enumerate())
     yield
     deadline = time.monotonic() + 120
-    for t in set(threading.enumerate()) - before:
-        t.join(timeout=max(0.0, deadline - time.monotonic()))
+    while time.monotonic() < deadline:
+        pending = set(threading.enumerate()) - before
+        if not pending:
+            break
+        alive = [t for t in pending if t.is_alive()]
+        if not alive:
+            # Only threads mid-start() or mid-exit — they settle in microseconds.
+            time.sleep(0.01)
+            continue
+        for t in alive:
+            t.join(timeout=max(0.0, deadline - time.monotonic()))
 
 
 def test_all_pages_present():
