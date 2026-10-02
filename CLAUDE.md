@@ -85,6 +85,12 @@ py -m pytest -m slow -q
 - **Scoring/valuation edits** — the E1-v2 layer has a golden-snapshot regression (`tests/test_final_verdict.py`, `tests/test_audit_transparency.py`). After touching scoring/valuation/strategies, spawn the `verdict-regression-reviewer` subagent to classify every posture/confidence delta.
 - **Fetcher edits or "empty data" bugs** — spawn the `data-provenance-auditor` subagent to canary every external provider (yfinance / NSE / BSE / RSS / Screener / VIX) for schema drift.
 
+## Delegation
+
+- Do small, single-file edits directly. Delegate only when the work is broad (multi-page sweeps, audits) or a dedicated agent exists (`verdict-regression-reviewer`, `data-provenance-auditor`).
+- When delegating, set `model` explicitly on the Agent call: `haiku` for lookups/summaries, `opus` for edits/tests/refactors/docs, `fable` for hard bugs, architecture and review.
+- Run independent sub-agents in parallel. Always verify their results (tests, diff) before reporting done.
+
 ## Skill routing hints for this repo
 
 | Task | Skill |
