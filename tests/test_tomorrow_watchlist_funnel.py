@@ -76,3 +76,14 @@ def test_empty_breakout_logs_the_funnel(run_scan, caplog):
     assert out["breakout_funnel"]["volume_ge_5"] == 0
     assert "breakout funnel: eligible=5" in caplog.text
     assert "momentum>=8=1 → volume>=5=0" in caplog.text
+
+
+def test_each_logged_pick_carries_its_bucket(run_scan):
+    out = run_scan(_FIXTURE)
+    assert [p["ticker"] for p in out["breakdown_watch"]] == ["EXIT.NS"]
+    cache_mod.get_tw_ledger.clear()
+    led = cache_mod.get_tw_ledger()
+    cache_mod.get_tw_ledger.clear()
+    buckets = dict(zip(led["ticker"], led["bucket"]))
+    assert buckets["PASS.NS"] == "breakout"
+    assert buckets["EXIT.NS"] == "breakdown"

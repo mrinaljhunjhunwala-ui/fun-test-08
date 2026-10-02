@@ -230,14 +230,25 @@ def _setup_direction(action, score) -> int:
     """+1 for a bullish setup, -1 for a bearish one.
 
     Mirrors the breakdown gate in cache._tomorrow_watchlist (EXIT/CAUTION or
-    score < 40). The ledger does not record which bucket a pick came from, so
-    bearish-divergence names from the reversal bucket read as bullish here;
-    the strip says "direction from logged posture" so the basis is visible.
+    score < 40). Fallback only, for picks logged before the bucket was tagged:
+    a bearish-divergence pick from that era reads as bullish here.
     """
     sc = _num(score)
     if str(action or "").strip().upper() in _BEARISH_ACTIONS or (sc is not None and sc < 40):
         return -1
     return 1
+
+
+_BUCKET_DIRECTION = {"breakout": 1, "reversal_bull": 1, "breakdown": -1, "reversal_bear": -1}
+_BUCKET_LABEL = {"breakout": "breakout", "breakdown": "breakdown",
+                 "reversal_bull": "bullish reversal", "reversal_bear": "bearish reversal"}
+
+
+def _row_direction(r: dict) -> int:
+    """Direction of one ledger pick: its logged bucket, else the posture guess."""
+    d = _BUCKET_DIRECTION.get(str(r.get("bucket") or ""))
+    return d if d is not None else _setup_direction(r.get("composite_action"), r.get("composite_score"))
+
 
 
 def _conviction(score) -> tuple:
@@ -282,19 +293,18 @@ except Exception:
 
 
 def _follow_through_rate(ledger):
-    """(hit %, n) over settled 5-day rows, direction-aware; (None, n) under 5."""
+    """(hit %, n) over settled 5-day picks, one per (session, ticker), using the
+    same ±_MOVE_BAND Hit rule as the Past results scorecard; (None, n) under 5."""
     if ledger is None or getattr(ledger, "empty", True) or "ret_5d" not in ledger.columns:
         return None, 0
     df = ledger[ledger["ret_5d"].notna()]
+    if "logged_date" in df.columns:
+        df = df.drop_duplicates(["logged_date", "ticker"])
     n = len(df)
     if n < 5:
         return None, n
-    hits = 0
-    for act, sc, ret in zip(df.get("composite_action", [None] * n),
-                            df.get("composite_score", [None] * n), df["ret_5d"]):
-        r = _num(ret)
-        if r is not None and _setup_direction(act, sc) * r > 0:
-            hits += 1
+    hits = sum(_verdict(_row_direction(r), _num(r.get("ret_5d"))) == "Hit"
+               for r in df.to_dict("records"))
     return hits / n * 100.0, n
 
 
@@ -314,7 +324,7 @@ def _gate_cells() -> list:
     _ft, _ft_n = _follow_through_rate(_ledger)
     cells.append(("5D follow-through",
                   f"{_ft:.0f}%" if _ft is not None else "–",
-                  f"n={_ft_n} · moved with the setup" if _ft is not None
+                  f"n={_ft_n} · ≥{_MOVE_BAND:.0f}% with the setup" if _ft is not None
                   else f"{_ft_n} settled so far, needs 5"))
     try:
         _reg = get_regime_snapshot() or {}
@@ -427,7 +437,7 @@ def _pick_move(r: dict):
 
 def _judge(r: dict) -> tuple:
     """(direction, move, basis, verdict) for one ledger row."""
-    d = _setup_direction(r.get("composite_action"), r.get("composite_score"))
+    d = _row_direction(r)
     move, basis = _pick_move(r)
     return d, move, basis, _verdict(d, move)
 
@@ -462,13 +472,14 @@ def _render_follow_through() -> None:
         _lab, _tone = _VERDICT_PILL[_v]
         _sub = (f"{_sc:.0f}/90 · " if _sc is not None else "") + html.escape(
             _display_label(str(_act or "")) or "logged")
-        _sub += " · bearish setup" if _dir < 0 else " · bullish setup"
+        _sub += " · " + (_BUCKET_LABEL.get(str(_r.get("bucket") or ""))
+                         or ("bearish setup" if _dir < 0 else "bullish setup"))
         _cards.append(follow_card(_rank, _sym(_r.get("ticker")), _sub, _rows,
                                   chip_pill(_lab, _tone), _tone))
 
     st.markdown(
         section_header(_hdr, f"logged {html.escape(_last_session)} · top {len(_cards)} by score · "
-                             "direction from logged posture"),
+                             "direction from each pick's bucket"),
         unsafe_allow_html=True,
     )
     st.markdown(f'<div class="fu-grid">{"".join(_cards)}</div>', unsafe_allow_html=True)
@@ -503,7 +514,7 @@ def _render_past_results() -> None:
         _rows_html.append([
             str(_i),
             f"<b>{_sym(_r.get('ticker'))}</b>",
-            "bearish" if _dir < 0 else "bullish",
+            _BUCKET_LABEL.get(str(_r.get("bucket") or "")) or ("bearish" if _dir < 0 else "bullish"),
             f"{_sc:.0f}" if _sc is not None else "–",
             _px(_r.get("entry_price")),
             _now, *_rets,
@@ -523,7 +534,8 @@ def _render_past_results() -> None:
     st.caption(
         f"Result = move in the setup's direction: Hit ≥ +{_MOVE_BAND:.0f}%, Miss ≤ −{_MOVE_BAND:.0f}%, "
         "Flat in between. Judged on the live price for the latest session, else the 5-day "
-        "return, else the 1-day. Direction comes from the logged posture."
+        "return, else the 1-day. Direction comes from the pick's bucket (breakdown and bearish "
+        "reversal are down-calls); picks logged before 2026-10-02 use the logged posture instead."
     )
 
     # Running scorecard — settled 5-day results only, so a session's number
@@ -534,8 +546,7 @@ def _render_past_results() -> None:
         for _r in _prior[_prior["logged_date"] == _d].to_dict("records"):
             _m = _num(_r.get("ret_5d"))
             if _m is not None:
-                _c[_verdict(_setup_direction(_r.get("composite_action"),
-                                             _r.get("composite_score")), _m)] += 1
+                _c[_verdict(_row_direction(_r), _m)] += 1
         _per.append((_d, _c))
     _tot = {k: sum(c[k] for _, c in _per) for k in ("Hit", "Miss", "Flat")}
     _tn = sum(_tot.values())

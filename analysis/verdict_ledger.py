@@ -401,6 +401,34 @@ def load_ledger(*, ticker: Optional[str] = None,
         return pd.DataFrame()
 
 
+TW_BUCKET_PREFIX = "tw:"
+
+
+def tw_buckets(log_ids: List[int]) -> Dict[int, str]:
+    """{verdict_log_id: bucket} for Tomorrow's Watchlist picks, read from their
+    'tw:<bucket>' signal tag. Picks logged before buckets were tagged are
+    simply absent. Never raises."""
+    ids = [int(i) for i in log_ids if i is not None]
+    if not ids:
+        return {}
+    try:
+        ensure_schema()
+        out: Dict[int, str] = {}
+        with _store._get_conn() as conn:
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                sql = _store._q(
+                    "SELECT verdict_log_id, tag FROM verdict_signal_tags "
+                    f"WHERE tag LIKE ? AND verdict_log_id IN ({','.join(['?'] * len(chunk))})")
+                df = read_sql_df(sql, conn, params=(TW_BUCKET_PREFIX + "%", *chunk))
+                for lid, tag in zip(df.get("verdict_log_id", []), df.get("tag", [])):
+                    out[int(lid)] = str(tag)[len(TW_BUCKET_PREFIX):]
+        return out
+    except Exception as e:
+        _log.warning("tw_buckets failed: %s: %s", type(e).__name__, e)
+        return {}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Backfill forward returns — lazy, called from the Calibration page
 # ─────────────────────────────────────────────────────────────────────────────
