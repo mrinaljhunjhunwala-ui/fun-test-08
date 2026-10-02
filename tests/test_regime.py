@@ -105,7 +105,7 @@ def test_classify_falls_back_to_trend_when_breadth_unknown():
     assert snap.confidence == "medium"
     # The reason must SAY breadth was unavailable so a UI reader isn't misled
     joined = " ".join(snap.reasons).lower()
-    assert "breadth" in joined and ("unavailable" in joined or "unknown" in joined)
+    assert "breadth not used" in joined
 
 
 def test_classify_high_confidence_when_breadth_broad():

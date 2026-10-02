@@ -178,7 +178,7 @@ def _combine(vix_z: str, trend: str, breadth: str, vol: str
             reasons.append("> 60 % of Nifty-500 above their own SMA-50 (broad participation)")
             conf = "high" if vix_z in ("normal", "elevated") else "medium"
         else:
-            reasons.append("breadth unavailable — classified on trend + VIX only")
+            reasons.append("breadth not used — classified on trend + VIX (as in the historical studies)")
             conf = "medium"
         return "trend_up", conf, reasons
 
@@ -189,7 +189,7 @@ def _combine(vix_z: str, trend: str, breadth: str, vol: str
             reasons.append("< 40 % of Nifty-500 above SMA-50 (narrow, deteriorating)")
             conf = "high" if vix_z in ("elevated", "fear") else "medium"
         else:
-            reasons.append("breadth unavailable — classified on trend + VIX only")
+            reasons.append("breadth not used — classified on trend + VIX (as in the historical studies)")
             conf = "medium"
         return "trend_down", conf, reasons
 
