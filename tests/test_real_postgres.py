@@ -71,10 +71,11 @@ def test_migrations_are_idempotent_and_add_columns(monkeypatch):
     with trade_store._get_conn() as conn:
         cur = conn.cursor()
         cur.execute("SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'verdict_log'")
+                    "WHERE table_name = 'verdict_log' AND table_schema = current_schema()")
         log_cols = {r[0] for r in cur.fetchall()}
         cur.execute("SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'verdict_forward_returns'")
+                    "WHERE table_name = 'verdict_forward_returns' "
+                    "AND table_schema = current_schema()")
         fwd_cols = {r[0] for r in cur.fetchall()}
     assert "backfill_misses" in log_cols
     assert {f"sector_ret_{h}d" for h in vl.HORIZONS_DAYS} <= fwd_cols

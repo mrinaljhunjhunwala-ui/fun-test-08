@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import uuid
 
 import pytest
 
@@ -81,9 +82,51 @@ else:
                 "Mark the test @pytest.mark.real_postgres and set TEST_DATABASE_URL "
                 "to a throwaway database to opt in."
             )
-        return _real_pg_connect(*args, **kwargs)
+        if args and isinstance(args[0], str):
+            args = (_direct_endpoint(args[0]),) + args[1:]
+        conn = _real_pg_connect(*args, **kwargs)
+        _enter_run_schema(conn)
+        return conn
 
     psycopg2.connect = _guarded_pg_connect
+
+# Per-run schema: every CI run shares the Neon `ci-tests` branch, and two runs
+# doing DDL / cleanup on the same tables deadlocked (CI run 37014283387). Each
+# pytest session now creates its own schema, points every connection's
+# search_path at it, and drops it at session end.
+_RUN_SCHEMA = f"ci_{os.getpid()}_{uuid.uuid4().hex[:10]}"
+_run_schema_created = False
+
+
+def _direct_endpoint(url: str) -> str:
+    # Neon's -pooler endpoint is PgBouncer in transaction mode, where a session
+    # SET search_path doesn't stick to the connection — use the direct host.
+    return url.replace("-pooler.", ".")
+
+
+def _enter_run_schema(conn) -> None:
+    global _run_schema_created
+    cur = conn.cursor()
+    if not _run_schema_created:
+        cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{_RUN_SCHEMA}"')
+        _run_schema_created = True
+    cur.execute(f'SET search_path TO "{_RUN_SCHEMA}"')
+    conn.commit()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not (_run_schema_created and url and psycopg2 is not None):
+        return
+    try:
+        conn = _real_pg_connect(_direct_endpoint(url))
+        try:
+            conn.cursor().execute(f'DROP SCHEMA IF EXISTS "{_RUN_SCHEMA}" CASCADE')
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:  # best effort — a leftover schema is harmless
+        print(f"conftest: could not drop {_RUN_SCHEMA}: {e}")
 
 # Angel One: a real .streamlit/secrets.toml on the owner's machine made
 # "not connected" tests see credentials and page tests attempt live logins.
