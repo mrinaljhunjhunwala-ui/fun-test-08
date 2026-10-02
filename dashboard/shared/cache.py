@@ -1351,12 +1351,16 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
     try:
         from analysis.verdict_ledger import log_verdict as _vl_log
         from analysis.final_verdict import combine as _fv_combine
+        # Each pick carries its bucket as a "tw:<bucket>" signal tag, so the
+        # follow-through views can judge a breakdown / bearish-divergence pick
+        # as a down-call instead of inferring direction from the posture.
         _shortlist = (
-            out["breakout_candidates"]
-            + out["breakdown_watch"]
-            + out["reversal_watch"]
+            [(p, "tw:breakout") for p in out["breakout_candidates"]]
+            + [(p, "tw:breakdown") for p in out["breakdown_watch"]]
+            + [(p, "tw:reversal_bear" if "Bearish" in str(p.get("signal_type")) else "tw:reversal_bull")
+               for p in out["reversal_watch"]]
         )
-        for _pick in _shortlist:
+        for _pick, _bucket_tag in _shortlist:
             _tk = _pick.get("ticker")
             if not _tk:
                 continue
@@ -1375,6 +1379,7 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
                     final_verdict=_fv,
                     entry_price=(float(_pick["entry"]) if _pick.get("entry") else None),
                     composite_score=(float(_pick["score"]) if _pick.get("score") is not None else None),
+                    signal_tags=[_bucket_tag],
                     source="tomorrow_watchlist",
                 )
             except Exception as _one_e:
@@ -1441,9 +1446,15 @@ def get_tomorrow_watchlist(n: int = 15) -> dict:
 @st.cache_data(ttl=600, show_spinner=False)
 def get_tw_ledger(limit: int = 400) -> pd.DataFrame:
     """Recent Tomorrow's Watchlist rows from verdict_ledger, forward returns
-    joined. Never raises: load_ledger already returns an empty frame on error."""
-    from analysis.verdict_ledger import load_ledger
-    return load_ledger(source="tomorrow_watchlist", limit=limit)
+    joined, plus the pick's `bucket` (breakout / breakdown / reversal_bull /
+    reversal_bear) where it was logged. Never raises: both reads return empty
+    on error."""
+    from analysis.verdict_ledger import load_ledger, tw_buckets
+    df = load_ledger(source="tomorrow_watchlist", limit=limit)
+    if not df.empty and "id" in df.columns:
+        _b = tw_buckets(df["id"].tolist())
+        df["bucket"] = df["id"].map(_b)          # NaN for picks logged before buckets
+    return df
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
