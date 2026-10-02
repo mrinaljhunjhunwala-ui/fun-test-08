@@ -47,3 +47,26 @@ def test_narrative_does_not_call_an_unranked_sector_a_tailwind():
     assert cs.sector_rank is None
     assert "tailwind" not in cs.narrative
     assert "#None" not in cs.narrative
+
+
+def test_rank_sectors_leaves_out_sectors_with_no_data(monkeypatch):
+    import analysis.sector_strength as SS
+    import data.universe as U
+    monkeypatch.setattr(U, "list_sectors", lambda: ["IT", "Banking", "Auto"])
+    monkeypatch.setattr(U, "get_tickers_by_sector", lambda s: [f"{s}1.NS", f"{s}2.NS"])
+    moms = {"IT1.NS": 5.0, "IT2.NS": 3.0, "Banking1.NS": -1.0}   # Auto: every fetch failed
+    monkeypatch.setattr(SS, "_ticker_momentum", lambda t, lb: moms.get(t))
+    df = SS.rank_sectors()
+    assert list(df.index) == ["IT", "Banking"]
+    assert list(df["Rank"]) == [1, 2]
+
+
+def test_rank_sectors_full_outage_is_empty(monkeypatch):
+    import analysis.sector_strength as SS
+    import data.universe as U
+    monkeypatch.setattr(U, "list_sectors", lambda: ["IT", "Auto"])
+    monkeypatch.setattr(U, "get_tickers_by_sector", lambda s: [f"{s}1.NS"])
+    monkeypatch.setattr(SS, "_ticker_momentum", lambda t, lb: None)
+    df = SS.rank_sectors()
+    assert df.empty
+    assert S._resolve_sector_rank("IT", df) == (None, 0)
