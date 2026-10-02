@@ -22,8 +22,9 @@ name: Market Alerts
 # concurrency group serialises runs and alert_state.json de-dups per day.
 
 on:
-  schedule:
-    - cron: "*/15 3-10 * * 1-5"   # every 15 min, 03:00–10:59 UTC, Mon–Fri
+  # No GitHub schedule (removed 2026-10-02): cron-job.org triggers this via
+  # workflow_dispatch (alerts/README.md). GitHub's cron fired hours late and
+  # only cost Actions minutes.
   workflow_dispatch:               # external 15-min trigger + manual "Run workflow"
 
 # Avoid overlapping runs if one is slow

@@ -25,15 +25,9 @@ name: Warm Tomorrow's Watchlist
 # still leaves headroom rather than re-creating the same failure mode here.
 
 on:
-  schedule:
-    - cron: "20 10 * * 1-5"   # 10:20 UTC = 15:50 IST, Mon-Fri (after NSE close)
-    # Task 2.4 F1: belt-and-braces retry at 10:00 IST. If the previous day's
-    # 15:50 IST run failed silently (network, GitHub incident, rate-limit)
-    # the next morning's users still get a snapshot fresh enough for
-    # pre-open reads. Complements .github/workflows/warm-preopen-scan.yml,
-    # which also refreshes Tomorrow's Watchlist at 08:50 IST, so between the
-    # two the first-visit-of-day is essentially always covered.
-    - cron: "30 4 * * 1-5"    # 04:30 UTC = 10:00 IST, Mon-Fri (retry slot)
+  # No GitHub schedule (removed 2026-10-02): cron-job.org triggers this via
+  # workflow_dispatch (alerts/README.md). GitHub's cron fired hours late and
+  # only cost Actions minutes.
   workflow_dispatch:           # allow manual "Run workflow" from the Actions tab
 
 concurrency:

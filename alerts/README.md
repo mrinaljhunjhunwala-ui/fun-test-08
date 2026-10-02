@@ -106,7 +106,7 @@ every 15 minutes while the condition holds.
 GitHub's own `schedule:` cron is best-effort and in practice was firing only
 ~2 of the ~26 daily slots (often after market close). The workflow now relies
 on an external scheduler calling GitHub's `workflow_dispatch` API instead.
-The GitHub cron is kept only as a fallback.
+Since 2026-10-02 these workflows have no GitHub `schedule:` at all, so cron-job.org is the only trigger.
 
 ### 1. Create a fine-grained GitHub token
 GitHub → Settings → Developer settings → **Fine-grained tokens** → Generate:
@@ -157,8 +157,7 @@ The two morning messages also have their own send window: the Morning Digest
 goes out between 07:00 and 10:00 IST, and the Intraday Watchlist between 09:15
 and 10:30 IST. If a trigger arrives outside its window, the run logs "late
 trigger, skipping" and sends nothing. This happened on 2026-09-30, when GitHub
-ran the 09:20 cron at 15:31. So create job #2 on cron-job.org rather than
-relying on GitHub's fallback cron. The watchlist reuses the exact names the
+ran the 09:20 cron at 15:31. (The GitHub crons were removed on 2026-10-02.) The watchlist reuses the exact names the
 Morning Digest sent that day.
 
 Start with #1 and #3 — they carry the alerts. The scripts guard the exact
@@ -172,9 +171,9 @@ body or `Content-Type`. cron-job.org's "Test run" button sits behind a bot
 check that ad blockers can break ("couldn't verify your test run request");
 if so, set the crontab two minutes ahead, check the job's History, then put
 the real crontab back. Turn on "Save responses in job history" to see
-GitHub's error text there. The GitHub `schedule:` crons stay in the
-workflow files as a fallback — duplicates are serialised by concurrency groups
-and de-duplicated by `alert_state.json`.
+GitHub's error text there. These workflows have no GitHub `schedule:`
+fallback, so if a cron-job.org job stops (for example, the token expired),
+nothing runs. Keep cron-job.org's "notify on failure" email switched on.
 
 Cost (private repo): roughly 130 runner-minutes per trading day ≈ 2,900
 Actions minutes/month with all eight; #1–#3 alone ≈ 1,200. The free plan
