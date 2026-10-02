@@ -56,6 +56,25 @@ def test_telegram_falls_back_to_plain_text_on_400(monkeypatch):
     assert "parse_mode" in calls[0] and "parse_mode" not in calls[1]
 
 
+def test_test_posture_sends_hold_rows_without_dedup(monkeypatch):
+    import analysis.portfolio_posture as pp
+    import data.angel_fetcher as af
+    import data.fetcher as df_
+    hold = SimpleNamespace(symbol="J&KBANK", posture="HOLD", pnl_pct=2.0, reason="trend intact")
+    monkeypatch.setattr(af, "get_holdings", lambda: [{"tradingsymbol": "J&KBANK"}])
+    monkeypatch.setattr(af, "get_positions", lambda: {"day": []})
+    monkeypatch.setattr(df_, "fetch_single", lambda *a, **k: None)
+    monkeypatch.setattr(pp, "analyse_holdings", lambda *a, **k: [hold])
+    monkeypatch.setattr(pp, "analyse_positions", lambda *a, **k: [])
+    sent = []
+    monkeypatch.setattr(ca, "dispatch", lambda m, **k: sent.append(m) or True)
+    state = {"portfolio_posture": "2026-10-03"}            # real alert already fired today
+    assert ca.check_portfolio_posture(state, "2026-10-03", test=True) == 1
+    assert sent[0].startswith("🧪") and "J&amp;KBANK" in sent[0] and "HOLD" in sent[0]
+    assert state == {"portfolio_posture": "2026-10-03"}     # unchanged
+    assert ca.check_portfolio_posture(state, "2026-10-03") == 0   # real path still deduped
+
+
 def test_telegram_other_errors_do_not_retry(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")

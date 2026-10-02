@@ -38,6 +38,7 @@ on:
           - test               # diagnostic — proves both channels deliver
           - test-verdict       # one sample STRONG BUY verdict alert, marked TEST
           - test-digest        # morning digest from the last saved scan, marked TEST
+          - test-posture       # portfolio posture incl. HOLD rows, marked TEST
           - morning-digest
           - intraday-watchlist
           - momentum
