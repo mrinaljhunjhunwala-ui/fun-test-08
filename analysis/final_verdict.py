@@ -46,6 +46,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from analysis.action_labels import action_display_label
+
 _log = logging.getLogger("analysis.final_verdict")
 
 
@@ -353,18 +355,18 @@ def _gate_technical(composite_score: Optional[float],
     if act in ("STRONG BUY", "BUY"):
         return GateEvaluation(
             name="technical", passed=True, effect="amplify",
-            message=f"Technical setup: {act.title()} (composite score "
+            message=f"Technical setup: {action_display_label(act)} (composite score "
                     f"{composite_score:.0f}/90).")
 
     if act in ("EXIT", "CAUTION"):
         return GateEvaluation(
             name="technical", passed=False, effect="veto",
-            message=f"Technical setup: {act.title()} (composite score "
-                    f"{composite_score:.0f}/90). Do not enter here.")
+            message=f"Technical setup: {action_display_label(act)} (composite score "
+                    f"{composite_score:.0f}/90). The trend is not intact at this level.")
 
     return GateEvaluation(
         name="technical", passed=True, effect="none",
-        message=f"Technical setup: {act.title() if act else 'neutral'} "
+        message=f"Technical setup: {action_display_label(act) if act else 'Neutral'} "
                 f"(composite score {composite_score:.0f}/90).")
 
 
