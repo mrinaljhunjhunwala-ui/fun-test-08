@@ -75,10 +75,12 @@ with _tab_snapshot:
             elif curr_vix < 35:  regime, reg_color = "High Fear",             "var(--bear)"
             else:                regime, reg_color = "PANIC / Crisis",         "var(--violet)"
 
-            if curr_vix < 15:   opt_str = "BUY options (cheap premium)"
-            elif curr_vix < 22: opt_str = "SPREADS (balanced IV)"
-            elif curr_vix < 28: opt_str = "SELL premium with spreads"
-            else:               opt_str = "SELL wide spreads / long if conviction"
+            # FIX COPY-AUDIT (2026-10-03): describe the premium regime, never an
+            # action — the old buy-options / sell-premium labels read as instructions (rule 1).
+            if curr_vix < 15:   opt_str = "premium cheap (low implied volatility)"
+            elif curr_vix < 22: opt_str = "premium fairly priced (balanced IV)"
+            elif curr_vix < 28: opt_str = "premium rich (elevated IV)"
+            else:               opt_str = "premium very rich (stress-level IV)"
 
             if nifty_chg > 0 and vix_chg > 0:
                 div_txt = "⚠️ Warning: Nifty ↑ + VIX ↑ — fragile rally"

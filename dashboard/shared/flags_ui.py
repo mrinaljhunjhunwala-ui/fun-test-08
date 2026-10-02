@@ -35,7 +35,9 @@ IMPORTANT — refresh cost and where NOT to use this:
 """
 from __future__ import annotations
 
+import html as _html
 from typing import Optional
+from urllib.parse import urlparse
 
 import streamlit as st
 
@@ -111,6 +113,61 @@ def _to_objects(raw: list[dict]) -> list[QualitativeFlag]:
         except (KeyError, ValueError):
             continue
     return out
+
+
+def _is_web_url(value: str) -> bool:
+    """True only for http(s) links — a feed-supplied javascript:/data: URL must
+    never become a clickable href."""
+    try:
+        parsed = urlparse(value.strip())
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _flag_card_html(f: QualitativeFlag) -> str:
+    """One flag card for render_flag_strip.
+
+    News-sourced flags (parse_news_flags) store the article URL in `detail`,
+    not a description — dumping that raw URL as text stretched the whole
+    card/page width for long Google News redirect links, so the headline links
+    to it instead (same pattern as the news tab in 19_quality_watch.py).
+    RSS/announcement flags put a real description in `detail`, shown as text.
+
+    FIX FLAG-XSS (audit 2026-10-03): headline / detail / source come from RSS,
+    exchange announcements and manual notes and land in unsafe_allow_html —
+    they are escaped, and only http(s) URLs become links.
+    """
+    color = _SENTIMENT_COLOR[f.sentiment]
+    cat_label = _CATEGORY_LABEL.get(f.category, f.category.value)
+    manual_tag = " · analyst note" if f.is_manual else ""
+    headline = _html.escape(f.headline or "")
+    detail = f.detail or ""
+    is_news = (f.source or "").startswith("News:")
+    if is_news and _is_web_url(detail):
+        headline_html = (
+            f'<a href="{_html.escape(detail.strip(), quote=True)}" target="_blank" rel="noopener" '
+            f'style="font-size:13px;color:#eee;text-decoration:underline">'
+            f'{headline}</a>'
+        )
+        detail_html = ""
+    else:
+        headline_html = f'<span style="font-size:13px;color:#eee">{headline}</span>'
+        detail_html = (
+            f'<br><span style="font-size:11px;color:#999">{_html.escape(detail)}</span>'
+            if detail and not is_news else ""
+        )
+    return (
+        f'<div style="border-left:3px solid {color};padding:6px 10px;'
+        f'margin:4px 0;background:#181818;border-radius:4px;'
+        f'word-wrap:break-word;overflow-wrap:break-word;max-width:100%">'
+        f'<span style="font-size:11px;color:{color};font-weight:700">'
+        f'{cat_label}{manual_tag} · {_html.escape(str(f.date))}</span><br>'
+        f'{headline_html}'
+        f'{detail_html}'
+        f'<br><span style="font-size:10px;color:#666">{_html.escape(f.source or "")}</span>'
+        '</div>'
+    )
 
 
 def render_flag_badge_html(ticker: str, company_name: Optional[str] = None) -> str:
@@ -209,44 +266,7 @@ def render_flag_strip(ticker: str, company_name: Optional[str] = None) -> None:
         )
         for f in sorted(flags, key=lambda x: (x.sentiment != FlagSentiment.RED,
                                                x.sentiment != FlagSentiment.AMBER)):
-            color = _SENTIMENT_COLOR[f.sentiment]
-            cat_label = _CATEGORY_LABEL.get(f.category, f.category.value)
-            manual_tag = " · analyst note" if f.is_manual else ""
-
-            # News-sourced flags (parse_news_flags) store the article URL in
-            # `detail`, not a description — dumping that raw URL as text was
-            # stretching the whole card/page width for long Google News
-            # redirect links. Link the headline to it instead, same pattern
-            # as the news tab in 19_quality_watch.py, and don't repeat the
-            # URL as a second line. RSS/announcement flags still put a real
-            # description in `detail`, so those keep showing it as text.
-            is_news = f.source.startswith("News:")
-            if is_news and f.detail:
-                headline_html = (
-                    f'<a href="{f.detail}" target="_blank" rel="noopener" '
-                    f'style="font-size:13px;color:#eee;text-decoration:underline">'
-                    f'{f.headline}</a>'
-                )
-                detail_html = ""
-            else:
-                headline_html = f'<span style="font-size:13px;color:#eee">{f.headline}</span>'
-                detail_html = (
-                    f'<br><span style="font-size:11px;color:#999">{f.detail}</span>'
-                    if f.detail else ""
-                )
-
-            st.markdown(
-                f'<div style="border-left:3px solid {color};padding:6px 10px;'
-                f'margin:4px 0;background:#181818;border-radius:4px;'
-                f'word-wrap:break-word;overflow-wrap:break-word;max-width:100%">'
-                f'<span style="font-size:11px;color:{color};font-weight:700">'
-                f'{cat_label}{manual_tag} · {f.date}</span><br>'
-                f'{headline_html}'
-                f'{detail_html}'
-                + f'<br><span style="font-size:10px;color:#666">{f.source}</span>'
-                + '</div>',
-                unsafe_allow_html=True,
-            )
+            st.markdown(_flag_card_html(f), unsafe_allow_html=True)
 
     with st.expander("➕ Add analyst note (manual flag)"):
         st.caption(
