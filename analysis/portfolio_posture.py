@@ -70,6 +70,14 @@ class HoldingPosture:
     rs_63d: Optional[float]  = None
     suggested_stop: Optional[float]     = None    # 2-ATR below LTP
     breakdown_below: Optional[float]    = None    # SMA50 (invalidation level)
+    # Short-history mode (recent listings / demergers): bars available when
+    # fewer than cfg.min_bars_needed; None for a normal full-history posture.
+    history_days: Optional[int]         = None
+
+
+# A listing needs this many clean daily bars for the short-history posture
+# (SMA50 + a few sessions of slope). Below it the holding is still skipped.
+MIN_SHORT_HISTORY_BARS = 60
 
 
 @dataclass
@@ -114,11 +122,17 @@ def analyse_delivery_holding(
     avg    = float(holding.get("avg_price", 0) or 0)
     ltp_fb = float(holding.get("ltp", 0) or 0)
 
-    if df is None or df.empty or len(df) < cfg.min_bars_needed:
+    if df is None or df.empty:
         return None
     df = df[df["Close"] > 0].dropna(subset=["Close", "High", "Low", "Volume"])
-    if len(df) < cfg.min_bars_needed:
+    if len(df) < MIN_SHORT_HISTORY_BARS:
         return None
+    # FIX SHORT-HISTORY (2026-10-03): recent listings / demergers (e.g. two
+    # holdings listed 2026-06-15) had no posture at all for ~10 months because
+    # the trend filter needs SMA200. With fewer than min_bars_needed bars the
+    # trend filter becomes price > SMA50 and SMA20 > SMA50; the other five
+    # filters and the SMA50 invalidation are unchanged. Flagged in the output.
+    short = len(df) < cfg.min_bars_needed
 
     close = df["Close"]
     ltp   = float(close.iloc[-1]) if ltp_fb <= 0 else ltp_fb
@@ -126,7 +140,8 @@ def analyse_delivery_holding(
 
     # ── Six momentum filters, computed for the CURRENT bar ────────────────
     sma_fast = float(close.rolling(cfg.trend_fast_sma).mean().iloc[-1])
-    sma_slow = float(close.rolling(cfg.trend_slow_sma).mean().iloc[-1])
+    sma_slow = (float(close.rolling(20).mean().iloc[-1]) if short
+                else float(close.rolling(cfg.trend_slow_sma).mean().iloc[-1]))
     prior_high_55 = float(close.iloc[-(cfg.breakout_lookback + 1):-1].max())
     vol_today = float(df["Volume"].iloc[-1])
     vol_avg   = float(df["Volume"].iloc[-(cfg.volume_avg_days + 1):-1].mean())
@@ -140,7 +155,8 @@ def analyse_delivery_holding(
     # taken. If today's price is BELOW the prior 55d high computed from
     # today looking back, the setup has decayed.
     filters = {
-        "trend":     ltp > sma_fast > sma_slow,
+        # short history: sma_slow holds SMA20 — "price above SMA50, SMA20 above SMA50"
+        "trend":     (ltp > sma_fast and sma_slow > sma_fast) if short else ltp > sma_fast > sma_slow,
         "breakout":  ltp > prior_high_55,
         "volume":    vol_avg > 0 and vol_today >= 1.5 * vol_avg,
         "rsi_band":  cfg.rsi_min <= rsi_val <= cfg.rsi_max,
@@ -151,6 +167,11 @@ def analyse_delivery_holding(
 
     # ── Posture decision — descriptive, not directive ─────────────────────
     posture, reason = _classify_delivery(filters, pnl_pct, ltp, sma_fast, atr_val)
+    if short:
+        first, hi = float(close.iloc[0]), float(close.max())
+        reason = (f"Limited history ({len(df)} trading days since listing; trend uses SMA20/SMA50, "
+                  f"not SMA200). Since listing: {(ltp / first - 1) * 100:+.1f}%, "
+                  f"{(ltp / hi - 1) * 100:+.1f}% vs its high. " + reason)
 
     return HoldingPosture(
         symbol=symbol,
@@ -164,7 +185,7 @@ def analyse_delivery_holding(
         filters_detail=filters,
         rsi=round(rsi_val, 1),
         sma50=round(sma_fast, 2),
-        sma200=round(sma_slow, 2),
+        sma200=None if short else round(sma_slow, 2),
         atr=round(atr_val, 2),
         rs_63d=(round(_relative_strength(
             close,
@@ -173,6 +194,7 @@ def analyse_delivery_holding(
         ) or 0.0, 2)),
         suggested_stop=round(ltp - 2 * atr_val, 2),
         breakdown_below=round(sma_fast, 2),
+        history_days=len(df) if short else None,
     )
 
 
@@ -329,7 +351,7 @@ def analyse_holdings(
     Pass a list as `skipped` to receive {"symbol", "reason"} for every
     holding that produced no posture, so the page can say why."""
     out: List[HoldingPosture] = []
-    need = DEFAULT_CONFIG.min_bars_needed
+    need = MIN_SHORT_HISTORY_BARS
     for h in holdings or []:
         sym = h.get("symbol", "")
         try:
@@ -345,7 +367,7 @@ def analyse_holdings(
                 reason = "price history could not be fetched"
             else:
                 reason = (f"only {len(df)} trading days of history "
-                          f"(needs {need} for the 200-day average) — likely a recent listing")
+                          f"(needs at least {need} even for the limited-history read) — very recent listing")
             skipped.append({"symbol": sym, "reason": reason})
     return out
 
