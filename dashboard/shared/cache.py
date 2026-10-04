@@ -1175,10 +1175,15 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
         _log.debug("cache._tomorrow_watchlist universe failed: %s", _e)
         return out
 
+    # Sector strength, resolved once outside the worker threads. Without it
+    # every name was scored as "unranked" (audit 2026-10-03), so the same stock
+    # read differently here than on Top Picks / Analyze Stock.
+    _sec_df = _sector_df_from_tuple(_sector_ranks_tuple())
+
     def _one(tk):
         try:
             from analysis.score import score_stock
-            s = score_stock(tk)
+            s = score_stock(tk, sector_scores_df=_sec_df)
             # FIX 3: pattern_score no longer exists on CompositeScore (removed in
             # PATTERN_REMOVAL_MIGRATION). Access only valid fields.
             # FIX C6: this caller needs technical/momentum/volume but not the

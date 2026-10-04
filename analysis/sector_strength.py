@@ -51,6 +51,8 @@ def rank_sectors(top_n_per_sector: int = 3, lookback: int = 21) -> pd.DataFrame:
         DataFrame indexed by sector name with columns:
             Momentum : float  (avg % move of sampled constituents)
             Rank     : int    (1 = strongest sector)
+        Sectors with no successful fetch are left out (unranked), so the
+        frame can be shorter than list_sectors() — or empty on a full outage.
     """
     from data.universe import list_sectors, get_tickers_by_sector
 
@@ -79,8 +81,18 @@ def rank_sectors(top_n_per_sector: int = 3, lookback: int = 21) -> pd.DataFrame:
     for s in sectors:
         vals = [moms.get(t) for t in sector_tickers[s]]
         vals = [v for v in vals if v is not None]
-        avg = round(sum(vals) / len(vals), 2) if vals else 0.0
+        if not vals:
+            # FIX SECTOR-NODATA (audit 2026-10-03): a sector whose every fetch
+            # failed used to enter the ranking at Momentum 0.0, so a full
+            # outage ranked sectors 1-22 alphabetically and handed out
+            # tailwinds/headwinds with no data. Leave it unranked instead —
+            # score_stock scores an unranked sector neutral.
+            continue
+        avg = round(sum(vals) / len(vals), 2)
         rows.append({"Sector": s, "Momentum": avg, "_n": len(vals)})
+
+    if not rows:
+        return pd.DataFrame(columns=["Momentum", "_n", "Rank"])
 
     df = (
         pd.DataFrame(rows)

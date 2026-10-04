@@ -309,7 +309,7 @@ class CompositeScore:
     narrative:          str
     sector:             str
     vix_regime:         str
-    sector_rank:        int
+    sector_rank:        Optional[int]  # None = sector not in the current ranking (scored neutral)
     patterns_detected:  List[str]    = field(default_factory=list)   # informational only
     momentum_fallback:  bool         = False   # True when < 25 bars of history
     horizon:            str          = ""      # FIX HZ1: e.g. "Swing (3–10 trading days)"
@@ -874,7 +874,36 @@ def _detect_patterns(df: pd.DataFrame) -> Dict:
 # Sub-scorer: Sentiment  (10 pts)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _score_sentiment(vix_info: Dict, sector_rank: int, n_sectors: int = 15,
+def _resolve_sector_rank(sector: str, sector_scores_df) -> Tuple[Optional[int], int]:
+    """(rank, number of ranked sectors) for score_stock.
+
+    FIX SECTOR-RANK-DEFAULT (audit 2026-10-03): this used to default to rank 7
+    measured against len(list_sectors()) == 22, and 7 <= 22 // 3 put every
+    unranked stock in the top third. The thirds are now measured against the
+    sectors actually ranked, and a sector missing from the ranking (or no
+    ranking at all) is None, which _score_sentiment scores as neutral.
+    """
+    if sector_scores_df is None or getattr(sector_scores_df, "empty", True) \
+            or "Rank" not in sector_scores_df.columns:
+        return None, 0
+    n = int(len(sector_scores_df))
+    if sector not in sector_scores_df.index:
+        return None, n
+    return int(sector_scores_df.loc[sector, "Rank"]), n
+
+
+def _sector_points(sector_rank: Optional[int], n_sectors: int, *, top: float, mid: float) -> float:
+    """Top / middle / bottom third of the sector ranking; unranked = middle (neutral)."""
+    if sector_rank is None or n_sectors <= 0:
+        return mid
+    if sector_rank <= n_sectors // 3:
+        return top
+    if sector_rank <= 2 * n_sectors // 3:
+        return mid
+    return 0.0
+
+
+def _score_sentiment(vix_info: Dict, sector_rank: Optional[int], n_sectors: int = 15,
                      flows_info: Optional[Dict] = None) -> Tuple[float, Dict]:
     """Sentiment pillar (10 pts).
 
@@ -897,6 +926,7 @@ def _score_sentiment(vix_info: Dict, sector_rank: int, n_sectors: int = 15,
     """
     regime = (vix_info or {}).get("regime", "normal")
     pts: Dict[str, float] = {}
+    pts["sector_ranked"] = sector_rank is not None
 
     _flows_available = (
         isinstance(flows_info, dict)
@@ -916,11 +946,7 @@ def _score_sentiment(vix_info: Dict, sector_rank: int, n_sectors: int = 15,
         pts["vix"] = 5.0
         pts["vix_regime"] = regime
 
-        top_third = n_sectors // 3
-        mid_third = 2 * n_sectors // 3
-        if sector_rank <= top_third:   pts["sector"] = 3.0
-        elif sector_rank <= mid_third: pts["sector"] = 1.5
-        else:                           pts["sector"] = 0.0
+        pts["sector"] = _sector_points(sector_rank, n_sectors, top=3.0, mid=1.5)
 
         # Flows: sign of 5-day (FII + DII) net cash-market
         _fii = float(flows_info.get("fii_5d") or 0.0)
@@ -946,11 +972,7 @@ def _score_sentiment(vix_info: Dict, sector_rank: int, n_sectors: int = 15,
         pts["vix"] = 6.0
         pts["vix_regime"] = regime
 
-        top_third = n_sectors // 3
-        mid_third = 2 * n_sectors // 3
-        if sector_rank <= top_third:   pts["sector"] = 4.0
-        elif sector_rank <= mid_third: pts["sector"] = 2.0
-        else:                           pts["sector"] = 0.0
+        pts["sector"] = _sector_points(sector_rank, n_sectors, top=4.0, mid=2.0)
 
         pts["flows_available"] = False
         total = pts["vix"] + pts["sector"]
@@ -1253,7 +1275,7 @@ def _build_narrative(
     ticker: str, df: pd.DataFrame, score: float, grade: str, action: str,
     tech_pts: Dict, mom_pts: Dict, vol_pts: Dict, patterns: List[str],
     entry: float, sl: float, tp: float, rr: float,
-    sector: str, vix_regime: str, sector_rank: int, n_sectors: int,
+    sector: str, vix_regime: str, sector_rank: Optional[int], n_sectors: int,
     momentum_fallback: bool,
     sent_pts: Optional[Dict] = None,   # FIX FLOWS1: flow sentence gated on this
 ) -> Tuple[str, str]:
@@ -1479,12 +1501,16 @@ def _build_narrative(
     vix_txt    = vix_sentence_map.get(vix_regime, "Market conditions are uncertain.")
     top_third  = n_sectors // 3
     mid_third  = 2 * n_sectors // 3
-    sector_txt = (
-        f"The {sector} sector is currently ranked #{sector_rank} — "
-        + ("a tailwind for this stock." if sector_rank <= top_third else
-           "neutral sector backdrop."   if sector_rank <= mid_third else
-           "a headwind — sector is underperforming.")
-    )
+    if sector_rank is None:
+        sector_txt = (f"The {sector} sector isn't in the current sector-strength ranking, "
+                      "so it is treated as a neutral backdrop.")
+    else:
+        sector_txt = (
+            f"The {sector} sector is currently ranked #{sector_rank} of {n_sectors} — "
+            + ("a tailwind for this stock." if sector_rank <= top_third else
+               "neutral sector backdrop."   if sector_rank <= mid_third else
+               "a headwind — sector is underperforming.")
+        )
     parts.append(f"{vix_txt} {sector_txt}")
 
     # Sentence 7: FII/DII 5-day flows (FIX FLOWS1) — only when available.
@@ -1523,7 +1549,7 @@ def score_dataframe(
     df:           pd.DataFrame,
     ticker:       str,
     vix_info:     Optional[Dict] = None,
-    sector_rank:  int = 7,
+    sector_rank:  Optional[int] = 7,   # 7 of the default 15 = middle third; None = unranked
     sector:       str = "Other",
     n_sectors:    int = 15,
     dispersion:   Optional[float] = None,
@@ -1729,7 +1755,7 @@ def score_stock(
             entry=0, stop_loss=0, target=0, risk_reward=0,
             headline="Engine dependencies unavailable",
             narrative="Could not load required modules. Check your Python path setup.",
-            sector="Unknown", vix_regime="unknown", sector_rank=7,
+            sector="Unknown", vix_regime="unknown", sector_rank=None,
         )
 
     # Resolve ticker — catches all exception types, not just ValueError
@@ -1752,11 +1778,7 @@ def score_stock(
 
     # Sector + rank
     sector     = _get_sector(canonical)
-    n_sectors  = len(_list_sectors())
-    sector_rank = 7
-    if sector_scores_df is not None and not sector_scores_df.empty:
-        if sector in sector_scores_df.index and "Rank" in sector_scores_df.columns:
-            sector_rank = int(sector_scores_df.loc[sector, "Rank"])
+    sector_rank, n_sectors = _resolve_sector_rank(sector, sector_scores_df)
 
     # Fetch + indicators
     try:
