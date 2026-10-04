@@ -152,3 +152,23 @@ def test_footer_mentions_brackets_only_when_present(monkeypatch):
     monkeypatch.setattr(ca, "_verdict_of", lambda b: ("BUY", 79))
     ca.check_delivery_digest({}, "2026-10-02")
     assert "(79)" in sent2[0] and "conviction in brackets" in sent2[0]
+
+
+def test_scan_label_date_only_where_asked():
+    gen = "2026-10-01T17:23:13+00:00"                      # 22:53 IST, Thu 1 Oct
+    assert ca._snapshot_ist_label(gen) == "22:53 IST"
+    assert ca._snapshot_ist_label(gen, with_date=True) == "22:53 IST, Thu 1 Oct"
+    assert ca._snapshot_ist_label("garbage", with_date=True) == "unknown time"
+
+
+def test_digest_and_test_header_show_scan_date(monkeypatch):
+    import trade_store
+    sent = _setup(monkeypatch, [_pick("AAA.NS", 72, "BUY")], {"AAA.NS": "BUY"}, age_h=40)
+    monkeypatch.setattr(trade_store, "kv_set", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(ca, "_verdict_of", lambda b: ("WATCH", 60))
+    assert ca.check_test_digest({}, "2026-10-05") == 1
+    hdr, sub = sent[0].splitlines()[:2]
+    # "(… HH:MM IST, Ddd D Mon; may be stale)" and "(scan at HH:MM IST, Ddd D Mon)"
+    import re
+    assert re.search(r"\d\d:\d\d IST, [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}; may be stale", hdr)
+    assert re.search(r"scan at \d\d:\d\d IST, [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}\)", sub)
