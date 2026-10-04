@@ -1,0 +1,66 @@
+name: Automerge
+
+# "Merge when green" without branch protection: required status checks need
+# GitHub Pro on a private repo, so GitHub's own auto-merge refuses
+# ("Pull request is in unstable status") while CI is still running.
+#
+# Add the `automerge` label to a PR and this squash-merges it once every job
+# in REQUIRED_CHECKS (the CI workflow's jobs) has passed on the PR's current
+# head. Fires when CI finishes, and when the label is added after CI already
+# passed. Same-repo PRs only; it never checks out PR code.
+#
+# This is a convenience, not protection: nothing stops a manual merge or a
+# direct push to main.
+#
+# Token: a merge made with the default GITHUB_TOKEN does NOT trigger other
+# workflows, so CI's push-to-main run is skipped for automerged PRs (the PR
+# run already tested that head). Set an AUTOMERGE_TOKEN secret (fine-grained
+# PAT: Contents + Pull requests read/write on this repo) to get it back.
+#
+# workflow_run only fires for workflow files on the default branch, so this
+# starts working once it is merged to main.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  pull_request:
+    types: [labeled]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: automerge-${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.event == 'pull_request'
+        && github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.pull_requests[0].number)
+      || (github.event_name == 'pull_request' && github.event.label.name == 'automerge')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Sparse checkout of the default branch's script only — never the PR's code.
+      - name: Checkout merge script
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Merge if every required check passed
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+          # Only pinned for workflow_run: CI tested exactly this commit.
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REQUIRED_CHECKS: "test real-postgres"
+        run: bash .github/scripts/automerge.sh
