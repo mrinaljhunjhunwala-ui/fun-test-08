@@ -1405,6 +1405,29 @@ _TW_MAX_AGE_SECONDS = 6 * 3600    # 6h — this is an EOD/next-session scan, not
                                   # a once-daily cron has a lot more slack than Top Picks'
                                   # 15-min cadence, so a generous window here is correct,
                                   # not sloppy — see warm-tomorrow-watchlist.yml schedule.
+_TW_CLOSE_GRACE = datetime.timedelta(hours=3)   # post-close warm job lands within this
+
+
+def _tw_snapshot_current(gen_at, now: "datetime.datetime | None" = None) -> bool:
+    """True when a Tomorrow's Watchlist snapshot still describes the latest
+    closed session.
+
+    Age alone was wrong for an EOD scan: past 6h every night after ~22:00 IST,
+    and across weekends and holidays, a perfectly current snapshot was thrown
+    away for a live scan that comes back empty on Streamlit Cloud. Current =
+    under _TW_MAX_AGE_SECONDS old, OR the session it priced (last closed
+    session at scan time) is the latest closed session, allowing
+    _TW_CLOSE_GRACE after the close for the warm job to run.
+    """
+    from utils.snapshot_time import parse_snapshot_timestamp
+    from analysis.verdict_ledger import last_closed_session
+    ts = parse_snapshot_timestamp(gen_at)
+    if ts is None:
+        return False
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if 0 <= (now - ts).total_seconds() <= _TW_MAX_AGE_SECONDS:
+        return True
+    return last_closed_session(ts) >= last_closed_session(now - _TW_CLOSE_GRACE)
 
 
 def get_tomorrow_watchlist(n: int = 15) -> dict:
@@ -1419,8 +1442,8 @@ def get_tomorrow_watchlist(n: int = 15) -> dict:
     scripts/warm_tomorrow_watchlist.py runs on a schedule (GitHub Actions —
     see .github/workflows/warm-tomorrow-watchlist.yml, once after market
     close) and writes a fresh scan result to trade_store. This function reads
-    that snapshot first; only if it's missing or older than
-    _TW_MAX_AGE_SECONDS does it fall back to a live scan (which
+    that snapshot first; only if it's missing or no longer describes the
+    latest closed session (_tw_snapshot_current) does it fall back to a live scan (which
     17_tomorrow_watchlist.py's own FIX W1 stale-while-revalidate handles
     non-blockingly either way).
     """
@@ -1428,10 +1451,9 @@ def get_tomorrow_watchlist(n: int = 15) -> dict:
         snap = _store.kv_get(_TW_KV_KEY, user_id=_TW_KV_USER)
         if snap and isinstance(snap, dict):
             _gen_at = snap.get("generated_at")
-            _age = snapshot_age_seconds(_gen_at)
-            if _gen_at and _age is None:
+            if _gen_at and snapshot_age_seconds(_gen_at) is None:
                 _log.debug("cache.get_tomorrow_watchlist: bad generated_at %r", _gen_at)
-            if _age is not None and _age <= _TW_MAX_AGE_SECONDS:
+            if _tw_snapshot_current(_gen_at):
                 data = snap.get("data")
                 if isinstance(data, dict) and "scan_time" in data:
                     data = dict(data)
