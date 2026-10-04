@@ -62,6 +62,14 @@ st.markdown(
 
 _ao_ok = _ao_is_configured()
 if _ao_ok:
+    # FIX AO-PIN (audit 2026-10-04): the app has no login, so every viewer
+    # could see holdings/funds and place real orders. Lock the page behind
+    # the owner's PIN before any broker call. Not configured → setup text
+    # below needs no PIN (nothing sensitive is shown).
+    from dashboard.shared.pin_gate import require_pin as _require_pin
+    _require_pin("angel_one", "Angel One")
+
+if _ao_ok:
     # Log in (or reuse the cached session) so the status below is current.
     try:
         _ao_get_session()
@@ -180,6 +188,10 @@ if st.button("🔄 Refresh Session", key="ao_refresh"):
     # login on the next request.
     _ao_clear_session()
     st.success("Session cleared — reconnecting on next request")
+    st.rerun()
+if st.button("🔒 Lock page", key="ao_lock"):
+    from dashboard.shared.pin_gate import relock as _relock
+    _relock("angel_one")
     st.rerun()
 
 tab_ao1, tab_ao2, tab_ao3, tab_ao4, tab_ao5, tab_ao6 = st.tabs([
