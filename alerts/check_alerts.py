@@ -873,11 +873,18 @@ _DIGEST_MAX_SNAPSHOT_AGE_H = 16
 _MORNING_PICKS_KEY = "morning_digest_picks"
 
 
-def _snapshot_ist_label(gen_at) -> str:
-    """generated_at (UTC ISO) → 'HH:MM IST'; the raw stamp is UTC, not IST."""
+def _snapshot_ist_label(gen_at, *, with_date: bool = False) -> str:
+    """generated_at (UTC ISO) → 'HH:MM IST'; the raw stamp is UTC, not IST.
+    with_date adds ', Thu 1 Oct' so a scan saved before a holiday or weekend
+    isn't read as today's (the "this morning's …" follow-ups don't need it)."""
     from utils.snapshot_time import parse_snapshot_timestamp
     ts = parse_snapshot_timestamp(gen_at)
-    return ts.astimezone(_IST).strftime("%H:%M IST") if ts else "unknown time"
+    if not ts:
+        return "unknown time"
+    ist = ts.astimezone(_IST)
+    label = ist.strftime("%H:%M IST")
+    # day without a leading zero; %-d is not portable to Windows
+    return f"{label}, {ist:%a} {ist.day} {ist:%b}" if with_date else label
 
 
 # Bullish names under this composite score are labelled "Watch only" in the
@@ -918,7 +925,7 @@ def _digest_lines(buys: list, gen_at, max_picks: int, header: "str | None" = Non
     lines = [
         header or "📈 <b>Morning Delivery Digest</b>",
         f"<i>Top {min(max_picks, len(buys))} positional candidates from today's scan "
-        f"(scan at {_snapshot_ist_label(gen_at)})</i>",
+        f"(scan at {_snapshot_ist_label(gen_at, with_date=True)})</i>",
         "",
     ]
 
@@ -1174,7 +1181,7 @@ def check_test_digest(state: dict, today: str, *, max_picks: int = 5) -> int:
         print("[test-digest] snapshot has 0 picks")
         return 0
     header = (f"🧪 <b>TEST — Morning Delivery Digest format</b> "
-              f"(built from the last saved scan, {_snapshot_ist_label(gen_at)}; may be stale)")
+              f"(built from the last saved scan, {_snapshot_ist_label(gen_at, with_date=True)}; may be stale)")
     msg = "\n".join(_digest_lines(buys, gen_at, max_picks, header=header))
     return 1 if dispatch(msg, subject="NSE Smart Investor — TEST morning digest") else 0
 
