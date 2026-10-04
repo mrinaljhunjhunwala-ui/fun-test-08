@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import numpy as np
 import pandas as pd
-from datetime import datetime, time as dtime
+from datetime import datetime
 from typing import Dict, List, Optional
 
 _log = logging.getLogger("trading.intraday_signals")
