@@ -134,6 +134,9 @@ _PAGE_CHANGES = [
                    "score's edge only in rising markets.",
      "A second pre-registered test counts only verdicts logged while NIFTY was rising; the first is "
      "unchanged."),
+    ("2026-10-05", "A failed ledger read (busy database right after a restart) looked like an empty "
+                   "ledger: the evidence test showed “0 verdicts over 0 days”.",
+     "A failed read is retried once, then shown as “couldn't read the ledger” — never as zero."),
 ]
 
 with st.expander("🛠 What this page was meant to do — and what it does now", expanded=False):
@@ -175,7 +178,26 @@ _col2.metric("Rows scanned this load", _stats.get("scanned", 0))
 _col3.metric("Rows updated", _stats.get("updated", 0))
 _col4.metric("Tickers fetched", _stats.get("tickers_fetched", 0))
 
+def _ledger_read_error(df) -> "str | None":
+    """Error type if `df` is empty because the ledger read failed. getattr: an
+    in-memory module from before a redeploy has no ledger_error()."""
+    fn = getattr(_vl, "ledger_error", None)
+    return fn(df) if fn else None
+
+
+def _ledger_unavailable(err: str, what: str) -> None:
+    st.warning(
+        f"**Couldn't read the verdict ledger right now** ({err}), so {what} is unknown — "
+        "not zero. This usually means the database is busy, e.g. just after an app restart; "
+        "reload in a minute.",
+        icon="⏳",
+    )
+
+
 _ledger = _vl.load_ledger(limit=5000)
+if _ledger_read_error(_ledger):
+    _ledger_unavailable(_ledger_read_error(_ledger), "every number on this page")
+    st.stop()
 if _ledger.empty:
     st.info(
         "No verdicts logged yet. Open the **🔍 Analyze Stock** page for any "
@@ -248,6 +270,11 @@ if _NEW_API:
     for _rule_name, _rule_def in _rules:
         _rule_res = (_vl.evaluate_decision_rule(_rule_def, nifty_df=_nifty_df) if _rule_def
                      else _vl.evaluate_decision_rule())
+        if _rule_res["status"] == "unavailable":
+            st.caption(f"**{_rule_name}.**")
+            _ledger_unavailable(_rule_res.get("error") or "unknown error",
+                                "this test's progress")
+            continue
         _rule = _rule_res["rule"]
         _scope = (f" logged on days when NIFTY was **{_rule['regime'].lower()}** over the prior "
                   f"{_vl.REGIME_LOOKBACK_SESSIONS} sessions" if _rule.get("regime") else "")
@@ -350,7 +377,9 @@ _horizon_choice = st.radio(
 
 _cal = _vl.calibration_by(group_col="verdict", horizon_days=_horizon_choice,
                           **_src_kw(_vl.calibration_by))
-if _cal.empty:
+if _ledger_read_error(_cal):
+    _ledger_unavailable(_ledger_read_error(_cal), "the hit rate by verdict")
+elif _cal.empty:
     st.info(
         f"No verdicts have played out for the **{_horizon_choice}-session** horizon "
         f"yet. Try a shorter horizon (1/5 sessions), or wait a few sessions."
@@ -397,7 +426,9 @@ if _NEW_API:
 
     _reg = _vl.regime_calibration(horizon_days=_horizon_choice, nifty_df=_nifty_df,
                                   **_src_kw(_vl.regime_calibration))
-    if _reg.empty:
+    if _ledger_read_error(_reg):
+        _ledger_unavailable(_ledger_read_error(_reg), "the regime split")
+    elif _reg.empty:
         st.info(f"No BUY/STRONG BUY calls have played out at {_horizon_choice} sessions yet.")
     else:
         _reg = _reg.rename(columns={
@@ -484,7 +515,9 @@ _sub_choice = st.selectbox(
 )
 _sub_tbl = _vl.calibration_by(group_col=_sub_choice, horizon_days=_horizon_choice,
                                **_src_kw(_vl.calibration_by))
-if _sub_tbl.empty:
+if _ledger_read_error(_sub_tbl):
+    _ledger_unavailable(_ledger_read_error(_sub_tbl), "the subsystem hit rate")
+elif _sub_tbl.empty:
     st.info("Not enough data with this subsystem populated yet.")
 else:
     _sub_tbl = _sub_tbl.rename(columns={
@@ -514,7 +547,9 @@ _min_n = st.slider("Minimum firings per tag", 3, 30, 5, 1,
                     key="_cal_tag_minn")
 _tag_tbl = _vl.tag_calibration(horizon_days=_horizon_choice, min_n=_min_n,
                                 **_src_kw(_vl.tag_calibration))
-if _tag_tbl.empty:
+if _ledger_read_error(_tag_tbl):
+    _ledger_unavailable(_ledger_read_error(_tag_tbl), "the per-tag hit rate")
+elif _tag_tbl.empty:
     st.info(
         "No signal tags with enough firings yet. Every time you open Analyze "
         "Stock, the sub-signals that contributed are recorded — after ~20-30 "
@@ -550,7 +585,9 @@ _sh_horizon = st.select_slider(
     key="_sh_horizon",
 )
 _sh = _vl.shadow_pnl(horizon_days=_sh_horizon)
-if _sh.empty:
+if _ledger_read_error(_sh):
+    _ledger_unavailable(_ledger_read_error(_sh), "the shadow-trade record")
+elif _sh.empty:
     st.info(
         "No shadow trades have played out for this horizon yet. Once you "
         "visit **🎯 Command Centre** or **⭐ My Watchlist** a few times, "

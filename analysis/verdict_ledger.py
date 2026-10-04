@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -362,43 +363,114 @@ def log_verdict(*,
 # Read path
 # ─────────────────────────────────────────────────────────────────────────────
 
+class LedgerUnavailable(RuntimeError):
+    """The ledger could not be read (DB pool / connection / query failure).
+
+    Distinct from an empty ledger: callers that report counts must say "couldn't
+    read" rather than "0 verdicts". `error_type` is the underlying exception's
+    class name — safe to show in the UI (the message may carry DB details)."""
+
+    def __init__(self, cause: BaseException):
+        self.cause = cause
+        self.error_type = type(cause).__name__
+        super().__init__(f"{self.error_type}: {cause}")
+
+
+# Exception class names (anywhere in the MRO) worth one retry: pool exhaustion
+# (trade_store's semaphore-gated _get_conn raises psycopg2's PoolError after its
+# wait), dropped / not-yet-open connections and locked SQLite files. Matched by
+# name so this module needn't import psycopg2. Anything else (bad SQL, schema
+# drift) fails fast — retrying would only double the wait.
+_TRANSIENT_ERROR_NAMES = frozenset({"PoolError", "OperationalError", "InterfaceError",
+                                    "TimeoutError", "ConnectionError"})
+# Back-off before each retry, in seconds. One short retry: right after a reboot
+# the first-run universe scan can hold every pool slot for a few seconds.
+_LEDGER_RETRY_DELAYS_S: tuple = (2.0,)
+
+# DataFrame.attrs key set on the empty frame returned when the ledger read
+# failed, so "couldn't read" can be told apart from "nothing played out yet".
+LEDGER_ERROR_ATTR = "ledger_error"
+
+
+def _is_transient(e: BaseException) -> bool:
+    return any(c.__name__ in _TRANSIENT_ERROR_NAMES for c in type(e).__mro__)
+
+
+def _unavailable_frame(err: "LedgerUnavailable") -> pd.DataFrame:
+    df = pd.DataFrame()
+    df.attrs[LEDGER_ERROR_ATTR] = err.error_type
+    return df
+
+
+def ledger_error(df: Optional[pd.DataFrame]) -> Optional[str]:
+    """Error type name if `df` came back empty because the ledger read failed,
+    else None (a genuinely empty or populated result)."""
+    if df is None:
+        return None
+    return df.attrs.get(LEDGER_ERROR_ATTR)
+
+
 def load_ledger(*, ticker: Optional[str] = None,
                 source: Optional[str] = None,
-                limit: int = 500) -> pd.DataFrame:
+                limit: int = 500,
+                on_error: str = "empty") -> pd.DataFrame:
     """
     Load the ledger, joined with any forward returns already computed.
-    Returns a fresh empty DataFrame on any error — never raises.
+
+    A transient pool / connection error is retried once after a short back-off.
+    If the read still fails: on_error="empty" (default) logs it and returns an
+    empty DataFrame tagged so `ledger_error(df)` names the failure — never
+    raises; on_error="raise" raises LedgerUnavailable so the caller can say
+    "couldn't read" instead of reporting zero verdicts.
     """
-    try:
-        ensure_schema()
-        where, params = [], []
-        if ticker:
-            where.append("v.ticker = ?"); params.append(ticker)
-        if source:
-            where.append("v.source = ?"); params.append(source)
-        wsql = ("WHERE " + " AND ".join(where)) if where else ""
-        sql = _store._q(f"""
-            SELECT v.*,
-                   r.checked_at,
-                   r.price_1d,   r.ret_1d,   r.nifty_ret_1d,
-                   r.price_5d,   r.ret_5d,   r.nifty_ret_5d,
-                   r.price_20d,  r.ret_20d,  r.nifty_ret_20d,
-                   r.price_60d,  r.ret_60d,  r.nifty_ret_60d,
-                   r.price_250d, r.ret_250d, r.nifty_ret_250d,
-                   r.sector_ret_1d, r.sector_ret_5d, r.sector_ret_20d,
-                   r.sector_ret_60d, r.sector_ret_250d
-            FROM verdict_log v
-            LEFT JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
-            {wsql}
-            ORDER BY v.logged_at DESC
-            LIMIT ?
-        """)
-        params.append(int(limit))
-        with _store._get_conn() as conn:
-            return read_sql_df(sql, conn, params=tuple(params))
-    except Exception as e:
-        _log.warning("load_ledger failed: %s: %s", type(e).__name__, e)
-        return pd.DataFrame()
+    if on_error not in ("empty", "raise"):
+        raise ValueError(f"on_error must be 'empty' or 'raise', not {on_error!r}")
+    delays = list(_LEDGER_RETRY_DELAYS_S)
+    while True:
+        try:
+            return _read_ledger(ticker=ticker, source=source, limit=limit)
+        except Exception as e:
+            if delays and _is_transient(e):
+                delay = delays.pop(0)
+                _log.info("load_ledger: %s, retrying in %.1fs", type(e).__name__, delay)
+                time.sleep(delay)
+                continue
+            _log.warning("load_ledger failed: %s: %s", type(e).__name__, e)
+            err = LedgerUnavailable(e)
+            if on_error == "raise":
+                raise err from e
+            return _unavailable_frame(err)
+
+
+def _read_ledger(*, ticker: Optional[str], source: Optional[str], limit: int) -> pd.DataFrame:
+    ensure_schema()
+    where, params = [], []
+    if ticker:
+        where.append("v.ticker = ?")
+        params.append(ticker)
+    if source:
+        where.append("v.source = ?")
+        params.append(source)
+    wsql = ("WHERE " + " AND ".join(where)) if where else ""
+    sql = _store._q(f"""
+        SELECT v.*,
+               r.checked_at,
+               r.price_1d,   r.ret_1d,   r.nifty_ret_1d,
+               r.price_5d,   r.ret_5d,   r.nifty_ret_5d,
+               r.price_20d,  r.ret_20d,  r.nifty_ret_20d,
+               r.price_60d,  r.ret_60d,  r.nifty_ret_60d,
+               r.price_250d, r.ret_250d, r.nifty_ret_250d,
+               r.sector_ret_1d, r.sector_ret_5d, r.sector_ret_20d,
+               r.sector_ret_60d, r.sector_ret_250d
+        FROM verdict_log v
+        LEFT JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
+        {wsql}
+        ORDER BY v.logged_at DESC
+        LIMIT ?
+    """)
+    params.append(int(limit))
+    with _store._get_conn() as conn:
+        return read_sql_df(sql, conn, params=tuple(params))
 
 
 TW_BUCKET_PREFIX = "tw:"
@@ -792,7 +864,10 @@ def calibration_by(*, group_col: str, horizon_days: int,
     Wilson lower bound. Missing (unfilled) rows are excluded so the stats
     reflect only calls that have had time to play out.
     """
-    df = load_ledger(source=source, limit=5000)
+    try:
+        df = load_ledger(source=source, limit=5000, on_error="raise")
+    except LedgerUnavailable as e:
+        return _unavailable_frame(e)
     if df.empty:
         return pd.DataFrame()
     ret_col   = f"ret_{horizon_days}d"
@@ -940,10 +1015,10 @@ def tag_calibration(*, horizon_days: int, min_n: int = 5,
     to avoid noisy rankings on singleton signals. `source` limits it to
     verdicts logged by one surface (e.g. 'tomorrow_watchlist').
     """
-    ensure_schema()
     ret_col   = f"ret_{horizon_days}d"
     nifty_col = f"nifty_ret_{horizon_days}d"
     try:
+        ensure_schema()
         sql = _store._q(f"""
             SELECT t.tag,
                    v.id AS log_id,
@@ -960,7 +1035,7 @@ def tag_calibration(*, horizon_days: int, min_n: int = 5,
             df = read_sql_df(sql, conn, params=(source,) if source else ())
     except Exception as e:
         _log.warning("tag_calibration failed: %s: %s", type(e).__name__, e)
-        return pd.DataFrame()
+        return _unavailable_frame(LedgerUnavailable(e))
 
     if df.empty:
         return df
@@ -975,7 +1050,10 @@ def shadow_pnl(*, horizon_days: int = 20) -> pd.DataFrame:
     emitted?' Filters shadow-source rows with a positive-side verdict and a
     computed forward return for the horizon.
     """
-    df = load_ledger(source="shadow_auto", limit=5000)
+    try:
+        df = load_ledger(source="shadow_auto", limit=5000, on_error="raise")
+    except LedgerUnavailable as e:
+        return _unavailable_frame(e)
     if df.empty:
         return df
     df = df[df["verdict"].isin(["BUY", "STRONG BUY"])].copy()
@@ -1013,7 +1091,9 @@ _FULL_LEDGER_LIMIT = 1_000_000
 
 
 def _load_full_ledger() -> pd.DataFrame:
-    df = load_ledger(limit=_FULL_LEDGER_LIMIT)
+    """Every ledger row. Raises LedgerUnavailable when the read fails — an empty
+    frame here must mean an empty ledger, never a failed read."""
+    df = load_ledger(limit=_FULL_LEDGER_LIMIT, on_error="raise")
     if len(df) >= _FULL_LEDGER_LIMIT:
         _log.warning("verdict ledger read truncated at %d rows", _FULL_LEDGER_LIMIT)
     return df
@@ -1043,7 +1123,10 @@ def regime_calibration(*, horizon_days: int, nifty_df: Optional[pd.DataFrame],
     """Calibration for `verdicts` split by the NIFTY regime on the day each
     verdict was logged. Rows whose regime can't be determined are 'Unknown'.
     `source` limits it to verdicts logged by one surface."""
-    df = _load_full_ledger()
+    try:
+        df = _load_full_ledger()
+    except LedgerUnavailable as e:
+        return _unavailable_frame(e)
     if source and not df.empty and "source" in df.columns:
         df = df[df["source"] == source]
     ret_col, nifty_col = f"ret_{horizon_days}d", f"nifty_ret_{horizon_days}d"
@@ -1101,7 +1184,10 @@ def evaluate_decision_rule(rule: Optional[Dict[str, Any]] = None,
     status: 'insufficient' (verdicts / days WITH a NIFTY return below
                             min_verdicts / min_days),
             'met' (day-clustered Wilson lower vs NIFTY > threshold),
-            'not_met' otherwise. Descriptive only — an evidence check on the
+            'not_met' otherwise,
+            'unavailable' (the ledger couldn't be read; `error` names the
+                           exception type — counts are unknown, not zero).
+            Descriptive only — an evidence check on the
             model's own past calls, not a recommendation.
     """
     rule = rule or DECISION_RULE
@@ -1109,8 +1195,12 @@ def evaluate_decision_rule(rule: Optional[Dict[str, Any]] = None,
     res: Dict[str, Any] = {"status": "insufficient", "n": 0, "n_days": 0,
                            "wilson_lower_days_vs_nifty": None,
                            "day_win_vs_nifty": None, "mean_alpha": None, "rule": rule,
-                           "n_alpha": 0, "alpha_days": 0}
-    df = _load_full_ledger()
+                           "n_alpha": 0, "alpha_days": 0, "error": None}
+    try:
+        df = _load_full_ledger()
+    except LedgerUnavailable as e:
+        res.update(status="unavailable", error=e.error_type)
+        return res
     ret_col, nifty_col = f"ret_{h}d", f"nifty_ret_{h}d"
     if df.empty or ret_col not in df.columns:
         return res
