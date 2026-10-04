@@ -42,12 +42,11 @@ def test_fresh_snapshot_is_used_without_live_scan(monkeypatch):
 
 
 def test_stale_snapshot_falls_back_to_live_scan(monkeypatch):
-    """A snapshot older than _TW_MAX_AGE_SECONDS must NOT be used — falls
-    back to a live scan instead."""
+    """A snapshot from an earlier session must NOT be used — falls back to a
+    live scan instead."""
     import dashboard.shared.cache as cache_mod
 
-    old_time = (datetime.datetime.now(datetime.timezone.utc)
-               - datetime.timedelta(seconds=cache_mod._TW_MAX_AGE_SECONDS + 60))
+    old_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=10)
     snapshot = {
         "data": {"breakout_candidates": [], "breakdown_watch": [],
                  "reversal_watch": [], "scan_time": "yesterday"},
@@ -132,3 +131,42 @@ def test_tomorrow_watchlist_threads_horizon_through(monkeypatch):
     assert len(all_items) >= 1
     assert all_items[0]["horizon"] == "Swing (3-10 trading days)"
     assert all_items[0]["valid_until"] == "2026-08-01"
+
+
+# ─────────────── session-aware freshness (snapshot vs latest closed session) ───
+def _ist(y, m, d, hh, mm):
+    import datetime as _d
+    return _d.datetime(y, m, d, hh, mm, tzinfo=_d.timezone(_d.timedelta(hours=5, minutes=30)))
+
+
+def test_holiday_weekend_snapshot_stays_current():
+    """Scan on the Gandhi Jayanti holiday (Fri 2 Oct 2026) priced Thu 1 Oct,
+    which is still the latest closed session at 02:00 IST Mon 5 Oct."""
+    import dashboard.shared.cache as c
+    assert c._tw_snapshot_current(_ist(2026, 10, 2, 16, 12).isoformat(), now=_ist(2026, 10, 5, 2, 0))
+
+
+def test_overnight_post_close_snapshot_stays_current():
+    import dashboard.shared.cache as c
+    gen = _ist(2026, 9, 30, 16, 10).isoformat()                      # Wed post-close scan
+    assert c._tw_snapshot_current(gen, now=_ist(2026, 10, 1, 1, 30))  # 9h later, next night
+    assert c._tw_snapshot_current(gen, now=_ist(2026, 10, 1, 14, 0))  # next day, before close
+
+
+def test_snapshot_goes_stale_after_next_close_plus_grace():
+    import dashboard.shared.cache as c
+    gen = _ist(2026, 9, 29, 16, 10).isoformat()                        # Tue post-close
+    assert c._tw_snapshot_current(gen, now=_ist(2026, 9, 30, 17, 0))     # Wed close +1.5h: grace
+    assert not c._tw_snapshot_current(gen, now=_ist(2026, 9, 30, 19, 0))  # Wed close +3.5h
+
+
+def test_intraday_scan_does_not_count_as_that_sessions_close():
+    import dashboard.shared.cache as c
+    gen = _ist(2026, 9, 30, 11, 0).isoformat()                          # mid-session scan
+    assert not c._tw_snapshot_current(gen, now=_ist(2026, 10, 1, 2, 0))  # 15h later
+
+
+def test_bad_timestamp_is_not_current():
+    import dashboard.shared.cache as c
+    assert not c._tw_snapshot_current("not a time")
+    assert not c._tw_snapshot_current(None)
