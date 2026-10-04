@@ -132,6 +132,9 @@ _KEYWORDS = [
     ("housing finance", "nbfc"), ("credit", "nbfc"),
     ("financ", "fin"), ("capital market", "fin"), ("asset manage", "fin"),
     ("broker", "fin"), ("exchange", "fin"), ("amc", "fin"),
+    # "hospitality" must precede "hospital" — the substring scan used to file
+    # hotels as Healthcare (audit 2026-10-03).
+    ("hospitality", "consumer"), ("hotel", "consumer"),
     ("pharma", "health"), ("hospital", "health"), ("diagnost", "health"),
     ("chemical", "chem"),
     ("capital goods", "capgoods"), ("engineering", "capgoods"), ("industrial", "capgoods"),
