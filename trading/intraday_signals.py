@@ -28,6 +28,28 @@ from utils.indicators import add_all_indicators, add_anchored_vwap
 # Opening Range Breakout (ORB)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _orb_window(orb_minutes: int) -> tuple:
+    """(start, last-bar-start) of the opening range, e.g. 09:15 / 09:29 for 15 min.
+
+    Computed with datetime arithmetic: dtime(9, 15 + orb_minutes - 1) raised
+    for any window of 46+ minutes (minute 74 for a 60-min ORB).
+    """
+    start = datetime(2000, 1, 1, 9, 15)
+    return start.time(), (start + pd.Timedelta(minutes=orb_minutes - 1)).time()
+
+
+def _latest_session(df: pd.DataFrame) -> pd.DataFrame:
+    """Bars of the most recent trading date only.
+
+    FIX ORB-DAYS (replica-test S2, 2026-10-04): the intraday scan fetches 3
+    days of bars, and the 09:15 mask then pooled every day's opening range.
+    """
+    if df.empty or not isinstance(df.index, pd.DatetimeIndex):
+        return df
+    last_day = df.index[-1].date()
+    return df[df.index.date == last_day]
+
+
 def compute_orb(df: pd.DataFrame, orb_minutes: int = 15) -> Dict:
     """
     Compute the Opening Range for an intraday DataFrame.
@@ -54,9 +76,9 @@ def compute_orb(df: pd.DataFrame, orb_minutes: int = 15) -> Dict:
                 "orb_range_pct": np.nan, "narrow": False, "open_price": np.nan, "orb_bars": 0}
 
     try:
-        # Filter to opening range window
-        start_time = dtime(9, 15)
-        cutoff     = dtime(9, 15 + orb_minutes - 1)   # e.g. 9:29 for 15-min ORB
+        # Filter to the latest session's opening range window
+        df = _latest_session(df)
+        start_time, cutoff = _orb_window(orb_minutes)   # e.g. 09:15-09:29 for 15-min ORB
 
         idx_times = df.index.time
         orb_mask  = (idx_times >= start_time) & (idx_times <= cutoff)
@@ -115,9 +137,10 @@ def check_orb_signal(
     orb_low  = orb["orb_low"]
     orb_rng  = orb["orb_range"]
 
-    # Need data after the ORB window
-    start_time = dtime(9, 15)
-    cutoff     = dtime(9, 15 + orb_minutes - 1)
+    # Need data after the ORB window — in the SAME session; earlier days'
+    # afternoon bars would otherwise pose as today's breakout bar.
+    df = _latest_session(df)
+    start_time, cutoff = _orb_window(orb_minutes)
     try:
         post_mask = df.index.time > cutoff
         post_df   = df[post_mask]
