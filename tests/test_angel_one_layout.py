@@ -21,6 +21,7 @@ _PAGE = os.path.join(_ROOT, "dashboard", "pages", "16_angel_one.py")
 _SECRET_KEY = "sk_live_abcdefgh7f2c"
 _SECRET_PW = "hunter2-password"
 _SECRET_TOTP = "JBSWY3DPEHPK3PXP"
+_PIN = "4821"
 
 
 @pytest.fixture
@@ -31,7 +32,14 @@ def _net(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", _blocked)
     for env in ("ANGEL_API_KEY", "ANGEL_CLIENT_ID", "ANGEL_PASSWORD", "ANGEL_TOTP_SECRET"):
         monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("ANGEL_PAGE_PIN", _PIN)
     return monkeypatch
+
+
+def _unlocked(at):
+    """Start the page already past the PIN gate (FIX AO-PIN)."""
+    at.session_state["_pin_unlocked_at_angel_one"] = time.time()
+    return at
 
 
 def _html(at) -> str:
@@ -84,7 +92,7 @@ def _connected(mp):
 
 def test_connected_state(_net):
     _connected(_net)
-    at = AppTest.from_file(_PAGE, default_timeout=120).run()
+    at = _unlocked(AppTest.from_file(_PAGE, default_timeout=120)).run()
     assert not at.exception, at.exception
     html = _html(at)
     assert "Connected · authenticated" in html and "renews at" in html
@@ -113,7 +121,7 @@ def test_posture_codes_render_as_descriptive_labels(_net):
     _net.setattr(pp, "analyse_positions", lambda *a, **k: [])
     _net.setattr(pp, "format_portfolio_message", lambda h, i: "msg")
     _net.setattr(fetcher, "fetch_single", lambda *a, **k: None)
-    at = AppTest.from_file(_PAGE, default_timeout=120).run()
+    at = _unlocked(AppTest.from_file(_PAGE, default_timeout=120)).run()
     next(b for b in at.button if b.label == "Run posture analysis").click().run()
     assert not at.exception, at.exception
     cards = "\n".join(str(m.value) for m in at.markdown if "filters · P&amp;L" in str(m.value)
