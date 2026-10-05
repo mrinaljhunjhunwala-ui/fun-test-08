@@ -1135,6 +1135,63 @@ def get_trade_book() -> Optional[List[Dict]]:
         return None
 
 
+# FIX AO-SL (replica-test S2, 2026-10-04): the Quick-order form's "SL" / "SL-M"
+# went out verbatim as `ordertype` with variety NORMAL and the trigger in
+# `stoploss` — a ROBO/bracket field — so every stop-loss order was malformed.
+# SmartAPI stop-loss orders use variety STOPLOSS, ordertype STOPLOSS_LIMIT /
+# STOPLOSS_MARKET and the trigger in `triggerprice`.
+_ORDER_TYPE_ALIASES = {
+    "SL": "STOPLOSS_LIMIT", "SL-L": "STOPLOSS_LIMIT", "STOPLOSS_LIMIT": "STOPLOSS_LIMIT",
+    "SL-M": "STOPLOSS_MARKET", "SLM": "STOPLOSS_MARKET", "STOPLOSS_MARKET": "STOPLOSS_MARKET",
+    "MARKET": "MARKET", "LIMIT": "LIMIT",
+}
+
+
+def _order_fields(order_type: str, side: str, price: float, trigger_price: float,
+                  variety: str = "NORMAL") -> Dict[str, str]:
+    """SmartAPI variety / ordertype / price / triggerprice / stoploss for an order.
+
+    Raises ValueError (message shown to the user) for combinations the
+    exchange would reject, so nothing malformed is ever sent.
+    """
+    otype = _ORDER_TYPE_ALIASES.get(str(order_type).strip().upper())
+    if otype is None:
+        raise ValueError(f"Unknown order type {order_type!r}")
+    price = float(price or 0.0)
+    trigger = float(trigger_price or 0.0)
+    side = str(side or "").upper()
+
+    if otype in ("STOPLOSS_LIMIT", "STOPLOSS_MARKET"):
+        if trigger <= 0:
+            raise ValueError("Stop-loss orders need a trigger price above 0.")
+        if otype == "STOPLOSS_LIMIT":
+            if price <= 0:
+                raise ValueError("Stop-loss limit orders need a limit price above 0.")
+            if side == "SELL" and trigger < price:
+                raise ValueError("SELL stop-loss: the trigger must be at or above the limit price.")
+            if side == "BUY" and trigger > price:
+                raise ValueError("BUY stop-loss: the trigger must be at or below the limit price.")
+        else:
+            price = 0.0
+        variety = "STOPLOSS"
+    else:
+        if otype == "LIMIT" and price <= 0:
+            raise ValueError("Limit orders need a limit price above 0.")
+        if otype == "MARKET":
+            price = 0.0
+        trigger = 0.0
+        if variety == "STOPLOSS":
+            variety = "NORMAL"
+
+    return {
+        "variety": variety,
+        "ordertype": otype,
+        "price": str(price) if price else "0",
+        "triggerprice": str(trigger) if trigger else "0",
+        "stoploss": "0",      # ROBO (bracket) orders only
+    }
+
+
 def place_order(
     symbol: str,
     qty: int,
@@ -1147,6 +1204,11 @@ def place_order(
     validity: str = "DAY",
     variety: str = "NORMAL",
 ) -> Optional[Dict]:
+    try:
+        fields = _order_fields(order_type, side, price, trigger_price, variety)
+    except ValueError as ve:
+        return {"status": "invalid", "message": str(ve)}
+
     session = _get_session()
     if session is None:
         return None
@@ -1160,18 +1222,15 @@ def place_order(
         resp = _http.post(
             f"{_BASE}/rest/secure/angelbroking/order/v1/placeOrder",
             json={
-                "variety": variety,
                 "tradingsymbol": sym + "-EQ",
                 "symboltoken": token,
                 "transactiontype": side.upper(),
                 "exchange": exchange,
-                "ordertype": order_type,
                 "producttype": product,
                 "duration": validity,
-                "price": str(price) if price else "0",
                 "squareoff": "0",
-                "stoploss": str(trigger_price) if trigger_price else "0",
                 "quantity": str(qty),
+                **fields,
             },
             headers=_auth_headers(session["jwt"], session["api_key"]),
             timeout=15,
@@ -1196,7 +1255,13 @@ def modify_order(
     exchange: str = "NSE",
     validity: str = "DAY",
     variety: str = "NORMAL",
+    side: str = "",
 ) -> Optional[Dict]:
+    try:
+        fields = _order_fields(order_type, side, price, trigger_price, variety)
+    except ValueError as ve:
+        return {"status": "invalid", "message": str(ve)}
+
     session = _get_session()
     if session is None:
         return None
@@ -1210,18 +1275,15 @@ def modify_order(
         resp = _http.post(
             f"{_BASE}/rest/secure/angelbroking/order/v1/modifyOrder",
             json={
-                "variety": variety,
                 "orderid": order_id,
-                "ordertype": order_type,
                 "producttype": product,
                 "duration": validity,
-                "price": str(price),
                 "quantity": str(qty),
                 "tradingsymbol": sym + "-EQ",
                 "symboltoken": token,
                 "exchange": exchange,
-                "stoploss": str(trigger_price) if trigger_price else "0",
                 "squareoff": "0",
+                **fields,
             },
             headers=_auth_headers(session["jwt"], session["api_key"]),
             timeout=12,
