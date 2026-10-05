@@ -730,8 +730,38 @@ def _score_momentum(df: pd.DataFrame,
 # Sub-scorer: Volume  (15 pts)
 # ─────────────────────────────────────────────────────────────────────────────
 
+_NSE_CLOSE_T = (15, 30)
+
+
+def _now_ist_naive() -> "datetime.datetime":
+    import datetime as _d
+    return _d.datetime.now(_d.timezone(_d.timedelta(hours=5, minutes=30))).replace(tzinfo=None)
+
+
+def _last_bar_in_progress(df: pd.DataFrame, now_ist=None) -> bool:
+    """True when df's last DAILY bar is today's session and the market hasn't
+    closed yet, so its volume is a partial day's (FIX VOL-PARTIAL)."""
+    if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
+        return False
+    last = df.index[-1]
+    if (last.hour, last.minute, last.second) != (0, 0, 0):
+        return False                       # intraday bars — not a daily frame
+    now = now_ist or _now_ist_naive()
+    if last.date() != now.date():
+        return False
+    try:
+        from utils.nse_holidays import is_trading_day
+        if not is_trading_day(now.date()):
+            return False
+    except Exception:                      # calendar unavailable — weekday check only
+        if now.weekday() >= 5:
+            return False
+    return (now.hour, now.minute) < _NSE_CLOSE_T
+
+
 def _score_volume(df: pd.DataFrame,
-                  delivery_info: Optional[Dict] = None) -> Tuple[float, Dict]:
+                  delivery_info: Optional[Dict] = None,
+                  now_ist=None) -> Tuple[float, Dict]:
     """Volume pillar (15 pts).
 
     Two modes, gated on `delivery_info` availability:
@@ -749,13 +779,28 @@ def _score_volume(df: pd.DataFrame,
 
     Ships Recommendation 4 from docs/COMPOSITE_SCORE_SHAPE_REVIEW.md.
     """
-    cur        = df.iloc[-1]
+    # FIX VOL-PARTIAL (audit 2026-10-03): during market hours today's daily
+    # bar carries a partial session's volume, so every stock read "low
+    # volume" in the morning and drifted up through the day. Score the last
+    # COMPLETED session instead (which is also the session the delivery %
+    # bhavcopy describes).
+    _in_progress = _last_bar_in_progress(df, now_ist) and len(df) >= 2
+    _vdf = df.iloc[:-1] if _in_progress else df
+    cur        = _vdf.iloc[-1]
     vol_ratio  = _num(cur, "Volume_Ratio", 1.0)   # FIX SCORE-NAN
     close      = float(cur["Close"])
-    open_price = _num(cur, "Open", close)
-    up_day     = close >= open_price
+    # FIX UPDAY-PREVCLOSE (audit 2026-10-03): direction is the day's change vs
+    # the previous close. close >= open called a gap-up that faded but still
+    # closed +3% a DOWN day and cut its volume points to 40%.
+    if len(_vdf) >= 2 and np.isfinite(float(_vdf["Close"].iloc[-2])):
+        up_day = close >= float(_vdf["Close"].iloc[-2])
+    else:
+        up_day = close >= _num(cur, "Open", close)
 
     pts: Dict[str, float] = {}
+    pts["up_day"] = bool(up_day)
+    pts["vol_ratio_raw"] = round(vol_ratio, 3) if np.isfinite(vol_ratio) else None
+    pts["volume_session"] = "previous (today in progress)" if _in_progress else "latest"
     _use_delivery = (
         isinstance(delivery_info, dict)
         and delivery_info.get("today") is not None
@@ -778,8 +823,8 @@ def _score_volume(df: pd.DataFrame,
 
     # ── OBV slope: same shape, top rescaled from 5 to 3 when delivery is
     # available.
-    if "OBV" in df.columns and len(df) >= 10:
-        obv_recent = df["OBV"].iloc[-10:].values.astype(float)
+    if "OBV" in _vdf.columns and len(_vdf) >= 10:
+        obv_recent = _vdf["OBV"].iloc[-10:].values.astype(float)
         slope      = float(np.polyfit(range(10), obv_recent, 1)[0])
         _obv_raw = 5.0 if slope > 0 else (2.0 if abs(slope) < abs(obv_recent.mean()) * 0.001 else 0.0)
     else:
@@ -1292,7 +1337,10 @@ def _build_narrative(
     _sma200_raw = cur.get("SMA_200") if hasattr(cur, "get") else None
     sma200_ok  = _sma200_raw is not None and not pd.isna(_sma200_raw)
     sma200     = float(_sma200_raw) if sma200_ok else float("nan")
-    vol        = _num(cur, "Volume_Ratio", 1.0)
+    # Same session the volume pillar scored (FIX VOL-PARTIAL): during market
+    # hours that's the last completed day, not today's partial bar.
+    _vr = vol_pts.get("vol_ratio_raw")
+    vol        = float(_vr) if _vr is not None else _num(cur, "Volume_Ratio", 1.0)
     r20d       = mom_pts.get("_r20d", 0.0)
     # FIX SCORE-R60: _r60d is None when there is under 60 bars of history — the
     # sentence below must say so rather than format None or print a fake 0.0%.

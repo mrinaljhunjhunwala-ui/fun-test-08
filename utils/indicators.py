@@ -495,7 +495,11 @@ def add_volume_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["Volume_SMA_20"] = df["Volume"].rolling(window=20).mean()
     # Guard a zero/NaN 20-day volume mean (halted stock, all-holiday window) so
     # Volume_Ratio is NaN rather than inf — _score_volume() reads this column.
-    df["Volume_Ratio"]  = df["Volume"] / df["Volume_SMA_20"].replace(0, np.nan)
+    # FIX VOLRATIO-SELF (audit 2026-10-03): divide by the PRIOR 20 sessions.
+    # Including today's bar in its own baseline damped the spike being
+    # measured (a 3x day read ~2.5x).
+    _vol_base = df["Volume"].rolling(window=20).mean().shift(1)
+    df["Volume_Ratio"]  = df["Volume"] / _vol_base.replace(0, np.nan)
 
     # FIX IND4 — On-Balance Volume was a pure-Python bar-by-bar loop. It is
     # mathematically just a cumulative sum of signed volume, so the loop bought
