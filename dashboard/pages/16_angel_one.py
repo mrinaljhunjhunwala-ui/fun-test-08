@@ -481,9 +481,9 @@ with tab_ao5:
 
     with qo_c2:
         _qo_type  = st.selectbox("Order Type", ["MARKET", "LIMIT", "SL", "SL-M"], key="qo_type")
-        _qo_price = st.number_input("Limit/Trigger Price (0 = market)",
+        _qo_price = st.number_input("Limit price (LIMIT and SL; ignored for MARKET / SL-M)",
                                      min_value=0.0, value=0.0, step=0.05, format="%.2f", key="qo_price")
-        _qo_trig  = st.number_input("SL Trigger Price (only for SL orders)",
+        _qo_trig  = st.number_input("Trigger price (SL and SL-M only)",
                                      min_value=0.0, value=0.0, step=0.05, format="%.2f", key="qo_trig")
         _qo_valid = st.radio("Validity", ["DAY", "IOC"], horizontal=True, key="qo_valid")
 
@@ -518,6 +518,8 @@ with tab_ao5:
                 )
             if _result and _result.get("status") == "placed":
                 st.success(f"Order placed! Order ID: {_result.get('order_id')}")
+            elif _result and _result.get("status") == "invalid":
+                st.error(f"Not sent: {_result.get('message')}")
             elif _result:
                 st.error(f"Order failed: {_result.get('message', 'Unknown error')}")
             else:
