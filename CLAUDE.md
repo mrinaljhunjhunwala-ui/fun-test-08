@@ -84,6 +84,7 @@ py -m pytest -m slow -q
 - **Auto-lint after Python edits.** `.claude/hooks/lint_python.py` runs ruff in the background and surfaces violations to stderr. Fix same-turn. Ruff replaced flake8 on 2026-09-02 (~100× faster, bundles pyflakes + pycodestyle + isort).
 - **Scoring/valuation edits** — the E1-v2 layer has a golden-snapshot regression (`tests/test_final_verdict.py`, `tests/test_audit_transparency.py`). After touching scoring/valuation/strategies, spawn the `verdict-regression-reviewer` subagent to classify every posture/confidence delta.
 - **Fetcher edits or "empty data" bugs** — spawn the `data-provenance-auditor` subagent to canary every external provider (yfinance / NSE / BSE / RSS / Screener / VIX) for schema drift.
+- **PRs: branch → PR → green CI → squash-merge; never push to `main`.** Open every PR with `gh pr create ... --label automerge`: `.github/workflows/automerge.yml` squash-merges it once `test` + `real-postgres` pass on its head, so don't wait to merge by hand. Leave the label off PRs that change the automerge workflow/script (the label run reads the script from `main`) or that the user asked to hold. If a labelled PR stays open after green CI, read the Automerge run log (it skips drafts, forks, and heads that moved after CI) and merge manually — only after reading the check results. `main` is not branch-protected (needs GitHub Pro), so a pending check does not block a manual merge. README "Tests & CI" covers the optional `AUTOMERGE_TOKEN`.
 
 ## Delegation
 
