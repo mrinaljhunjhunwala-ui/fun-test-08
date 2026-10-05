@@ -41,6 +41,16 @@ _SERIES: Dict[str, Dict] = {
     "late_breakout":    {"seed": 15, "drift":  0.0000, "vol": 0.009, "tail_drift": 0.012, "tail": 15},
     "late_crash":       {"seed": 16, "drift":  0.0010, "vol": 0.009, "tail_drift": -0.015, "tail": 15},
     "short_history":    {"seed": 17, "drift":  0.0008, "vol": 0.012, "bars": 45},
+    # Last-bar shapes for the Volume pillar (audit 2026-10-03 #16/#17): a 2.6x
+    # day vs the prior 20 sessions sits in the top ratio bucket only when the
+    # bar is kept out of its own baseline (it used to read ~2.4x), and the
+    # gap-up fade / gap-down recovery separate close-vs-prev from close-vs-open.
+    "volume_spike_up":  {"seed": 13, "drift":  0.0000, "vol": 0.008,
+                         "last": {"gap": 0.000, "day": 0.020, "vol_mult": 2.6}},
+    "gap_up_fade":      {"seed": 13, "drift":  0.0000, "vol": 0.008,
+                         "last": {"gap": 0.040, "day": 0.020, "vol_mult": 2.6}},
+    "gap_down_recover": {"seed": 13, "drift":  0.0000, "vol": 0.008,
+                         "last": {"gap": -0.040, "day": -0.020, "vol_mult": 2.6}},
 }
 _BENCH = {"seed": 99, "drift": 0.0004, "vol": 0.008}
 
@@ -102,7 +112,8 @@ _FIELDS = ("score", "grade", "action", "technical_score", "momentum_score",
 
 
 def _ohlcv(seed: int, drift: float, vol: float, bars: int = _N_BARS,
-           tail: int = 0, tail_drift: float = 0.0) -> pd.DataFrame:
+           tail: int = 0, tail_drift: float = 0.0,
+           last: Optional[Dict] = None) -> pd.DataFrame:
     rng = np.random.RandomState(seed)
     mu = np.full(bars, drift)
     if tail:
@@ -115,6 +126,15 @@ def _ohlcv(seed: int, drift: float, vol: float, bars: int = _N_BARS,
     volume = rng.lognormal(13.0, 0.35, bars)
     if tail:
         volume[-tail:] *= 1.8
+    if last:
+        # Rewrite the final bar: open `gap` and close `day` from the prior close,
+        # volume `vol_mult` x the mean of the 20 bars before it.
+        prev = close[-2]
+        open_[-1] = prev * (1 + last["gap"])
+        close[-1] = prev * (1 + last["day"])
+        high[-1] = max(open_[-1], close[-1]) * 1.002
+        low[-1] = min(open_[-1], close[-1]) * 0.998
+        volume[-1] = last["vol_mult"] * volume[-21:-1].mean()
     idx = pd.bdate_range(_START, periods=bars)
     return pd.DataFrame({"Open": open_, "High": high, "Low": low,
                          "Close": close, "Volume": volume.round()}, index=idx)

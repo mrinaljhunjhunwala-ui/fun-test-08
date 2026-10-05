@@ -494,7 +494,7 @@ def add_volume_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Volume SMA, Volume Ratio, and On-Balance Volume."""
     # FIX VOL-SELF (audit 2026-10-03 #17): the baseline is the 20 sessions
     # BEFORE each bar. Averaging the bar into its own baseline damped every
-    # spike (a 3x day read as ~2.5x) and so under-scored volume breakouts.
+    # spike (a 3x day on a flat history read ~2.7x) and under-scored breakouts.
     df["Volume_SMA_20"] = df["Volume"].shift(1).rolling(window=20).mean()
     # Guard a zero/NaN 20-day volume mean (halted stock, all-holiday window) so
     # Volume_Ratio is NaN rather than inf — _score_volume() reads this column.

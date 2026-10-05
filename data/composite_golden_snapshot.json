@@ -1,5 +1,49 @@
 {
   "cases": {
+    "gap_down_recover__neutral": {
+      "action": "HOLD",
+      "entry": 914.42,
+      "grade": "D",
+      "horizon": "Trend hold (4\u20138 weeks)",
+      "is_fno": false,
+      "momentum_fallback": false,
+      "momentum_score": 8.31,
+      "patterns_detected": [],
+      "positioning_score": null,
+      "return_1d": -2.0,
+      "risk_reward": 1.54,
+      "rs_score": 23.1,
+      "rsi": 51.196872,
+      "score": 46.3,
+      "sentiment_score": 8.0,
+      "stop_loss": 890.75,
+      "target": 950.88,
+      "technical_score": 21.0,
+      "volume_score": 9.0
+    },
+    "gap_up_fade__neutral": {
+      "action": "WATCHLIST",
+      "entry": 951.74,
+      "grade": "B",
+      "horizon": "Trend hold (4\u20138 weeks)",
+      "is_fno": false,
+      "momentum_fallback": false,
+      "momentum_score": 13.27,
+      "patterns_detected": [
+        "RSI_BearDiv\u26a0\ufe0f"
+      ],
+      "positioning_score": null,
+      "return_1d": 2.0,
+      "risk_reward": 2.2,
+      "rs_score": 36.7,
+      "rsi": 72.306909,
+      "score": 62.3,
+      "sentiment_score": 8.0,
+      "stop_loss": 926.03,
+      "target": 1008.38,
+      "technical_score": 26.0,
+      "volume_score": 15.0
+    },
     "late_breakout__high_delivery": {
       "action": "BUY",
       "entry": 1087.69,
@@ -59,12 +103,12 @@
       "risk_reward": 1.35,
       "rs_score": 0.0,
       "rsi": 11.381511,
-      "score": 51.2,
+      "score": 48.8,
       "sentiment_score": 8.0,
       "stop_loss": 1142.81,
       "target": 1209.78,
       "technical_score": 20.0,
-      "volume_score": 4.0
+      "volume_score": 1.6
     },
     "late_crash__neutral": {
       "action": "CAUTION",
@@ -83,12 +127,12 @@
       "risk_reward": 1.2,
       "rs_score": 0.0,
       "rsi": 11.381511,
-      "score": 31.0,
+      "score": 28.6,
       "sentiment_score": 8.0,
       "stop_loss": 1142.81,
       "target": 1205.57,
       "technical_score": 19.0,
-      "volume_score": 4.0
+      "volume_score": 1.6
     },
     "short_history__neutral": {
       "action": "HOLD",
@@ -125,12 +169,12 @@
       "risk_reward": 1.84,
       "rs_score": 29.1,
       "rsi": 58.887199,
-      "score": 47.5,
+      "score": 45.1,
       "sentiment_score": 8.0,
       "stop_loss": 907.97,
       "target": 958.98,
       "technical_score": 21.0,
-      "volume_score": 9.0
+      "volume_score": 6.6
     },
     "sideways__uptrend_regime": {
       "action": "HOLD",
@@ -146,12 +190,12 @@
       "risk_reward": 1.84,
       "rs_score": 29.1,
       "rsi": 58.887199,
-      "score": 47.5,
+      "score": 45.1,
       "sentiment_score": 8.0,
       "stop_loss": 907.97,
       "target": 958.98,
       "technical_score": 21.0,
-      "volume_score": 9.0
+      "volume_score": 6.6
     },
     "steady_downtrend__bear": {
       "action": "CAUTION",
@@ -271,7 +315,7 @@
     "steady_uptrend__bear": {
       "action": "HOLD",
       "entry": 2557.8,
-      "grade": "D",
+      "grade": "C",
       "horizon": "Trend hold (4\u20138 weeks)",
       "is_fno": false,
       "momentum_fallback": false,
@@ -281,15 +325,15 @@
       ],
       "positioning_score": null,
       "return_1d": 1.265702,
-      "risk_reward": 1.64,
+      "risk_reward": 1.95,
       "rs_score": 100.0,
       "rsi": 70.84595,
-      "score": 46.5,
+      "score": 50.1,
       "sentiment_score": 8.0,
       "stop_loss": 2511.18,
-      "target": 2634.41,
+      "target": 2648.77,
       "technical_score": 20.0,
-      "volume_score": 4.4
+      "volume_score": 8.0
     },
     "steady_uptrend__neutral": {
       "action": "WATCHLIST",
@@ -304,15 +348,15 @@
       ],
       "positioning_score": null,
       "return_1d": 1.265702,
-      "risk_reward": 1.95,
+      "risk_reward": 2.26,
       "rs_score": 100.0,
       "rsi": 70.84595,
-      "score": 57.8,
+      "score": 61.4,
       "sentiment_score": 8.0,
       "stop_loss": 2511.18,
-      "target": 2648.77,
+      "target": 2663.13,
       "technical_score": 24.0,
-      "volume_score": 4.4
+      "volume_score": 8.0
     },
     "steady_uptrend__no_rs": {
       "action": "WATCHLIST",
@@ -330,12 +374,12 @@
       "risk_reward": 1.95,
       "rs_score": null,
       "rsi": 70.84595,
-      "score": 55.4,
+      "score": 59.0,
       "sentiment_score": 8.0,
       "stop_loss": 2511.18,
       "target": 2648.77,
       "technical_score": 24.0,
-      "volume_score": 4.4
+      "volume_score": 8.0
     },
     "steady_uptrend__positioning_flag_off": {
       "action": "WATCHLIST",
@@ -350,15 +394,15 @@
       ],
       "positioning_score": null,
       "return_1d": 1.265702,
-      "risk_reward": 1.95,
+      "risk_reward": 2.26,
       "rs_score": 100.0,
       "rsi": 70.84595,
-      "score": 57.8,
+      "score": 61.4,
       "sentiment_score": 8.0,
       "stop_loss": 2511.18,
-      "target": 2648.77,
+      "target": 2663.13,
       "technical_score": 24.0,
-      "volume_score": 4.4
+      "volume_score": 8.0
     },
     "steady_uptrend__positioning_on": {
       "action": "BUY",
@@ -376,17 +420,17 @@
       "risk_reward": 2.26,
       "rs_score": 100.0,
       "rsi": 70.84595,
-      "score": 65.8,
+      "score": 69.4,
       "sentiment_score": 8.0,
       "stop_loss": 2511.18,
       "target": 2663.13,
       "technical_score": 24.0,
-      "volume_score": 4.4
+      "volume_score": 8.0
     },
     "steady_uptrend__top_sector_pos_flows": {
       "action": "WATCHLIST",
       "entry": 2557.8,
-      "grade": "C",
+      "grade": "B",
       "horizon": "Positional (2\u20134 weeks)",
       "is_fno": false,
       "momentum_fallback": false,
@@ -396,15 +440,15 @@
       ],
       "positioning_score": null,
       "return_1d": 1.265702,
-      "risk_reward": 1.95,
+      "risk_reward": 2.26,
       "rs_score": 100.0,
       "rsi": 70.84595,
-      "score": 59.8,
+      "score": 63.4,
       "sentiment_score": 10.0,
       "stop_loss": 2511.18,
-      "target": 2648.77,
+      "target": 2663.13,
       "technical_score": 24.0,
-      "volume_score": 4.4
+      "volume_score": 8.0
     },
     "steady_uptrend__vix_high": {
       "action": "WATCHLIST",
@@ -419,15 +463,15 @@
       ],
       "positioning_score": null,
       "return_1d": 1.265702,
-      "risk_reward": 1.95,
+      "risk_reward": 2.26,
       "rs_score": 100.0,
       "rsi": 70.84595,
-      "score": 57.8,
+      "score": 61.4,
       "sentiment_score": 8.0,
       "stop_loss": 2511.18,
-      "target": 2648.77,
+      "target": 2663.13,
       "technical_score": 24.0,
-      "volume_score": 4.4
+      "volume_score": 8.0
     },
     "volatile_chop__neutral": {
       "action": "WATCHLIST",
@@ -449,6 +493,29 @@
       "target": 344.5,
       "technical_score": 23.0,
       "volume_score": 6.0
+    },
+    "volume_spike_up__neutral": {
+      "action": "WATCHLIST",
+      "entry": 951.74,
+      "grade": "B",
+      "horizon": "Trend hold (4\u20138 weeks)",
+      "is_fno": false,
+      "momentum_fallback": false,
+      "momentum_score": 13.27,
+      "patterns_detected": [
+        "RSI_BearDiv\u26a0\ufe0f"
+      ],
+      "positioning_score": null,
+      "return_1d": 2.0,
+      "risk_reward": 2.43,
+      "rs_score": 36.7,
+      "rsi": 72.306909,
+      "score": 62.3,
+      "sentiment_score": 8.0,
+      "stop_loss": 928.44,
+      "target": 1008.38,
+      "technical_score": 26.0,
+      "volume_score": 15.0
     }
   },
   "generator": "tools/composite_golden.py",
