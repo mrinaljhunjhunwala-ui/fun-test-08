@@ -1,5 +1,49 @@
 {
   "cases": {
+    "gap_down_recover__neutral": {
+      "action": "HOLD",
+      "entry": 914.42,
+      "grade": "D",
+      "horizon": "Trend hold (4\u20138 weeks)",
+      "is_fno": false,
+      "momentum_fallback": false,
+      "momentum_score": 8.31,
+      "patterns_detected": [],
+      "positioning_score": null,
+      "return_1d": -2.0,
+      "risk_reward": 1.54,
+      "rs_score": 23.1,
+      "rsi": 51.196872,
+      "score": 46.3,
+      "sentiment_score": 8.0,
+      "stop_loss": 890.75,
+      "target": 950.88,
+      "technical_score": 21.0,
+      "volume_score": 9.0
+    },
+    "gap_up_fade__neutral": {
+      "action": "WATCHLIST",
+      "entry": 951.74,
+      "grade": "B",
+      "horizon": "Trend hold (4\u20138 weeks)",
+      "is_fno": false,
+      "momentum_fallback": false,
+      "momentum_score": 13.27,
+      "patterns_detected": [
+        "RSI_BearDiv\u26a0\ufe0f"
+      ],
+      "positioning_score": null,
+      "return_1d": 2.0,
+      "risk_reward": 2.2,
+      "rs_score": 36.7,
+      "rsi": 72.306909,
+      "score": 62.3,
+      "sentiment_score": 8.0,
+      "stop_loss": 926.03,
+      "target": 1008.38,
+      "technical_score": 26.0,
+      "volume_score": 15.0
+    },
     "late_breakout__high_delivery": {
       "action": "BUY",
       "entry": 1087.69,
@@ -449,6 +493,29 @@
       "target": 344.5,
       "technical_score": 23.0,
       "volume_score": 6.0
+    },
+    "volume_spike_up__neutral": {
+      "action": "WATCHLIST",
+      "entry": 951.74,
+      "grade": "B",
+      "horizon": "Trend hold (4\u20138 weeks)",
+      "is_fno": false,
+      "momentum_fallback": false,
+      "momentum_score": 13.27,
+      "patterns_detected": [
+        "RSI_BearDiv\u26a0\ufe0f"
+      ],
+      "positioning_score": null,
+      "return_1d": 2.0,
+      "risk_reward": 2.43,
+      "rs_score": 36.7,
+      "rsi": 72.306909,
+      "score": 62.3,
+      "sentiment_score": 8.0,
+      "stop_loss": 928.44,
+      "target": 1008.38,
+      "technical_score": 26.0,
+      "volume_score": 15.0
     }
   },
   "generator": "tools/composite_golden.py",

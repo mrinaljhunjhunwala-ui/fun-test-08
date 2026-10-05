@@ -57,16 +57,63 @@ def test_red_candle_on_a_down_close_is_still_a_down_day():
     assert detail["vol_ratio"] == 4.0           # 10 x 0.4
 
 
-def test_in_progress_session_scores_the_last_completed_bar():
-    # 11:00 IST on a trading day: today's bar holds ~a third of a day's volume.
+def test_in_progress_session_before_1015_scores_the_last_completed_bar():
+    # 10:00 IST on a trading day: too early to project today's partial volume.
     df = _frame(end="2026-10-05")
     df.iloc[-1, df.columns.get_loc("Volume")] = 30_000.0
     df.iloc[-2, df.columns.get_loc("Volume")] = 200_000.0
     ind = add_all_indicators(df)
-    now = dt.datetime(2026, 10, 5, 11, 0)
+    now = dt.datetime(2026, 10, 5, 10, 0)
     _, detail = S._score_volume(ind, now_ist=now)
-    assert detail["volume_session"] == "previous (today in progress)"
+    assert detail["volume_session"] == "previous_session"
     assert detail["vol_ratio_raw"] == pytest.approx(2.0)
+    assert detail["session_minutes"] == 45
+
+
+def test_in_progress_session_from_1015_is_projected_to_a_full_day():
+    # 11:15 IST (120 min): ~27.3% of a day's volume normally trades by now, so
+    # 60k against a 100k baseline (0.6x so far) is on pace for ~2.2x.
+    df = _frame(end="2026-10-05")
+    df.iloc[-1, df.columns.get_loc("Volume")] = 60_000.0
+    ind = add_all_indicators(df)
+    r = S.volume_reading(ind, now_ist=dt.datetime(2026, 10, 5, 11, 15))
+    assert r["basis"] == "projected" and r["session_minutes"] == 120
+    assert r["ratio_raw"] == pytest.approx(0.6)
+    assert r["ratio"] == pytest.approx(0.6 / 0.273, rel=1e-3)
+    assert r["volume"] == pytest.approx(60_000 / 0.273, rel=1e-3)
+    assert r["baseline"] == pytest.approx(100_000.0)
+    _, detail = S._score_volume(ind, now_ist=dt.datetime(2026, 10, 5, 11, 15))
+    assert detail["volume_session"] == "projected"
+    assert detail["vol_ratio_bar"] == pytest.approx(0.6)
+    assert detail["vol_ratio"] in (8.0, 8.0 * 0.4)   # 1.8-2.5x bucket, direction applied
+
+
+def test_volume_reading_after_close_is_the_latest_bar():
+    df = _frame(end="2026-10-05")
+    df.iloc[-1, df.columns.get_loc("Volume")] = 250_000.0
+    r = S.volume_reading(add_all_indicators(df), now_ist=dt.datetime(2026, 10, 5, 16, 0))
+    assert r["basis"] == "latest" and r["session_minutes"] is None
+    assert r["ratio"] == pytest.approx(2.5) and r["volume"] == pytest.approx(250_000.0)
+
+
+def test_volume_reading_short_and_intraday_frames_read_latest_and_never_raise():
+    now = dt.datetime(2026, 10, 5, 11, 15)
+    short = add_all_indicators(_frame(n=15, end="2026-10-05"))
+    assert S.volume_reading(short, now_ist=now)["basis"] == "latest"
+    intraday = pd.DataFrame({"Open": [1.0, 1.0], "High": [1.0, 1.0], "Low": [1.0, 1.0],
+                             "Close": [1.0, 1.1], "Volume": [10.0, 20.0]},
+                            index=pd.DatetimeIndex(["2026-10-05 11:05", "2026-10-05 11:10"]))
+    r = S.volume_reading(intraday, now_ist=now)
+    assert r["basis"] == "latest" and r["up_day"] is True and r["ratio"] == 1.0
+    assert S.volume_reading(pd.DataFrame(), now_ist=now)["ratio"] == 1.0
+
+
+def test_narrative_names_the_session_it_scored():
+    from tools.composite_golden import build_frame
+    df = build_frame("volume_spike_up", with_rs=False)
+    cs = S.score_dataframe(df, "TESTCO.NS", sector_rank=None)
+    assert "Volume in the latest session was" in cs.narrative
+    assert "today's volume is" not in cs.narrative.lower().replace("on pace", "")
 
 
 def test_completed_session_scores_today():

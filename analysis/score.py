@@ -759,6 +759,92 @@ def _last_bar_in_progress(df: pd.DataFrame, now_ist=None) -> bool:
     return (now.hour, now.minute) < _NSE_CLOSE_T
 
 
+# FIX VOL-HYBRID (2026-10-06): an in-progress session is read two ways.
+# Before 10:15 IST the last COMPLETED session stands in (FIX VOL-PARTIAL);
+# from 10:15 today's volume so far is projected to a full day with NSE's
+# typical cumulative-volume curve. Replay, 45 large caps x 18 sessions, how
+# often the reading lands in the volume bucket today's bar ends the day in
+# (curve refit leaving out each session): previous session 37% at every hour;
+# projection 43% at 10:15, 51% 11:15, 61% 12:15, 68% 13:15, 77% 14:15, 81%
+# 15:00. Spike days (final >2x) flagged >1.8x by 11:15: projection 75%,
+# previous session 15%; quiet days (final <1x) falsely >1.8x: 0% vs 6%.
+#
+# (minutes after 09:15 IST, median share of the day's volume traded by then),
+# from Yahoo 5m bars of the same 45 names over 18 sessions (810 stock-days),
+# normalised by the daily bar's volume. Volume is back-loaded (~8% trades in
+# the last 15 minutes), so a linear clock would under-project mid-session.
+_INTRADAY_VOLUME_CURVE: Tuple[Tuple[int, float], ...] = (
+    (0, 0.0), (15, 0.033), (30, 0.073), (45, 0.108), (60, 0.143), (90, 0.203),
+    (120, 0.273), (150, 0.334), (180, 0.410), (210, 0.469), (240, 0.534),
+    (270, 0.596), (300, 0.657), (330, 0.734), (345, 0.794), (360, 0.917), (375, 1.0),
+)
+_PROJECT_FROM_MINUTES = 60           # 10:15 IST; earlier, the projection is no better than yesterday
+_VOL_BASELINE_BARS = 20
+
+
+def volume_reading(df: pd.DataFrame, now_ist=None) -> Dict:
+    """The volume reading every consumer should show for df's latest session.
+
+    Keys: ratio (the ratio scored), ratio_raw (Volume_Ratio stored on the bar
+    used), volume (that bar's volume, or the projected full-day figure),
+    baseline (mean volume of the 20 sessions before that bar), basis
+    ("latest" | "previous_session" | "projected"), session_minutes (minutes
+    since 09:15 IST while today's session is open, else None) and up_day
+    (bar close >= previous close; close >= open for a single bar).
+
+    Intraday frames and frames of 20 bars or fewer get basis "latest" with the
+    plain Volume_Ratio. Never raises: anything unreadable degrades to 1.0x.
+    """
+    try:
+        return _volume_reading(df, now_ist)[0]
+    except Exception as e:                 # a display helper must never take a page down
+        _log.debug("volume_reading failed: %s: %s", type(e).__name__, e)
+        return {"ratio": 1.0, "ratio_raw": None, "volume": None, "baseline": None,
+                "basis": "latest", "session_minutes": None, "up_day": True}
+
+
+def _volume_reading(df: pd.DataFrame, now_ist=None) -> Tuple[Dict, pd.DataFrame]:
+    """volume_reading() plus the completed-session frame the OBV slope uses."""
+    in_progress = len(df) > _VOL_BASELINE_BARS and _last_bar_in_progress(df, now_ist)
+    minutes = None
+    if in_progress:
+        now = now_ist or _now_ist_naive()
+        minutes = max(0, (now.hour * 60 + now.minute) - (9 * 60 + 15))
+    basis = ("latest" if not in_progress
+             else "projected" if minutes >= _PROJECT_FROM_MINUTES
+             else "previous_session")
+    done = df.iloc[:-1] if in_progress else df          # completed sessions only
+    bar_df = done if basis == "previous_session" else df
+    cur = bar_df.iloc[-1]
+    ratio_raw = _num(cur, "Volume_Ratio", 1.0)           # FIX SCORE-NAN
+    volume = _num(cur, "Volume", float("nan"))
+    prior = (bar_df["Volume"].iloc[-(_VOL_BASELINE_BARS + 1):-1]
+             if "Volume" in bar_df.columns else pd.Series(dtype=float))
+    baseline = float(prior.mean()) if len(prior) == _VOL_BASELINE_BARS else float("nan")
+    ratio = ratio_raw
+    if basis == "projected":
+        xs, ys = zip(*_INTRADAY_VOLUME_CURVE)
+        frac = float(np.interp(minutes, xs, ys))
+        ratio, volume = ratio_raw / frac, volume / frac
+    # FIX UPDAY-PREVCLOSE (audit 2026-10-03): direction is the day's change vs
+    # the previous close. close >= open called a gap-up that faded but still
+    # closed +3% a DOWN day and cut its volume points to 40%. A projected bar
+    # uses today's price so far.
+    close = float(cur["Close"])
+    prev = float(bar_df["Close"].iloc[-2]) if len(bar_df) >= 2 else float("nan")
+    up_day = close >= prev if np.isfinite(prev) else close >= _num(cur, "Open", close)
+    reading = {
+        "ratio": float(ratio) if np.isfinite(ratio) else 1.0,
+        "ratio_raw": float(ratio_raw) if np.isfinite(ratio_raw) else None,
+        "volume": float(volume) if np.isfinite(volume) else None,
+        "baseline": baseline if np.isfinite(baseline) else None,
+        "basis": basis,
+        "session_minutes": minutes,
+        "up_day": bool(up_day),
+    }
+    return reading, done
+
+
 def _score_volume(df: pd.DataFrame,
                   delivery_info: Optional[Dict] = None,
                   now_ist=None) -> Tuple[float, Dict]:
@@ -779,28 +865,21 @@ def _score_volume(df: pd.DataFrame,
 
     Ships Recommendation 4 from docs/COMPOSITE_SCORE_SHAPE_REVIEW.md.
     """
-    # FIX VOL-PARTIAL (audit 2026-10-03): during market hours today's daily
-    # bar carries a partial session's volume, so every stock read "low
-    # volume" in the morning and drifted up through the day. Score the last
-    # COMPLETED session instead (which is also the session the delivery %
-    # bhavcopy describes).
-    _in_progress = _last_bar_in_progress(df, now_ist) and len(df) >= 2
-    _vdf = df.iloc[:-1] if _in_progress else df
-    cur        = _vdf.iloc[-1]
-    vol_ratio  = _num(cur, "Volume_Ratio", 1.0)   # FIX SCORE-NAN
-    close      = float(cur["Close"])
-    # FIX UPDAY-PREVCLOSE (audit 2026-10-03): direction is the day's change vs
-    # the previous close. close >= open called a gap-up that faded but still
-    # closed +3% a DOWN day and cut its volume points to 40%.
-    if len(_vdf) >= 2 and np.isfinite(float(_vdf["Close"].iloc[-2])):
-        up_day = close >= float(_vdf["Close"].iloc[-2])
-    else:
-        up_day = close >= _num(cur, "Open", close)
+    # FIX VOL-PARTIAL / VOL-HYBRID: during market hours today's daily bar
+    # holds a partial session's volume. volume_reading() picks the session
+    # (the previous one before 10:15 IST, today projected to a full day
+    # after); the OBV slope always runs on completed sessions.
+    reading, _vdf = _volume_reading(df, now_ist)
+    vol_ratio  = reading["ratio"]
+    up_day     = reading["up_day"]
 
     pts: Dict[str, float] = {}
-    pts["up_day"] = bool(up_day)
-    pts["vol_ratio_raw"] = round(vol_ratio, 3) if np.isfinite(vol_ratio) else None
-    pts["volume_session"] = "previous (today in progress)" if _in_progress else "latest"
+    pts["up_day"] = up_day
+    pts["vol_ratio_raw"] = round(vol_ratio, 3)          # the ratio scored; the narrative reads it
+    pts["vol_ratio_bar"] = (round(reading["ratio_raw"], 3)
+                            if reading["ratio_raw"] is not None else None)   # as stored on the bar
+    pts["volume_session"] = reading["basis"]
+    pts["session_minutes"] = reading["session_minutes"]
     _use_delivery = (
         isinstance(delivery_info, dict)
         and delivery_info.get("today") is not None
@@ -1482,14 +1561,25 @@ def _build_narrative(
             )
 
     # Sentence 4: Volume + pattern
-    if vol > 1.5 and bull_pats:
+    # FIX VOL-NARR (2026-10-06): name the session the Volume pillar scored.
+    # During market hours that is the previous session (before 10:15 IST) or
+    # today's volume projected to a full day, not "today's volume"; the
+    # candlestick pattern is only paired with it when both describe one bar.
+    _basis = vol_pts.get("volume_session", "latest")
+    _vol_phrase = {
+        "previous_session": f"The last completed session's volume was {vol:.1f}×",
+        "projected":        f"Today's volume is on pace for {vol:.1f}×",
+    }.get(_basis, f"Volume in the latest session was {vol:.1f}×")
+    _side = "buying" if vol_pts.get("up_day", True) else "selling"
+    if vol > 1.5 and bull_pats and _basis != "previous_session":
         parts.append(
-            f"Notably, today's volume is {vol:.1f}× the 20-day average with a "
+            f"{_vol_phrase} the 20-day average with a "
             f"{bull_pats[0]} candlestick pattern — a positive confirmation signal."
         )
     elif vol > 1.5:
         parts.append(
-            f"Trading volume is {vol:.1f}× the normal level, indicating above-average buyer activity."
+            f"{_vol_phrase} the 20-day average on {'an up' if _side == 'buying' else 'a down'} "
+            f"day — above-average {_side}."
         )
     elif bear_pats:
         parts.append(
