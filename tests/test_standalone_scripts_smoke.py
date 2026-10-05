@@ -68,6 +68,8 @@ _STANDALONE_SCRIPTS = [
     ("tools.purge_test_rows",               "tools/purge_test_rows.py",
      ["main", "find_test_rows", "apply_plan", "is_test_ticker"]),
     ("tools.backfill_ledger",               "tools/backfill_ledger.py", ["main", "run_backfill"]),
+    ("tools.fix_offsession_rows",           "tools/fix_offsession_rows.py",
+     ["main", "find_plan", "apply_plan"]),
 ]
 _IDS = [mod for mod, _, _ in _STANDALONE_SCRIPTS]
 
