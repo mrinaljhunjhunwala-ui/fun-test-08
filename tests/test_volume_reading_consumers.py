@@ -85,3 +85,13 @@ def test_reading_never_raises_on_bad_frames():
     assert VD.reading(pd.DataFrame())["basis"] == "latest"
     r = VD.reading(pd.DataFrame({"Volume_Ratio": [1.3]}))   # no OHLC: unreadable
     assert r["basis"] == "latest" and r["ratio"] is not None
+
+
+def test_signals_unknown_live_volume_stays_nan(monkeypatch):
+    # volume_reading() returns ratio 1.0 / ratio_raw None when Volume_Ratio is
+    # missing; the signal gates must still see "unknown", not "normal".
+    _clock(monkeypatch, 13, 0)
+    df = _frame("2026-10-05", last_vol=60_000.0)
+    df.iloc[-1, df.columns.get_loc("Volume_Ratio")] = np.nan
+    assert S.volume_reading(df)["ratio_raw"] is None
+    assert np.isnan(SIG._session_volume_ratio(df))

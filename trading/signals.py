@@ -60,6 +60,11 @@ def _session_volume_ratio(df: pd.DataFrame) -> float:
         return stored
     if r.get("basis") == "latest":
         return stored
+    if r.get("ratio_raw") is None:
+        # Volume unknown on the bar used: volume_reading() reports a neutral
+        # 1.0, but the gates below treat unknown as "skip the volume check"
+        # (NaN), the same as on a historical bar.
+        return np.nan
     return float(r["ratio"])
 
 # FIX WARN1 — narrowed from a blanket `filterwarnings("ignore")` so numpy's
