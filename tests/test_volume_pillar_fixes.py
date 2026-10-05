@@ -113,7 +113,49 @@ def test_narrative_names_the_session_it_scored():
     df = build_frame("volume_spike_up", with_rs=False)
     cs = S.score_dataframe(df, "TESTCO.NS", sector_rank=None)
     assert "Volume in the latest session was" in cs.narrative
-    assert "today's volume is" not in cs.narrative.lower().replace("on pace", "")
+    assert "Today's volume is on pace" not in cs.narrative
+
+
+def _projected_frame():
+    df = _frame(end="2026-10-05")
+    df.iloc[-1, df.columns.get_loc("Volume")] = 60_000.0
+    return add_all_indicators(df)
+
+
+_AT_1115 = dt.datetime(2026, 10, 5, 11, 15)
+
+
+def test_missing_ratio_is_not_projected_into_a_volume_spike():
+    # Review 2026-10-06: the 1.0 fallback used to be divided by the curve
+    # (1 / 0.273 = 3.7x at 11:15). Unknown must stay neutral.
+    ind = _projected_frame()
+    ind.iloc[-1, ind.columns.get_loc("Volume_Ratio")] = np.nan
+    r = S.volume_reading(ind, now_ist=_AT_1115)
+    assert r["basis"] == "projected"
+    assert r["ratio"] == 1.0 and r["ratio_raw"] is None
+
+
+def test_aware_clock_is_read_in_ist():
+    ind = _projected_frame()
+    utc = dt.datetime(2026, 10, 5, 5, 45, tzinfo=dt.timezone.utc)      # 11:15 IST
+    assert S.volume_reading(ind, now_ist=utc)["basis"] == "projected"
+    assert S.volume_reading(ind, now_ist=utc)["session_minutes"] == 120
+
+
+def test_short_frame_obv_uses_completed_sessions_only():
+    ind = add_all_indicators(_frame(n=15, end="2026-10-05"))
+    reading, done = S._volume_reading(ind, now_ist=_AT_1115)
+    assert reading["basis"] == "latest"
+    assert len(done) == len(ind) - 1
+
+
+def test_projected_bar_never_pairs_with_previous_session_delivery():
+    ind = _projected_frame()
+    ind.iloc[-1, ind.columns.get_loc("Close")] = float(ind["Close"].iloc[-2]) * 1.02   # up day
+    deliv = {"today": 18.0, "mean": 45.0, "zscore": -1.6, "n": 60}
+    _, detail = S._score_volume(ind, delivery_info=deliv, now_ist=_AT_1115)
+    assert detail["volume_session"] == "projected" and detail["vol_ratio_raw"] > 1.5
+    assert detail["delivery_divergence"] is False
 
 
 def test_completed_session_scores_today():

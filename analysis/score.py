@@ -778,7 +778,10 @@ _INTRADAY_VOLUME_CURVE: Tuple[Tuple[int, float], ...] = (
     (120, 0.273), (150, 0.334), (180, 0.410), (210, 0.469), (240, 0.534),
     (270, 0.596), (300, 0.657), (330, 0.734), (345, 0.794), (360, 0.917), (375, 1.0),
 )
-_PROJECT_FROM_MINUTES = 60           # 10:15 IST; earlier, the projection is no better than yesterday
+# 10:15 IST. Earlier, the projection's size error is larger than yesterday's
+# reading (median |log err| 0.37 vs 0.33 at 09:45); from 10:15 it is no worse
+# on any measure (review replay, Nifty 50 x 38 sessions, out-of-sample half).
+_PROJECT_FROM_MINUTES = 60
 _VOL_BASELINE_BARS = 20
 
 
@@ -805,24 +808,31 @@ def volume_reading(df: pd.DataFrame, now_ist=None) -> Dict:
 
 def _volume_reading(df: pd.DataFrame, now_ist=None) -> Tuple[Dict, pd.DataFrame]:
     """volume_reading() plus the completed-session frame the OBV slope uses."""
-    in_progress = len(df) > _VOL_BASELINE_BARS and _last_bar_in_progress(df, now_ist)
+    now = now_ist or _now_ist_naive()
+    if getattr(now, "tzinfo", None) is not None:        # any aware clock -> naive IST
+        import datetime as _d
+        now = now.astimezone(_d.timezone(_d.timedelta(hours=5, minutes=30))).replace(tzinfo=None)
+    partial = len(df) >= 2 and _last_bar_in_progress(df, now)
+    # Under 21 bars Volume_Ratio has no baseline: read the bar as "latest".
+    in_progress = partial and len(df) > _VOL_BASELINE_BARS
     minutes = None
     if in_progress:
-        now = now_ist or _now_ist_naive()
         minutes = max(0, (now.hour * 60 + now.minute) - (9 * 60 + 15))
     basis = ("latest" if not in_progress
              else "projected" if minutes >= _PROJECT_FROM_MINUTES
              else "previous_session")
-    done = df.iloc[:-1] if in_progress else df          # completed sessions only
+    done = df.iloc[:-1] if partial else df              # completed sessions only (OBV)
     bar_df = done if basis == "previous_session" else df
     cur = bar_df.iloc[-1]
-    ratio_raw = _num(cur, "Volume_Ratio", 1.0)           # FIX SCORE-NAN
+    # Keep a missing ratio missing until the end: projecting the 1.0 fallback
+    # would turn "unknown" into a 2-4x volume day (review 2026-10-06).
+    ratio_raw = _num(cur, "Volume_Ratio", float("nan"))  # FIX SCORE-NAN
     volume = _num(cur, "Volume", float("nan"))
     prior = (bar_df["Volume"].iloc[-(_VOL_BASELINE_BARS + 1):-1]
              if "Volume" in bar_df.columns else pd.Series(dtype=float))
     baseline = float(prior.mean()) if len(prior) == _VOL_BASELINE_BARS else float("nan")
     ratio = ratio_raw
-    if basis == "projected":
+    if basis == "projected" and np.isfinite(ratio_raw):
         xs, ys = zip(*_INTRADAY_VOLUME_CURVE)
         frac = float(np.interp(minutes, xs, ys))
         ratio, volume = ratio_raw / frac, volume / frac
@@ -943,7 +953,11 @@ def _score_volume(df: pd.DataFrame,
         pts["delivery_n"]         = int(delivery_info.get("n", 0))
         pts["delivery_available"] = True
         # Divergence flag — surfaced in narrative by _build_narrative()
-        pts["delivery_divergence"] = bool(up_day and vol_ratio > 1.5 and z is not None and z < -1.0)
+        # Delivery % comes from the latest bhavcopy, i.e. the previous session
+        # while today's is open; a projected bar is today's, so the two can't
+        # be paired into a divergence flag (review 2026-10-06).
+        pts["delivery_divergence"] = bool(up_day and vol_ratio > 1.5 and z is not None and z < -1.0
+                                          and reading["basis"] != "projected")
     else:
         pts["delivery_available"] = False
 
@@ -1594,9 +1608,11 @@ def _build_narrative(
         _dt_mean  = vol_pts.get("delivery_mean")
         _dt_z     = vol_pts.get("delivery_z")
         _dt_n     = vol_pts.get("delivery_n", 0)
+        # The bhavcopy is the previous session's while today's is still open.
+        _dt_when  = "today" if vol_pts.get("volume_session", "latest") == "latest" else "last session"
         if vol_pts.get("delivery_divergence"):
             parts.append(
-                f"Delivery % is only {_dt_today:.0f}% today vs the {_dt_n}-day mean "
+                f"Delivery % is only {_dt_today:.0f}% {_dt_when} vs the {_dt_n}-day mean "
                 f"of {_dt_mean:.0f}% ({_dt_z:+.1f}sigma) — the volume surge is "
                 f"largely intraday, not institutional accumulation. Frothy moves "
                 f"on low delivery tend to unwind."
@@ -1604,18 +1620,18 @@ def _build_narrative(
         elif _dt_today is not None and _dt_z is not None:
             if _dt_z > 1.0:
                 parts.append(
-                    f"Delivery % is {_dt_today:.0f}% today, sharply above the "
+                    f"Delivery % is {_dt_today:.0f}% {_dt_when}, sharply above the "
                     f"{_dt_n}-day mean of {_dt_mean:.0f}% ({_dt_z:+.1f}sigma) — "
                     f"institutional accumulation footprint."
                 )
             elif _dt_today >= 45 and _dt_z > 0.25:
                 parts.append(
-                    f"Delivery % is {_dt_today:.0f}% today vs the {_dt_n}-day mean "
+                    f"Delivery % is {_dt_today:.0f}% {_dt_when} vs the {_dt_n}-day mean "
                     f"of {_dt_mean:.0f}% — above-normal institutional participation."
                 )
             elif _dt_today < 25 and _dt_z < -0.5:
                 parts.append(
-                    f"Delivery % is {_dt_today:.0f}% today ({_dt_z:+.1f}sigma below the "
+                    f"Delivery % is {_dt_today:.0f}% {_dt_when} ({_dt_z:+.1f}sigma below the "
                     f"{_dt_n}-day mean) — dominated by intraday traders, thin real conviction."
                 )
 
