@@ -492,7 +492,10 @@ def add_stochastic(df: pd.DataFrame, k_period: int = 14, d_period: int = 3) -> p
 
 def add_volume_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Volume SMA, Volume Ratio, and On-Balance Volume."""
-    df["Volume_SMA_20"] = df["Volume"].rolling(window=20).mean()
+    # FIX VOL-SELF (audit 2026-10-03 #17): the baseline is the 20 sessions
+    # BEFORE each bar. Averaging the bar into its own baseline damped every
+    # spike (a 3x day read as ~2.5x) and so under-scored volume breakouts.
+    df["Volume_SMA_20"] = df["Volume"].shift(1).rolling(window=20).mean()
     # Guard a zero/NaN 20-day volume mean (halted stock, all-holiday window) so
     # Volume_Ratio is NaN rather than inf — _score_volume() reads this column.
     df["Volume_Ratio"]  = df["Volume"] / df["Volume_SMA_20"].replace(0, np.nan)

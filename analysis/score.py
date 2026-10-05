@@ -752,8 +752,16 @@ def _score_volume(df: pd.DataFrame,
     cur        = df.iloc[-1]
     vol_ratio  = _num(cur, "Volume_Ratio", 1.0)   # FIX SCORE-NAN
     close      = float(cur["Close"])
-    open_price = _num(cur, "Open", close)
-    up_day     = close >= open_price
+    # FIX UP-DAY (audit 2026-10-03 #16): an "up day" is a close at or above
+    # the previous session's close. The old close >= open test called a stock
+    # that gapped up and faded (+3% on the day on 3x volume) a down day and cut
+    # its volume points by 60%; a gap-down that recovered part of the drop read
+    # as an up day. Close >= open is only the fallback for a single-bar frame.
+    prev_close = _num(df.iloc[-2], "Close", float("nan")) if len(df) >= 2 else float("nan")
+    if np.isfinite(prev_close) and prev_close > 0:
+        up_day = close >= prev_close
+    else:
+        up_day = close >= _num(cur, "Open", close)
 
     pts: Dict[str, float] = {}
     _use_delivery = (
