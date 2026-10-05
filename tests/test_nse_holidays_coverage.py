@@ -52,3 +52,15 @@ def test_current_year_is_covered():
     # Fails on 1 January if nobody added the new year — a loud reminder
     # instead of a silent year of wrong trading days.
     assert H.calendar_status(date.today().year) != "missing"
+
+
+# ── 2024/2025 corrections (audit 2026-10-05: NSE circulars + RELIANCE volume) ──
+@pytest.mark.parametrize("d", ["2024-05-01", "2024-05-20", "2024-11-20", "2025-05-01"])
+def test_missing_2024_25_closures_added(d):
+    assert H.is_trading_day(date.fromisoformat(d)) is False
+
+
+@pytest.mark.parametrize("d", ["2024-05-23", "2024-10-24", "2025-05-12", "2025-06-27"])
+def test_wrongly_listed_trading_days_removed(d):
+    # Full sessions (RELIANCE traded 10-22M shares on each).
+    assert H.is_trading_day(date.fromisoformat(d)) is True
