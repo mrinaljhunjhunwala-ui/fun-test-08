@@ -783,6 +783,8 @@ _INTRADAY_VOLUME_CURVE: Tuple[Tuple[int, float], ...] = (
 # on any measure (review replay, Nifty 50 x 38 sessions, out-of-sample half).
 _PROJECT_FROM_MINUTES = 60
 _VOL_BASELINE_BARS = 20
+_FLAT_DAY_ATR_FRACTION = 0.1         # |close - prev close| under 0.1 x ATR(14) = flat day
+_FLAT_DAY_VOL_MULT = 0.7             # between up (1.0) and down (0.4)
 
 
 def volume_reading(df: pd.DataFrame, now_ist=None) -> Dict:
@@ -843,6 +845,13 @@ def _volume_reading(df: pd.DataFrame, now_ist=None) -> Tuple[Dict, pd.DataFrame]
     close = float(cur["Close"])
     prev = float(bar_df["Close"].iloc[-2]) if len(bar_df) >= 2 else float("nan")
     up_day = close >= prev if np.isfinite(prev) else close >= _num(cur, "Open", close)
+    # FIX UPDAY-DEADBAND (2026-10-06): a move smaller than a tenth of the
+    # stock's ATR is noise, not direction. Without a band a -0.08% day took the
+    # full down-day cut and +0.08% none; about a third of up/down flips sat
+    # within 0.25% of the previous close (review of #281).
+    atr = _num(cur, "ATR", float("nan"))
+    flat_day = bool(np.isfinite(prev) and np.isfinite(atr) and atr > 0
+                    and abs(close - prev) < _FLAT_DAY_ATR_FRACTION * atr)
     reading = {
         "ratio": float(ratio) if np.isfinite(ratio) else 1.0,
         "ratio_raw": float(ratio_raw) if np.isfinite(ratio_raw) else None,
@@ -851,6 +860,7 @@ def _volume_reading(df: pd.DataFrame, now_ist=None) -> Tuple[Dict, pd.DataFrame]
         "basis": basis,
         "session_minutes": minutes,
         "up_day": bool(up_day),
+        "flat_day": flat_day,
     }
     return reading, done
 
@@ -903,7 +913,11 @@ def _score_volume(df: pd.DataFrame,
     elif vol_ratio > 1.2: raw_vol = 6.0
     elif vol_ratio > 0.8: raw_vol = 4.0
     else:                 raw_vol = 1.0
-    _vol_after_dir = raw_vol if up_day else max(1.0, raw_vol * 0.4)
+    if reading["flat_day"]:
+        _vol_after_dir = max(1.0, raw_vol * _FLAT_DAY_VOL_MULT)
+    else:
+        _vol_after_dir = raw_vol if up_day else max(1.0, raw_vol * 0.4)
+    pts["flat_day"] = reading["flat_day"]
     if _use_delivery:
         # Scale 10-pt shape down to 8: multiply by 0.8, cap at 8.
         pts["vol_ratio"] = round(min(_vol_after_dir * 0.8, 8.0), 2)
@@ -1585,7 +1599,8 @@ def _build_narrative(
         "previous_session": f"The last completed session's volume was {vol:.1f}×",
         "projected":        f"Today's volume is on pace for {vol:.1f}×",
     }.get(_basis, f"Volume in the latest session was {vol:.1f}×")
-    _side = "buying" if vol_pts.get("up_day", True) else "selling"
+    _side = ("turnover" if vol_pts.get("flat_day")
+             else "buying" if vol_pts.get("up_day", True) else "selling")
     if vol > 1.5 and bull_pats and _basis == "latest":
         parts.append(
             f"{_vol_phrase} the 20-day average with a "
@@ -1593,7 +1608,8 @@ def _build_narrative(
         )
     elif vol > 1.5:
         parts.append(
-            f"{_vol_phrase} the 20-day average on {'an up' if _side == 'buying' else 'a down'} "
+            f"{_vol_phrase} the 20-day average on "
+            f"{ {'buying': 'an up', 'selling': 'a down'}.get(_side, 'a flat') } "
             f"day — above-average {_side}."
         )
     elif bear_pats:
