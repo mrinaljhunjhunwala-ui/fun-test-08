@@ -33,7 +33,8 @@ Design
     same ticker viewed 20 times on the same day yields ONE log row per
     horizon per source. The dashboard visit count is not information.
 
-  * Forward returns are computed lazily. On Calibration-page load we scan
+  * Forward returns are computed lazily: nightly by tools/backfill_ledger.py
+    (refresh-eod-data workflow) and on Calibration-page load. We scan
     for log entries whose forward-return columns are still None and enough
     calendar days have elapsed, then batch-fetch OHLCV via the existing
     data.fetcher.fetch_single (Stooq → Yahoo fallback — zero new data
@@ -51,7 +52,7 @@ from __future__ import annotations
 import datetime as _dt
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import pandas as pd
@@ -502,7 +503,7 @@ def tw_buckets(log_ids: List[int]) -> Dict[int, str]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Backfill forward returns — lazy, called from the Calibration page
+# Backfill forward returns — nightly (tools/backfill_ledger.py) + Calibration page
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _find_bar(df: pd.DataFrame, target: _dt.date) -> Optional[float]:
@@ -554,7 +555,18 @@ _MAX_BACKFILL_MISSES = 5
 _STALE_BEHIND_NIFTY_SESSIONS = 3
 
 
-def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
+def _reached_cutoff(today: _dt.date, h: int) -> _dt.date:
+    """Exclusive upper bound on logged_date for horizon h to be reached by
+    `today`: the session after (today - h sessions). A weekend/holiday date
+    shares the previous session's targets, so it is reached on the same day."""
+    s = today
+    for _ in range(h):
+        s = _prev_session(s)
+    return horizon_target_date(s, 1)
+
+
+def backfill_returns(*, max_rows: int = 200,
+                     attempted: Optional[Set[int]] = None) -> Dict[str, int]:
     """
     Fill missing forward-return columns for eligible log rows.
 
@@ -564,6 +576,12 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
     We process at most max_rows log rows per call to keep the page render
     snappy. Rows not touched this call are picked up on the next Calibration
     page visit.
+
+    attempted: for multi-pass callers (tools/backfill_ledger.py). Rows whose
+    id is in the set are skipped, and every row scanned is added to it — so a
+    row that can't fill yet (EOD lag, dead ticker) is tried once per run
+    instead of holding a batch slot on every pass and burning its whole
+    _MAX_BACKFILL_MISSES budget in one run.
 
     Returns {"scanned": n, "updated": n, "tickers_fetched": n}.
     """
@@ -582,25 +600,31 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
         # updated 0 rows while ~430 eligible older rows never got 1d/5d
         # returns. max_rows now applies only AFTER keeping rows with at least
         # one missing horizon that has actually been reached.
-        sql = _store._q("""
+        #
+        # The reached test is pre-applied in SQL too (per-horizon logged_date
+        # cutoffs): every row under a year old has price_250d NULL, so without
+        # it the _BACKFILL_CANDIDATE_CAP newest rows would be mostly unreached
+        # gaps and, past that many rows, the oldest rows — the ones whose
+        # 60d/250d targets come due — would never be selected.
+        gaps = " OR ".join(f"(r.price_{h}d IS NULL AND v.logged_date < ?)"
+                           for h in HORIZONS_DAYS)
+        sql = _store._q(f"""
             SELECT v.id, v.ticker, v.logged_date, v.entry_price, v.backfill_misses,
                    r.price_1d, r.price_5d, r.price_20d, r.price_60d, r.price_250d
             FROM verdict_log v
             LEFT JOIN verdict_forward_returns r ON r.verdict_log_id = v.id
             WHERE v.logged_date < ?
               AND COALESCE(v.backfill_misses, 0) < ?
-              AND (r.verdict_log_id IS NULL
-               OR r.price_1d   IS NULL
-               OR r.price_5d   IS NULL
-               OR r.price_20d  IS NULL
-               OR r.price_60d  IS NULL
-               OR r.price_250d IS NULL)
+              AND ({gaps})
             ORDER BY v.logged_at DESC
             LIMIT ?
         """)
+        cutoffs = [_reached_cutoff(today, h).isoformat() for h in HORIZONS_DAYS]
         with _store._get_conn() as conn:
             rows = read_sql_df(sql, conn, params=(today.isoformat(), _MAX_BACKFILL_MISSES,
-                                                  _BACKFILL_CANDIDATE_CAP))
+                                                  *cutoffs, _BACKFILL_CANDIDATE_CAP))
+        if attempted:
+            rows = rows[~rows["id"].astype(int).isin(attempted)]
         if rows.empty:
             return stats
 
@@ -618,6 +642,8 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
         if rows.empty:
             return stats
         stats["scanned"] = len(rows)
+        if attempted is not None:
+            attempted.update(int(i) for i in rows["id"])
 
         # Fetch history once per unique ticker (Nifty benchmark always fetched).
         tickers = sorted(set(rows["ticker"].tolist()) | {NIFTY_BENCH})
@@ -646,15 +672,22 @@ def backfill_returns(*, max_rows: int = 200) -> Dict[str, int]:
                         misses.append(log_id)
                     continue
 
-                # Anchor entry to the logged_date bar if we don't have it.
+                # Rows logged before session dating (d5d7a3b) can carry a
+                # weekend/holiday logged_date; their prices are the previous
+                # session's close. "First bar on-or-after" a Saturday is
+                # Monday's close, which made NIFTY's 1d return 0 against a
+                # stock return measured from Friday.
+                anchor = logged if is_trading_day(logged) else _prev_session(logged)
+
+                # Anchor entry to the logged session's bar if we don't have it.
                 if entry is None or pd.isna(entry):
-                    entry = _find_bar(tdf, logged)
+                    entry = _find_bar(tdf, anchor)
                 if entry is None or entry <= 0:
                     if nifty_last is not None:
                         misses.append(log_id)
                     continue
 
-                nifty_entry = _find_bar(nifty_df, logged) if nifty_df is not None else None
+                nifty_entry = _find_bar(nifty_df, anchor) if nifty_df is not None else None
 
                 updates: Dict[str, Optional[float]] = {}
                 for h in HORIZONS_DAYS:
