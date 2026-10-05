@@ -14,6 +14,10 @@ _log = logging.getLogger("utils.nse_holidays")
 
 # ── NSE Holiday Calendar ─────────────────────────────────────────────────────
 # Source: NSE India official holiday list.
+# FIX HOLIDAY-2024-25 (audit 2026-10-05): checked against NSE's 2024 and 2025
+# circulars and RELIANCE volume. Removed full trading days 2024-05-23,
+# 2024-10-24, 2025-05-12, 2025-06-27; added 2024-05-01, 2024-05-20,
+# 2024-11-20, 2025-05-01.
 # ADD new years at the bottom.  Format: "YYYY-MM-DD".
 NSE_HOLIDAYS: frozenset[str] = frozenset({
     # ── 2024 ──
@@ -26,14 +30,15 @@ NSE_HOLIDAYS: frozenset[str] = frozenset({
     "2024-04-14",   # Dr. Ambedkar Jayanti
     "2024-04-17",   # Ram Navami
     "2024-04-21",   # Mahavir Jayanti
-    "2024-05-23",   # Buddha Purnima
+    "2024-05-01",   # Maharashtra Day
+    "2024-05-20",   # Special closure — Lok Sabha election (Mumbai)
     "2024-06-17",   # Bakri Id
     "2024-07-17",   # Muharram
     "2024-08-15",   # Independence Day
     "2024-10-02",   # Mahatma Gandhi Jayanti
-    "2024-10-24",   # Dussehra (Vijaya Dashami)
     "2024-11-01",   # Diwali Laxmi Puja
     "2024-11-15",   # Gurunanak Jayanti
+    "2024-11-20",   # Special closure — Maharashtra Assembly election
     "2024-12-25",   # Christmas
 
     # ── 2025 ──
@@ -41,12 +46,11 @@ NSE_HOLIDAYS: frozenset[str] = frozenset({
     "2025-02-26",   # Mahashivratri
     "2025-03-14",   # Holi
     "2025-03-31",   # Id-Ul-Fitr (Eid)
-    "2025-04-10",   # Shri Ram Navami
+    "2025-04-10",   # Shri Mahavir Jayanti
     "2025-04-14",   # Dr. Ambedkar Jayanti
     "2025-04-18",   # Good Friday
-    "2025-05-12",   # Buddha Purnima
+    "2025-05-01",   # Maharashtra Day
     "2025-06-07",   # Bakri Eid
-    "2025-06-27",   # Muharram
     "2025-08-15",   # Independence Day
     "2025-08-27",   # Ganesh Chaturthi
     "2025-10-02",   # Mahatma Gandhi Jayanti
