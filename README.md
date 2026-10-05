@@ -119,6 +119,30 @@ py -m pytest -m slow -q            # gated end-to-end backtest smoke (needs netw
 - **Valuation regression** (`tests/test_valuation_golden_snapshot.py`) replays captured inputs through
   the pure engine and fails on posture/confidence drift.
 - **CI** (`.github/workflows/ci.yml`) runs `pytest -m "not slow"` on every push/PR to `main`.
+- **Automerge** (`.github/workflows/automerge.yml`): label a PR `automerge` and it is squash-merged
+  once CI's `test` and `real-postgres` jobs pass on its latest commit (same-repo, non-draft PRs only).
+  It is a convenience, not branch protection — manual merges and direct pushes are still possible
+  (required checks need GitHub Pro on a private repo).
+
+### Optional: `AUTOMERGE_TOKEN` secret
+
+Without it, Automerge merges with the built-in `GITHUB_TOKEN`, and GitHub doesn't start other
+workflows from that merge, so CI's push-to-`main` run is skipped for automerged PRs (the PR's own
+CI run already tested that exact commit; Streamlit Cloud still deploys). To get the `main` run back:
+
+1. GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained tokens →
+   Generate new token**.
+2. **Resource owner:** your account. **Repository access:** *Only select repositories* →
+   `nse-smart-investor`. Pick an expiry and set a reminder to renew it.
+3. **Repository permissions:** **Contents: Read and write** and **Pull requests: Read and write**
+   (Metadata: Read-only is added automatically). Nothing else.
+4. Generate and copy the token.
+5. In the repo: **Settings → Secrets and variables → Actions → New repository secret**.
+   Name `AUTOMERGE_TOKEN`, paste the token, save.
+
+The workflow uses `AUTOMERGE_TOKEN` when it exists and falls back to `GITHUB_TOKEN` otherwise, so
+nothing else changes. Merges then appear under your account. If the token expires, Automerge runs fail
+(red in the Actions tab) until you replace the secret, or delete it to fall back to `GITHUB_TOKEN`.
 
 ---
 
