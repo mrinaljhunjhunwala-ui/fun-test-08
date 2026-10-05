@@ -1578,14 +1578,15 @@ def _build_narrative(
     # FIX VOL-NARR (2026-10-06): name the session the Volume pillar scored.
     # During market hours that is the previous session (before 10:15 IST) or
     # today's volume projected to a full day, not "today's volume"; the
-    # candlestick pattern is only paired with it when both describe one bar.
+    # candlestick pattern is only paired with it on a completed bar (today's
+    # candle isn't final until 15:30).
     _basis = vol_pts.get("volume_session", "latest")
     _vol_phrase = {
         "previous_session": f"The last completed session's volume was {vol:.1f}×",
         "projected":        f"Today's volume is on pace for {vol:.1f}×",
     }.get(_basis, f"Volume in the latest session was {vol:.1f}×")
     _side = "buying" if vol_pts.get("up_day", True) else "selling"
-    if vol > 1.5 and bull_pats and _basis != "previous_session":
+    if vol > 1.5 and bull_pats and _basis == "latest":
         parts.append(
             f"{_vol_phrase} the 20-day average with a "
             f"{bull_pats[0]} candlestick pattern — a positive confirmation signal."

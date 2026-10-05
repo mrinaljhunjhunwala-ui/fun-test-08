@@ -173,3 +173,24 @@ def test_bar_in_progress_detection():
     assert S._last_bar_in_progress(df, dt.datetime(2026, 10, 6, 10, 0)) is False   # stale bar
     intraday = pd.DataFrame({"Close": [1.0]}, index=pd.DatetimeIndex(["2026-10-05 10:05"]))
     assert S._last_bar_in_progress(intraday, dt.datetime(2026, 10, 5, 10, 7)) is False
+
+
+def test_pre_open_bar_reads_previous_session_never_projected():
+    # Yahoo can publish today's bar at 09:00-09:15 with zero volume; minutes
+    # clamp to 0 and must never reach the projection (the curve is 0 there).
+    df = _frame(end="2026-10-05")
+    df.iloc[-1, df.columns.get_loc("Volume")] = 0.0
+    r = S.volume_reading(add_all_indicators(df), now_ist=dt.datetime(2026, 10, 5, 9, 5))
+    assert r["basis"] == "previous_session" and r["session_minutes"] == 0
+
+
+def test_projected_volume_is_not_paired_with_todays_unfinished_candle():
+    ind = add_all_indicators(_frame(end="2026-10-05"))
+    ind.iloc[-1, ind.columns.get_loc("Volume_Ratio")] = 0.9          # ~3.3x on pace at 11:15
+    ind.iloc[-1, ind.columns.get_loc("Close")] = float(ind["Close"].iloc[-2]) * 1.02
+    _, vol_detail = S._score_volume(ind, now_ist=_AT_1115)
+    narrative = S._build_narrative(
+        "TESTCO.NS", ind, 60.0, "B", "WATCHLIST", {}, {}, vol_detail, ["Hammer"],
+        100.0, 95.0, 110.0, 2.0, "Other", "normal", None, 15, False)[1]
+    assert "Today's volume is on pace for" in narrative
+    assert "Hammer candlestick" not in narrative
