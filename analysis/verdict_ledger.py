@@ -672,12 +672,10 @@ def backfill_returns(*, max_rows: int = 200,
                         misses.append(log_id)
                     continue
 
-                # Rows logged before session dating (d5d7a3b) can carry a
-                # weekend/holiday logged_date; their prices are the previous
-                # session's close. "First bar on-or-after" a Saturday is
-                # Monday's close, which made NIFTY's 1d return 0 against a
-                # stock return measured from Friday.
-                anchor = logged if is_trading_day(logged) else _prev_session(logged)
+                # "First bar on-or-after" a Saturday is Monday's close, which
+                # made NIFTY's 1d return 0 against a stock return measured
+                # from Friday — see _entry_session.
+                anchor = _entry_session(logged)
 
                 # Anchor entry to the logged session's bar if we don't have it.
                 if entry is None or pd.isna(entry):
@@ -742,6 +740,14 @@ def _last_bar_date(df: Optional[pd.DataFrame]) -> Optional[_dt.date]:
         return None
 
 
+def _entry_session(logged: _dt.date) -> _dt.date:
+    """The session whose close a row's entry price is. Rows logged before
+    session dating (d5d7a3b) can carry a weekend or holiday logged_date; their
+    prices are the previous session's close. Horizon targets are unaffected:
+    horizon_target_date(Sat, h) == horizon_target_date(Fri, h)."""
+    return logged if is_trading_day(logged) else _prev_session(logged)
+
+
 def backfill_sector_returns(*, max_rows: int = _BACKFILL_CANDIDATE_CAP) -> Dict[str, int]:
     """Fill sector_ret_{h}d — the verdict's own sector peer-basket return over
     the same window — for every horizon whose stock return is already filled.
@@ -788,7 +794,11 @@ def backfill_sector_returns(*, max_rows: int = _BACKFILL_CANDIDATE_CAP) -> Dict[
             return [h for h in HORIZONS_DAYS
                     if pd.notna(r[f"ret_{h}d"]) and pd.isna(r[f"sector_ret_{h}d"])
                     and horizon_target_date(d, h) <= last_close]
-        todo = [(r, d, _fillable(r, d)) for (_, r), d in zip(rows.iterrows(), logged)]
+        # Windows start at the entry session: a weekend/holiday logged_date
+        # has no stored close, so basket_return() returned None for every
+        # such row (all 176 open candidates on 2026-10-05).
+        todo = [(r, _entry_session(d), _fillable(r, d))
+                for (_, r), d in zip(rows.iterrows(), logged)]
         todo = [t for t in todo if t[2]]
         stats["candidates"] = len(todo)
         if not todo:

@@ -119,6 +119,19 @@ def test_backfill_fills_sector_return_from_stored_closes(it_universe):
     assert vl.backfill_sector_returns()["updated"] == 0
 
 
+@pytest.mark.parametrize("logged", ["2026-09-12", "2026-09-13", "2026-09-14"])   # Sat, Sun, holiday
+def test_non_session_logged_date_windows_from_the_previous_session(it_universe, logged):
+    # Pre-d5d7a3b rows can be dated a weekend or NSE holiday; there is no
+    # stored close that day, so every such window returned None (all 176 open
+    # candidates in prod on 2026-10-05). The entry is Fri 11 Sep's close.
+    fri, tue = "2026-09-11", "2026-09-15"
+    _seed_delivery(_closes([(s, fri, 100) for s in "ABCEF"]
+                           + [(s, tue, c) for s, c in zip("ABCEF", (110, 100, 90, 102, 104))]))
+    _seed_verdict("A.NS", logged, 10.0)
+    assert vl.backfill_sector_returns() == {"candidates": 1, "updated": 1}
+    assert vl.load_ledger().iloc[0]["sector_ret_1d"] == pytest.approx(2.0)
+
+
 def test_uncovered_window_stays_null(it_universe):
     _seed_delivery(_it_closes())
     _seed_verdict("A.NS", D[-1].isoformat(), 1.0)              # 1d target beyond stored closes
