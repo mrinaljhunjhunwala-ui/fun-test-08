@@ -988,7 +988,7 @@ else:
             f'<th style="{_CTH}">Exit ₹</th>'
             f'<th style="{_CTL}">Exit Reason</th>'
             f'<th style="{_CTH}">P&amp;L ₹ (gross)</th>'
-            f'<th style="{_CTH}">Charges ₹</th>'
+            f'<th style="{_CTH}" title="Estimated: STT, stamp duty, exchange/SEBI fees, GST, DP and brokerage">Charges ₹ (est.)</th>'
             f'<th style="{_CTH}">Net ₹</th>'
             f'<th style="{_CTH}">P&amp;L %</th>'
             f'<th style="{_CTH}">Date</th>'

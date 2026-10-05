@@ -147,11 +147,17 @@ def backtest_commission_arg():
     """The `commission=` argument for backtesting.Backtest: the exact per-fill
     callable where the installed backtesting.py accepts one (>= 0.4), else a
     flat per-side rate at a representative ticket size."""
-    try:
-        import inspect
-        from backtesting import Backtest
-        if "callable(commission)" in inspect.getsource(Backtest.__init__):
-            return backtest_commission
-    except Exception:
-        pass
+    if supports_callable_commission():
+        return backtest_commission
     return representative_round_trip_pct() / 2
+
+
+def supports_callable_commission() -> bool:
+    """backtesting.py accepts a per-fill commission callable from 0.6 on
+    (0.5.0 accepts only a float)."""
+    try:
+        import backtesting
+        major, minor = (int(x) for x in str(backtesting.__version__).split(".")[:2])
+        return (major, minor) >= (0, 6)
+    except Exception:
+        return False

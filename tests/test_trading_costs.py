@@ -87,3 +87,13 @@ def test_backtests_actually_charge_both_legs():
         expected = 2 * COMMISSION * 100_000
     assert lost == pytest.approx(expected, rel=0.05)
     assert lost > 0.002 * 100_000          # more than the old sell-side-only STT model's ~0.23%
+
+
+def test_callable_support_follows_backtesting_version(monkeypatch):
+    import backtesting
+    monkeypatch.setattr(backtesting, "__version__", "0.5.0")
+    assert C.supports_callable_commission() is False
+    assert not callable(C.backtest_commission_arg())
+    monkeypatch.setattr(backtesting, "__version__", "0.6.5")
+    assert C.supports_callable_commission() is True
+    assert C.backtest_commission_arg() is C.backtest_commission
