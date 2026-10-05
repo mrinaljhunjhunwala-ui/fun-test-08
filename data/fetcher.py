@@ -346,6 +346,86 @@ def _fetch_stooq(ticker: str, period: str = "1y") -> pd.DataFrame:
     return df
 
 
+def _parse_yahoo_chart(data: dict, ticker: str, yf_interval: str) -> pd.DataFrame:
+    """Yahoo v8 chart JSON -> OHLCV DataFrame (index Date, or IST Datetime intraday)."""
+    import datetime
+
+    result = data.get("chart", {}).get("result")
+    if not result:
+        err = data.get("chart", {}).get("error", {})
+        raise ValueError(f"Yahoo chart API error for {ticker}: {err}")
+
+    # Defensive parse — flagged by data-provenance-auditor 2026-09-02. Yahoo can
+    # rename / reshape `indicators.quote` without notice; previously any drift
+    # here raised a bare KeyError from `r0["indicators"]["quote"][0]` and got
+    # swallowed by callers. Now we surface a clear ValueError naming the drift.
+    r0         = result[0] if result else None
+    if r0 is None:
+        raise ValueError(f"Yahoo chart API: empty result list for {ticker}")
+    timestamps = r0.get("timestamp", [])
+    _indicators = r0.get("indicators") or {}
+    _quote_list = _indicators.get("quote") or []
+    if not _quote_list:
+        raise ValueError(
+            f"Yahoo schema drift for {ticker}: missing indicators.quote "
+            "(expected a non-empty list). Provider may have renamed the field."
+        )
+    quote      = _quote_list[0] or {}
+
+    if not timestamps:
+        raise ValueError(f"Yahoo chart API returned no timestamps for {ticker}")
+
+    # FIX OHLC-BASIS (audit 2026-10-03): Close used to be `adjclose`
+    # (dividend-adjusted) while Open/High/Low stayed raw, so the close sat
+    # outside the day's range on most bars (HDFCBANK: 403 of 500), ATR read
+    # ~69% high and gaps were invented. Yahoo's raw quote series is already
+    # split/bonus-adjusted, so use it for every column: bars are internally
+    # consistent and on the same exchange-price basis as Angel One, Stooq,
+    # live quotes and intraday bars. (Dividends now show as their real
+    # ex-date drop instead of being back-adjusted.)
+    close_list = quote.get("close", [])
+
+    # For intraday intervals keep full datetime; for daily use date-only
+    _intraday = yf_interval not in ("1d", "1wk", "1mo")
+    # datetime.utcfromtimestamp() is deprecated (Python 3.12+) and slated for
+    # removal; it also returns a naive datetime that merely *claims* to be UTC.
+    # fromtimestamp(..., tz=utc) is the supported spelling. The IST conversion
+    # is now a real timezone shift rather than manual arithmetic, then stripped
+    # back to naive so the index type the callers already handle is unchanged.
+    _UTC = datetime.timezone.utc
+    if _intraday:
+        _IST  = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+        dates = [
+            datetime.datetime.fromtimestamp(ts, tz=_UTC).astimezone(_IST).replace(tzinfo=None)
+            for ts in timestamps
+        ]
+        idx = pd.DatetimeIndex(dates, name="Datetime")
+    else:
+        dates = [datetime.datetime.fromtimestamp(ts, tz=_UTC).date() for ts in timestamps]
+        idx   = pd.DatetimeIndex(dates, name="Date")
+
+    df = pd.DataFrame({
+        "Open":   quote.get("open",   [None] * len(dates)),
+        "High":   quote.get("high",   [None] * len(dates)),
+        "Low":    quote.get("low",    [None] * len(dates)),
+        "Close":  close_list,
+        "Volume": quote.get("volume", [None] * len(dates)),
+    }, index=idx)
+
+    df = df.dropna(subset=["Close"])
+    df = df[df["Close"] > 0]
+    if not _intraday:
+        # Yahoo pads daily history with flat zero-volume bars on exchange
+        # holidays (and occasionally a lost session). They are not sessions:
+        # keeping them drags Volume_SMA_20 and fakes "no movement" days.
+        # Indices always report Volume 0, so the bar must also be flat.
+        _flat = (df["Open"] == df["High"]) & (df["High"] == df["Low"]) & (df["Low"] == df["Close"])
+        _novol = df["Volume"].fillna(0) == 0
+        df = df[~(_flat & _novol)]
+    df.sort_index(inplace=True)
+    return df
+
+
 def _fetch_yahoo_direct(ticker: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
     """
     Fallback: direct Yahoo Finance v8 chart API — no yfinance library, no rate limiting.
@@ -353,7 +433,7 @@ def _fetch_yahoo_direct(ticker: str, period: str = "1y", interval: str = "1d") -
     which avoids the HTTP 429 rate-limiting that hits the library from cloud IPs.
     Returns flat DataFrame with Open, High, Low, Close, Volume index=Date.
     """
-    import json, datetime
+    import json
 
     # Map internal period strings → Yahoo Finance API range parameter
     _RANGE_MAP = {
@@ -403,66 +483,7 @@ def _fetch_yahoo_direct(ticker: str, period: str = "1y", interval: str = "1d") -
         with urllib.request.urlopen(req2, timeout=15) as r:
             data = json.loads(r.read())
 
-    result = data.get("chart", {}).get("result")
-    if not result:
-        err = data.get("chart", {}).get("error", {})
-        raise ValueError(f"Yahoo chart API error for {ticker}: {err}")
-
-    # Defensive parse — flagged by data-provenance-auditor 2026-09-02. Yahoo can
-    # rename / reshape `indicators.quote` without notice; previously any drift
-    # here raised a bare KeyError from `r0["indicators"]["quote"][0]` and got
-    # swallowed by callers. Now we surface a clear ValueError naming the drift.
-    r0         = result[0] if result else None
-    if r0 is None:
-        raise ValueError(f"Yahoo chart API: empty result list for {ticker}")
-    timestamps = r0.get("timestamp", [])
-    _indicators = r0.get("indicators") or {}
-    _quote_list = _indicators.get("quote") or []
-    if not _quote_list:
-        raise ValueError(
-            f"Yahoo schema drift for {ticker}: missing indicators.quote "
-            "(expected a non-empty list). Provider may have renamed the field."
-        )
-    quote      = _quote_list[0] or {}
-
-    if not timestamps:
-        raise ValueError(f"Yahoo chart API returned no timestamps for {ticker}")
-
-    # Prefer adjclose when available (same as auto_adjust=True in yfinance)
-    adjclose_list = (_indicators.get("adjclose") or [{}])[0].get("adjclose")
-    close_list    = adjclose_list if adjclose_list else quote.get("close", [])
-
-    # For intraday intervals keep full datetime; for daily use date-only
-    _intraday = yf_interval not in ("1d", "1wk", "1mo")
-    # datetime.utcfromtimestamp() is deprecated (Python 3.12+) and slated for
-    # removal; it also returns a naive datetime that merely *claims* to be UTC.
-    # fromtimestamp(..., tz=utc) is the supported spelling. The IST conversion
-    # is now a real timezone shift rather than manual arithmetic, then stripped
-    # back to naive so the index type the callers already handle is unchanged.
-    _UTC = datetime.timezone.utc
-    if _intraday:
-        _IST  = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-        dates = [
-            datetime.datetime.fromtimestamp(ts, tz=_UTC).astimezone(_IST).replace(tzinfo=None)
-            for ts in timestamps
-        ]
-        idx = pd.DatetimeIndex(dates, name="Datetime")
-    else:
-        dates = [datetime.datetime.fromtimestamp(ts, tz=_UTC).date() for ts in timestamps]
-        idx   = pd.DatetimeIndex(dates, name="Date")
-
-    df = pd.DataFrame({
-        "Open":   quote.get("open",   [None] * len(dates)),
-        "High":   quote.get("high",   [None] * len(dates)),
-        "Low":    quote.get("low",    [None] * len(dates)),
-        "Close":  close_list,
-        "Volume": quote.get("volume", [None] * len(dates)),
-    }, index=idx)
-
-    df = df.dropna(subset=["Close"])
-    df = df[df["Close"] > 0]
-    df.sort_index(inplace=True)
-    return df
+    return _parse_yahoo_chart(data, ticker, yf_interval)
 
 
 def _rate_limit():
