@@ -193,6 +193,14 @@ def _combine(vix_z: str, trend: str, breadth: str, vol: str
             conf = "medium"
         return "trend_down", conf, reasons
 
+    # FIX REGIME-NODATA (replica-test S3, 2026-10-04): with neither trend nor
+    # breadth known there is no evidence for ANY regime, yet this fell through
+    # to "range" — so a full feed outage put "range-bound market" on the
+    # Command Centre hero. (VIX fear/panic already returned risk_off above.)
+    if trend == "unknown" and breadth == "unknown":
+        reasons.append("trend and breadth data unavailable — no regime read")
+        return "unknown", "low", reasons
+
     # Everything else is a range regime — the point being that in a range
     # the composite score's factor mix under-performs (see 2023-25 holdout).
     reasons.append(f"trend={trend}, breadth={breadth} — no clear directional consensus")

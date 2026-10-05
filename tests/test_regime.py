@@ -178,3 +178,29 @@ def test_score_dataframe_dispersion_never_appears_on_non_buy_actions():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ─────────────── no data → "unknown", not "range" (replica-test S3, 2026-10-04) ───────────────
+
+def test_classify_with_no_data_is_unknown_not_range():
+    # Every feed down used to read "range, low confidence" — a market call with
+    # no evidence behind it, shown on the Command Centre hero.
+    snap = classify(vix=None, nifty_close=None, pct_above_sma50=None)
+    assert snap.label == "unknown"
+    assert snap.confidence == "low"
+
+
+def test_classify_with_only_vix_normal_is_still_unknown():
+    snap = classify(vix=15.0, nifty_close=None, pct_above_sma50=None)
+    assert snap.label == "unknown"
+
+
+def test_classify_panic_vix_alone_is_still_risk_off():
+    snap = classify(vix=32.0, nifty_close=None, pct_above_sma50=None)
+    assert snap.label == "risk_off"
+
+
+def test_classify_breadth_alone_without_trend_is_range():
+    # One real input with no directional consensus is a genuine "range" read.
+    snap = classify(vix=15.0, nifty_close=None, pct_above_sma50=50.0)
+    assert snap.label == "range"
