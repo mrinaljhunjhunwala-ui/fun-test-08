@@ -23,15 +23,17 @@ from utils.indicators import add_all_indicators
 
 _log = logging.getLogger("backtest.runner")
 
-# ── Indian market cost constants ───────────��─────────────────────────────────
-STT_RATE       = 0.001   # 0.1% on sell side (equity delivery)
-BROKERAGE_RATE = 0.0003  # 0.03% per leg (Zerodha flat ₹20 per order, approx)
-EXCHANGE_FEES  = 0.00035 # NSE transaction charges + SEBI fees + GST (approx)
-TOTAL_COST     = STT_RATE + 2 * BROKERAGE_RATE + 2 * EXCHANGE_FEES  # round-trip
-# FIX BT-COMMISSION (2026-09-24) — backtesting.py charges `commission` on
-# EVERY fill (entry AND exit), so passing the round-trip rate double-charged
-# (~0.46% per trade instead of ~0.23%). Pass the per-side rate; the charged
-# round trip then equals TOTAL_COST (STT is averaged across both legs).
+# ── Indian market costs (trading/costs.py) ──────────────────────────────────
+# FIX COST-MODEL (audit 2026-10-03 #23): the old constants charged STT on the
+# sell side only (delivery STT is 0.1% on BOTH legs) and left out stamp duty
+# and DP charges. Every fill is now priced by trading.costs: the exact
+# per-fill callable where backtesting.py supports one, else a flat per-side
+# rate at a representative ₹2L ticket. backtesting.py charges `commission`
+# on every fill (FIX BT-COMMISSION), so either form is per side.
+from trading import costs as _costs  # noqa: E402
+
+COMMISSION     = _costs.backtest_commission_arg()
+TOTAL_COST     = _costs.representative_round_trip_pct()      # disclosure figure
 PER_SIDE_COST  = TOTAL_COST / 2
 
 
@@ -40,7 +42,7 @@ def run_backtest(
     strategy_cls: Type,
     period: str = "2y",
     cash: float = 1_000_000,
-    commission: float = PER_SIDE_COST,
+    commission=COMMISSION,
     plot: bool = True,
     optimize: bool = False,
     strategy_params: dict = None,
@@ -56,7 +58,7 @@ def run_backtest(
         strategy_cls:    Strategy class (from strategies/)
         period:          yfinance period string
         cash:            Starting capital in INR
-        commission:      PER-SIDE commission rate, charged on entry and exit
+        commission:      per-fill charges: trading.costs callable or a per-side rate
                          (default PER_SIDE_COST = half the Indian round trip)
         plot:            Show backtesting.py chart for the last ticker (default True)
         optimize:        Run parameter optimisation (slow — only for single ticker)

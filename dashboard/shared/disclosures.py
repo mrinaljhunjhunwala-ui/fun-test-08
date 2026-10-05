@@ -37,24 +37,22 @@ def render_backtest_assumptions() -> None:
     """Expandable 'assumptions & limitations' section (commission, execution, slippage,
     survivorship). Cost figures are read from the live backtest constants so the
     disclosure can never drift from what the engine actually charges."""
-    try:
-        from backtest.runner import (
-            TOTAL_COST, STT_RATE, BROKERAGE_RATE, EXCHANGE_FEES,
-        )
-    except Exception as e:
-        _log.warning(
-            "cost_disclosure: could not import live cost constants from "
-            "backtest.runner, falling back to hardcoded values that may drift "
-            "from the actual engine: %s", e
-        )
-        TOTAL_COST, STT_RATE, BROKERAGE_RATE, EXCHANGE_FEES = 0.0023, 0.001, 0.0003, 0.00035
+    # FIX COST-MODEL: figures come from trading.costs, the same model that
+    # prices every backtest fill, so the disclosure can't drift from it.
+    from trading import costs as _c
+    _s = _c.DEFAULT
+    _rt_2l = _c.representative_round_trip_pct(200_000) * 100
+    _rt_20k = _c.representative_round_trip_pct(20_000) * 100
 
     with st.expander("📋 Backtest assumptions & limitations", expanded=False):
         st.markdown(
             f"""
-**Commission — modelled.** Round-trip cost ≈ **{TOTAL_COST * 100:.2f}%**, applied to every
-trade: STT {STT_RATE * 100:.2f}% (sell side) + brokerage {BROKERAGE_RATE * 100:.2f}% × 2 legs
-+ exchange / SEBI / GST {EXCHANGE_FEES * 100:.3f}% × 2 legs (approximate Indian equity-delivery costs).
+**Commission — modelled per fill.** Indian equity-delivery charges on every buy and sell:
+STT {_s.stt_delivery * 100:.1f}% on **both** legs · stamp duty {_s.stamp_delivery_buy * 100:.3f}% on buys ·
+NSE {_s.exchange_txn * 100:.5f}% + SEBI fee · GST 18% · DP ₹{_s.dp_per_sell:.0f} per sell ·
+brokerage lower of ₹{_s.brokerage_cap:.0f} or {_s.brokerage_pct * 100:.1f}% (min ₹{_s.brokerage_min:.0f}).
+Round trip ≈ **{_rt_2l:.2f}%** on a ₹2L order and ≈ **{_rt_20k:.2f}%** on a ₹20K order
+(fixed fees weigh more on small orders). Rates as of {_s.as_of}.
 
 **Execution — realistic timing.** Signals are computed on each bar's **close**; orders fill at
 the **next bar's open**. There are no same-bar fills and no look-ahead (verified by an automated

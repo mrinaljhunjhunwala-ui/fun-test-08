@@ -78,7 +78,9 @@ st.caption(
     "strategies in `strategies/` — how would those rules have done in the past? "
     "This is **not** a test of the 0–90 composite score or of the verdicts shown "
     "elsewhere in the app; for how the app's own logged verdicts played out, see "
-    "**Verdict Calibration**. Costs: ~0.115% charged per side (~0.23% round trip)."
+    "**Verdict Calibration**. Costs: every fill priced with Indian delivery charges "
+    "(STT both legs, stamp duty, exchange/SEBI, GST, ₹20 DP, Angel One brokerage; ~0.26% "
+    "round trip on a ₹2L order, more on small orders)."
 )
 
 render_survivorship_notice()
@@ -246,7 +248,7 @@ def _run_backtest_worker(
     tickers: list,
     strat_cls,
     period: str,
-    cost: float,
+    cost,                     # trading.costs per-fill callable or per-side rate
     cancel_event: threading.Event,
     partial_results: list,      # shared list — worker appends, UI reads
     progress_holder: list,      # [done, total, current_ticker]
@@ -338,11 +340,12 @@ if _bt_run and not st.session_state.get("bt_running", False):
         from strategies.rsi_macd import RSIMACDStrategy
         from strategies.momentum import MomentumStrategy
         try:
-            # Per-side: backtesting.py charges commission on entry AND exit.
-            from backtest.runner import PER_SIDE_COST as _BT_COST
+            # Same per-fill cost model as backtest/runner.py (trading/costs.py).
+            from backtest.runner import COMMISSION as _BT_COST
         except Exception as e:
-            _log.debug("PER_SIDE_COST import failed, using fallback constant: %s", e)
-            _BT_COST = 0.00115
+            _log.debug("backtest COMMISSION import failed, using the flat cost fallback: %s", e)
+            from trading.costs import representative_round_trip_pct as _rt_pct
+            _BT_COST = _rt_pct() / 2
 
         _strat_cls   = RSIMACDStrategy if _bt_strat.startswith("RSI") else MomentumStrategy
         _bt_tickers  = get_universe(_uni_map[_bt_uni])

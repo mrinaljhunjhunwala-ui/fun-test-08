@@ -16,13 +16,8 @@ from typing import Type, List, Dict, Optional
 from data.fetcher import fetch_single
 from utils.indicators import add_all_indicators
 
-# Indian market round-trip commission
-_STT        = 0.001
-_BROKERAGE  = 0.0003
-_EXCHANGE   = 0.00035
-TOTAL_COST  = _STT + 2 * _BROKERAGE + 2 * _EXCHANGE
-# FIX BT-COMMISSION — backtesting.py charges commission per fill; see runner.py.
-PER_SIDE_COST = TOTAL_COST / 2
+# Indian market costs — same model as backtest/runner.py (trading/costs.py).
+from backtest.runner import COMMISSION, PER_SIDE_COST, TOTAL_COST  # noqa: E402,F401
 
 
 def run_portfolio_backtest(
@@ -31,7 +26,7 @@ def run_portfolio_backtest(
     period: str = "2y",
     total_cash: float = 1_000_000,
     strategy_params: Optional[Dict] = None,
-    commission: float = PER_SIDE_COST,
+    commission=COMMISSION,
     save_chart: bool = True,
 ) -> pd.DataFrame:
     """
@@ -43,7 +38,7 @@ def run_portfolio_backtest(
         period:          Data period (yfinance string)
         total_cash:      Total capital in INR — split equally across tickers
         strategy_params: Optimised param dict from Phase 2a (None = defaults)
-        commission:      Per-side commission rate (charged on entry and exit)
+        commission:      per-fill charges: trading.costs callable or a per-side rate
         save_chart:      Save HTML chart for the best-Sharpe ticker
 
     Returns:

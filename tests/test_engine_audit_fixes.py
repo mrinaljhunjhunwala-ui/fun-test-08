@@ -124,12 +124,14 @@ def test_tqs_vol_ratio_zero_down_volume_is_max():
 # ── 4. Backtest ──────────────────────────────────────────────────────────────
 
 def test_backtest_commission_is_per_side():
+    # FIX COST-MODEL: every backtest entry point prices fills with the same
+    # trading.costs model; backtesting.py charges `commission` per fill.
     from backtest import runner, portfolio, optimizer
     assert runner.PER_SIDE_COST == pytest.approx(runner.TOTAL_COST / 2)
-    assert inspect.signature(runner.run_backtest).parameters["commission"].default == runner.PER_SIDE_COST
+    assert inspect.signature(runner.run_backtest).parameters["commission"].default is runner.COMMISSION
     assert inspect.signature(portfolio.run_portfolio_backtest).parameters["commission"].default \
-        == pytest.approx(portfolio.TOTAL_COST / 2)
-    assert optimizer.COMMISSION == pytest.approx((0.001 + 2 * 0.0003 + 2 * 0.00035) / 2)
+        is runner.COMMISSION
+    assert optimizer.COMMISSION is runner.COMMISSION
 
 
 def test_backtest_table_column_helpers():
