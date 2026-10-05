@@ -67,6 +67,7 @@ _STANDALONE_SCRIPTS = [
     ("tools.composite_golden",              "tools/composite_golden.py", ["main", "build_snapshot", "run_case"]),
     ("tools.purge_test_rows",               "tools/purge_test_rows.py",
      ["main", "find_test_rows", "apply_plan", "is_test_ticker"]),
+    ("tools.backfill_ledger",               "tools/backfill_ledger.py", ["main", "run_backfill"]),
 ]
 _IDS = [mod for mod, _, _ in _STANDALONE_SCRIPTS]
 

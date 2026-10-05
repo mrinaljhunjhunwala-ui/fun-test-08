@@ -2,7 +2,8 @@ name: Refresh EOD market data
 
 # Refreshes the end-of-day tables the composite score reads from trade_store
 # (Postgres): FII/DII cash flows, FII index futures, F&O open interest,
-# option chain PCR / max pain, and bhavcopy delivery %. These used to be
+# option chain PCR / max pain, and bhavcopy delivery % — then fills the verdict
+# ledger's forward returns (tools/backfill_ledger.py). These used to be
 # Windows scheduled tasks on one laptop, which silently stopped running in
 # 2026-09 (see the "eod store" rows in the Command Centre Data health panel).
 #
@@ -71,6 +72,17 @@ jobs:
       - name: Delivery % (bhavcopy)
         if: ${{ !cancelled() }}
         run: python -m scripts.fetch_nse_delivery --days "$DAYS"
+
+      # Verdict ledger forward returns (1d/5d/... and the sector-basket
+      # returns, which read the bhavcopy closes stored just above). Used to
+      # run only when someone opened the Calibration page, so Tomorrow's
+      # Watchlist "Past results" froze whenever nobody did. Prices come from
+      # the Stooq/Yahoo tiers; no Angel One secrets needed. Before the option
+      # chain step so a slow or blocked NSE run can't time it out.
+      - name: Verdict ledger forward returns
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: python tools/backfill_ledger.py
 
       - name: Option chain (F&O universe)
         if: ${{ !cancelled() }}
