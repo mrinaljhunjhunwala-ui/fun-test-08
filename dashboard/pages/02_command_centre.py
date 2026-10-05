@@ -150,6 +150,14 @@ st.markdown(gate_strip(_pulse_cells()), unsafe_allow_html=True)
 # ── Descriptive posture hero ─────────────────────────────────────────────────
 def _posture() -> tuple:
     """(noun, qualifier, tone) describing the tape. Never an instruction."""
+    # FIX REGIME-NODATA (replica-test S3): with the regime unknown and no VIX
+    # zone the fall-through below said "Mixed — no clear trend", a market read
+    # made from no data. Say the feeds are down instead.
+    _vix_known = _cc_vix_r in ("complacency", "normal", "elevated", "fear", "panic")
+    if _cc_label == "unknown" and not _vix_known:
+        return "No read", "market feeds unavailable", "warn"
+    if _cc_label == "unknown" and _cc_vix_r == "normal":
+        return "Incomplete read", "trend and breadth data unavailable", "warn"
     if _cc_label == "risk_off" or _cc_vix_r in ("fear", "panic"):
         return "Defensive", "volatility elevated", "bad"
     if _cc_label == "trend_down":
@@ -191,7 +199,8 @@ try:
              else ("standard scoring" if _v2_flag else "legacy scoring"))
     st.markdown(
         _hero_verdict(posture=_pn, posture_qualifier=_pq,
-                      kicker=f"Market posture · {_cc_label.replace('_', ' ')} regime · {_mode}",
+                      kicker=("Market posture · regime unavailable · " + _mode if _cc_label == "unknown"
+                              else f"Market posture · {_cc_label.replace('_', ' ')} regime · {_mode}"),
                       why=_posture_why(), tone=_pt),
         unsafe_allow_html=True,
     )

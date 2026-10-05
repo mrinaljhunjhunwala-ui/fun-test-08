@@ -172,3 +172,15 @@ def test_page_loads_without_exception(page):
     # area, so an empty main tree means the page body never ran.
     rendered = len(at.main.children)
     assert rendered > 0, f"{name} rendered no main-area elements — page body did not run"
+
+
+def test_command_centre_hero_says_no_read_when_feeds_are_down():
+    """replica-test S3 (2026-10-04): with every feed blocked the hero used to
+    read "Mixed · no clear trend" under a "range regime" kicker — a market call
+    made from no data. It must say the feeds are unavailable instead."""
+    at = AppTest.from_file(os.path.join(_PAGES_DIR, "02_command_centre.py"),
+                           default_timeout=240).run()
+    assert not at.exception, at.exception
+    html = "\n".join(str(m.value) for m in at.markdown)
+    assert "No read" in html and "market feeds unavailable" in html
+    assert "range regime" not in html and "regime unavailable" in html
