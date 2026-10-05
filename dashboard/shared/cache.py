@@ -1666,6 +1666,12 @@ def get_composite_score(ticker: str):
         return _UnavailableScore(ticker, f"{type(_e).__name__}: {str(_e)[:70]}")
 
 
+def _vol_reading_for(df) -> dict:
+    """Session-aware volume reading (same number the composite score uses)."""
+    from dashboard.shared.volume_display import reading
+    return reading(df)
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _deep_confirmation(ticker: str) -> dict:
     """
@@ -1743,7 +1749,7 @@ def _deep_confirmation(ticker: str) -> dict:
             ("Above 50-day avg",            price > float(cur.get("SMA_50",  price * 1.1))),
             ("Above 200-day avg",           price > float(cur.get("SMA_200", price * 1.1))),
             ("Trend has strength (ADX>20)", float(cur.get("ADX", 0)) > 20),
-            ("Volume supportive",           float(cur.get("Volume_Ratio", 1)) >= 1.0),
+            ("Volume supportive",           float(_vol_reading_for(df).get("ratio") or 1.0) >= 1.0),
             ("No bearish divergence",       not bool(cur.get("RSI_Bear_Div", 0))),
             ("Weekly trend not down",       out["weekly"] != "downtrend"),
         ]

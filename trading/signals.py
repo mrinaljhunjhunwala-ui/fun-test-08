@@ -40,6 +40,28 @@ _log = logging.getLogger("trading.signals")
 # much history the caller supplies.
 _52W_BARS = 252
 
+
+def _session_volume_ratio(df: pd.DataFrame) -> float:
+    """Volume ratio for the latest session, consistent with the composite score.
+
+    While today's NSE session is in progress the daily bar holds a partial
+    day's volume, so the volume gates below rejected nearly every stock in the
+    morning. analysis.score.volume_reading() substitutes the previous session
+    (before ~10:15 IST) or today's volume projected to a full day. On any
+    completed bar — every backtest / historical replay — it is the stored
+    Volume_Ratio, NaN preserved, so historical signals are unchanged.
+    """
+    stored = df.iloc[-1].get("Volume_Ratio", np.nan) if not df.empty else np.nan
+    try:
+        from analysis.score import volume_reading   # local import: keeps signals import-light
+        r = volume_reading(df)
+    except Exception as e:
+        _log.debug("_session_volume_ratio: volume_reading unavailable: %s", e)
+        return stored
+    if r.get("basis") == "latest":
+        return stored
+    return float(r["ratio"])
+
 # FIX WARN1 — narrowed from a blanket `filterwarnings("ignore")` so numpy's
 # RuntimeWarnings (invalid value / divide by zero / all-NaN slice) stay visible.
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -217,7 +239,7 @@ def check_oversold_bounce(
 
     rsi   = cur.get("RSI", np.nan)
     atr   = cur.get("ATR", np.nan)
-    v_rat = cur.get("Volume_Ratio", np.nan)
+    v_rat = _session_volume_ratio(df)   # live session: projected / previous (volume_reading)
 
     if any(pd.isna(v) for v in [rsi, atr]):
         return None
@@ -325,7 +347,7 @@ def check_breakout(
     cur   = df.iloc[-1]
     price = float(cur["Close"])
     rsi   = cur.get("RSI",          np.nan)
-    v_rat = cur.get("Volume_Ratio", np.nan)
+    v_rat = _session_volume_ratio(df)   # live session: projected / previous (volume_reading)
     adx   = cur.get("ADX",          np.nan)
     atr   = cur.get("ATR",          np.nan)
 

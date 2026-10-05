@@ -62,7 +62,10 @@ def compute_checklist(sym: str,
         sma50  = float(cur.get("SMA_50", 0))
         sma200 = float(cur.get("SMA_200", 0))
         atr    = float(cur.get("ATR", 0))
-        vol_r  = float(cur.get("Volume_Ratio", 1))
+        # Same session-aware reading as the composite score (previous
+        # session / projected while today's NSE session is open).
+        from dashboard.shared.volume_display import reading as _vol_reading
+        vol_r  = float(_vol_reading(df_daily).get("ratio") or 1.0)
 
         vix_r  = get_india_vix_regime()
         vix_ok = vix_r["allow_buy"]
