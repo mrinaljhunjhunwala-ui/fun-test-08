@@ -48,7 +48,8 @@ def fetch_data(ticker: str, period: str = "5y") -> pd.DataFrame:
     except Exception as e:
         _log.debug("%s: tiered fetcher unavailable, falling back to raw yfinance: %s", ticker, e)
         import yfinance as yf
-        df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
+        # Raw basis, same as data.fetcher (FIX OHLC-BASIS).
+        df = yf.download(ticker, period=period, auto_adjust=False, progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
 
