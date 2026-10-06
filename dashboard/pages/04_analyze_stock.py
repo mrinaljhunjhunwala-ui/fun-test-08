@@ -1413,7 +1413,7 @@ if analyze_btn or _prefill_active or (
                             f"{_fv.primary_reason} · Same subsystem inputs re-weighted per horizon; "
                             "independent of the chart window."
                         )
-                        st.markdown("**Why — gate by gate**")
+                        st.markdown("**Why – gate by gate**")
                         st.caption(
                             "Verdict combines every subsystem via a decision tree "
                             "(quality/thesis are vetoes, valuation/trend are dampers, "
@@ -1688,10 +1688,10 @@ if analyze_btn or _prefill_active or (
                 with st.expander("↔️ Related per-ticker views: Deep Dive · Quality Watch",
                                  expanded=False):
                     st.markdown(
-                        "- **Overview (this tab)** — posture, chart, sector-aware fundamentals "
+                        "- **Overview (this tab)** – posture, chart, sector-aware fundamentals "
                         "and reference levels up top; horizon reads, thesis, overlays, TQS and "
                         "the pre-trade checklist under Other lenses.\n"
-                        "- **Deep Dive (below)** — prepares a full equity-research prompt (all of "
+                        "- **Deep Dive (below)** – prepares a full equity-research prompt (all of "
                         "this page's outputs + fundamentals + governance flags + thesis verdict) "
                         "to paste into a Claude conversation with the annual report / concall "
                         "PDFs attached. Save the write-up back with a date.\n"
