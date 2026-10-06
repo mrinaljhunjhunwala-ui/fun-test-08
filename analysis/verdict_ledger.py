@@ -900,6 +900,125 @@ def _wilson_lower(wins: int, n: int, z: float = 1.96) -> float:
     return max(0.0, (centre - margin) / denom)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Non-overlapping blocks (audit 2026-10-03 #26)
+# ─────────────────────────────────────────────────────────────────────────────
+# Day clustering (FIX CAL-DAYS) treats each session as one observation, but a
+# 20-day return logged on Monday and another logged on Tuesday share 19 of
+# their 20 days: they are not independent either. Grouping log dates into
+# consecutive blocks of `horizon` NSE sessions gives windows that barely
+# overlap, so a Wilson bound or t-stat over blocks is honest about how much
+# evidence there really is.
+
+_SESSION_EPOCH = np.datetime64("2020-01-01")
+_VERDICT_DIRECTION = {"STRONG BUY": 1, "BUY": 1, "WATCH": 1, "AVOID": -1}
+
+
+def _session_index(dates) -> np.ndarray:
+    """NSE sessions from 2020-01-01 to each date (holidays excluded)."""
+    d = pd.to_datetime(pd.Series(dates).astype(str), errors="coerce").values.astype("datetime64[D]")
+    hol = np.array(sorted(NSE_HOLIDAYS), dtype="datetime64[D]")
+    out = np.full(len(d), -1, dtype=int)
+    ok = ~np.isnat(d)
+    out[ok] = np.busday_count(_SESSION_EPOCH, d[ok], holidays=hol)
+    return out
+
+
+def _block_stats(df: pd.DataFrame, value_col: str, horizon_days: int) -> Dict[str, Any]:
+    """Mean of per-block means of `value_col`, block win share (>0), its Wilson
+    lower bound and a t-stat, with blocks of `horizon_days` sessions by
+    logged_date. NaN values are ignored; t-stat needs 3+ blocks."""
+    out = {"n_blocks": 0, "block_mean": np.nan, "block_win": np.nan,
+           "block_wilson_lower": np.nan, "block_t": np.nan}
+    if "logged_date" not in df.columns or value_col not in df.columns:
+        return out
+    d = df[["logged_date", value_col]].copy()
+    d[value_col] = pd.to_numeric(d[value_col], errors="coerce")
+    d = d[d[value_col].notna()]
+    if d.empty:
+        return out
+    d["block"] = _session_index(d["logged_date"]) // max(1, int(horizon_days))
+    b = d.groupby("block")[value_col].mean()
+    n = int(len(b))
+    wins = int((b > 0).sum())
+    out.update(n_blocks=n, block_mean=float(b.mean()), block_win=wins / n,
+               block_wilson_lower=_wilson_lower(wins, n))
+    if n >= 3 and float(b.std(ddof=1)) > 0:
+        out["block_t"] = float(b.mean() / (b.std(ddof=1) / np.sqrt(n)))
+    return out
+
+
+_MIN_BLOCKS_FOR_READ = 8
+
+
+def _evidence_label(s: Dict[str, Any]) -> str:
+    """Plain-language read of block stats — descriptive, never advice."""
+    n, t = s["n_blocks"], s["block_t"]
+    if n < _MIN_BLOCKS_FOR_READ:
+        return f"too early ({n} independent period{'s' if n != 1 else ''}; need {_MIN_BLOCKS_FOR_READ})"
+    if np.isfinite(t) and t >= 2:
+        return "ahead of the Nifty so far"
+    if np.isfinite(t) and t <= -2:
+        return "behind the Nifty so far"
+    return "no clear edge vs the Nifty yet"
+
+
+def live_scorecard(*, horizon_days: int = 5,
+                   source: Optional[str] = "tomorrow_watchlist") -> Dict[str, Any]:
+    """Out-of-sample record of logged calls at one horizon.
+
+    Each settled row's `edge` = direction x (return - Nifty return), where
+    direction is +1 for WATCH / BUY / STRONG BUY and -1 for AVOID (HOLD and
+    unknown verdicts are left out). Returns
+      summary  — rows for all / bullish / bearish: picks, sessions, blocks,
+                 mean edge, pick-level and block-level share ahead of the
+                 Nifty, block Wilson lower bound, block t-stat, evidence label
+      timeline — mean edge per log date
+      pending  — calls logged but not yet settled at this horizon
+      error    — None, or why the ledger couldn't be read
+    """
+    empty = {"summary": pd.DataFrame(), "timeline": pd.DataFrame(), "pending": 0,
+             "error": None, "horizon_days": horizon_days}
+    try:
+        df = load_ledger(source=source, limit=_FULL_LEDGER_LIMIT, on_error="raise")
+    except LedgerUnavailable as e:
+        return {**empty, "error": str(e)}
+    ret_c, nif_c = f"ret_{horizon_days}d", f"nifty_ret_{horizon_days}d"
+    if df.empty or ret_c not in df.columns:
+        return empty
+    df = df.copy()
+    df["direction"] = df["verdict"].map(_VERDICT_DIRECTION)
+    df = df[df["direction"].notna()]
+    if "logged_date" in df.columns and "ticker" in df.columns:
+        df = df.sort_values("logged_at").drop_duplicates(["logged_date", "ticker"], keep="last")
+    ret = pd.to_numeric(df[ret_c], errors="coerce")
+    nif = pd.to_numeric(df.get(nif_c), errors="coerce")
+    df["edge"] = df["direction"] * (ret - nif)
+    pending = int(ret.isna().sum())
+    settled = df[df["edge"].notna()]
+    rows = []
+    for side, g in (("all", settled), ("bullish", settled[settled["direction"] > 0]),
+                    ("bearish", settled[settled["direction"] < 0])):
+        s = _block_stats(g, "edge", horizon_days)
+        rows.append({
+            "side": side, "picks": int(len(g)),
+            "sessions": int(g["logged_date"].nunique()) if len(g) else 0,
+            "independent_periods": s["n_blocks"],
+            "mean_edge_pct": round(float(g["edge"].mean()), 2) if len(g) else np.nan,
+            "picks_ahead_pct": round(float((g["edge"] > 0).mean()) * 100, 1) if len(g) else np.nan,
+            "periods_ahead_pct": round(s["block_win"] * 100, 1) if s["n_blocks"] else np.nan,
+            "periods_ahead_lower_pct": round(s["block_wilson_lower"] * 100, 1) if s["n_blocks"] else np.nan,
+            "t_stat": round(s["block_t"], 2) if np.isfinite(s["block_t"]) else np.nan,
+            "evidence": _evidence_label(s),
+        })
+    timeline = (settled.groupby("logged_date")
+                .agg(picks=("edge", "size"), mean_edge_pct=("edge", "mean"))
+                .reset_index().sort_values("logged_date"))
+    timeline["mean_edge_pct"] = timeline["mean_edge_pct"].round(2)
+    return {"summary": pd.DataFrame(rows), "timeline": timeline, "pending": pending,
+            "error": None, "horizon_days": horizon_days}
+
+
 def calibration_by(*, group_col: str, horizon_days: int,
                    source: Optional[str] = None) -> pd.DataFrame:
     """
@@ -908,7 +1027,9 @@ def calibration_by(*, group_col: str, horizon_days: int,
     reflect only calls that have had time to play out.
     """
     try:
-        df = load_ledger(source=source, limit=5000, on_error="raise")
+        # FIX CAL-LIMIT (audit 2026-10-03 #26): was limit=5000, which silently
+        # dropped the oldest — i.e. the only matured — rows once the ledger grew.
+        df = load_ledger(source=source, limit=_FULL_LEDGER_LIMIT, on_error="raise")
     except LedgerUnavailable as e:
         return _unavailable_frame(e)
     if df.empty:
@@ -924,6 +1045,18 @@ def calibration_by(*, group_col: str, horizon_days: int,
     s_ret = df.get(f"sector_ret_{horizon_days}d", pd.Series(np.nan, index=df.index))
     out = _aggregate(df.rename(columns={ret_col: "ret_val"}).assign(n_ret_val=n_ret, s_ret_val=s_ret),
                      group_col=group_col, id_col="id")
+    # FIX CAL-BLOCKS (audit #26): next to the day-clustered columns, the share
+    # of non-overlapping horizon-length periods whose mean alpha beat NIFTY.
+    alpha = pd.to_numeric(df[ret_col], errors="coerce") - pd.to_numeric(n_ret, errors="coerce")
+    blk = []
+    for key, g in df.assign(_alpha=alpha).groupby(group_col, dropna=False):
+        s = _block_stats(g, "_alpha", horizon_days)
+        blk.append({group_col: key, "n_periods": s["n_blocks"],
+                    "period_win_vs_nifty": round(s["block_win"] * 100, 1) if s["n_blocks"] else np.nan,
+                    "wilson_lower_periods_vs_nifty":
+                        round(s["block_wilson_lower"] * 100, 1) if s["n_blocks"] else np.nan})
+    if blk:
+        out = out.merge(pd.DataFrame(blk), on=group_col, how="left")
     return out.sort_values("n", ascending=False)
 
 
@@ -1094,7 +1227,7 @@ def shadow_pnl(*, horizon_days: int = 20) -> pd.DataFrame:
     computed forward return for the horizon.
     """
     try:
-        df = load_ledger(source="shadow_auto", limit=5000, on_error="raise")
+        df = load_ledger(source="shadow_auto", limit=_FULL_LEDGER_LIMIT, on_error="raise")
     except LedgerUnavailable as e:
         return _unavailable_frame(e)
     if df.empty:
