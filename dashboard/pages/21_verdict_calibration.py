@@ -280,7 +280,7 @@ if hasattr(_vl, "live_scorecard"):
             "periods_ahead_lower_pct": "Periods ahead, 95% lower %", "t_stat": "t (periods)",
             "evidence": "Read",
         })
-        st.dataframe(_show, hide_index=True, use_container_width=True)
+        st.dataframe(_show, hide_index=True, width="stretch")
         if not _lsc["timeline"].empty:
             st.line_chart(_lsc["timeline"].set_index("logged_date")["mean_edge_pct"], height=160)
         st.caption("A record of past calls, not a forecast. Educational only — not investment advice.")
