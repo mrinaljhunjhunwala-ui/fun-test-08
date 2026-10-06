@@ -147,8 +147,8 @@ def backtest_commission_arg():
     """The `commission=` argument for backtesting.Backtest.
 
     backtesting.py >= 0.6 charges `commission` on EVERY fill and accepts a
-    callable, so the exact per-fill charges are passed. 0.5.x (what the
-    `<0.6` requirement installs on CI / Streamlit Cloud) accepts only a float
+    callable, so the exact per-fill charges are passed (requirements.txt pins
+    <0.7 since 2026-10-07). 0.5.x (still allowed by the pin) accepts only a float
     and charges it ONCE per round trip — verified 2026-10-06: commission=0.001
     on a ₹1L flat round trip cost exactly ₹100. So for 0.5.x the FULL
     round-trip rate (at a ₹2L ticket) is passed, not half of it.
