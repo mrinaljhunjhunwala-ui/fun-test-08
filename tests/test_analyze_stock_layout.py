@@ -177,6 +177,12 @@ def test_deep_dive_toggle_renders_offline(_stubs):
     assert any("Step 1 · Copy this prompt" in str(m.value) for m in at.markdown)
 
 
+def _qp(at):
+    """AppTest returns a list on some Streamlit versions, a str on others."""
+    v = at.query_params["ticker"]
+    return v[0] if isinstance(v, list) else v
+
+
 def test_ticker_query_param_deep_link(_stubs):
     """/analyze_stock?ticker=hdfcbank analyses HDFCBANK.NS immediately, keeps the
     URL in sync, and does not re-apply over a later in-session pick."""
@@ -190,14 +196,14 @@ def test_ticker_query_param_deep_link(_stubs):
     assert 'class="stock-hd"' in html and "HDFCBANK" in html
     assert any("Opened from link" in str(c.value) for c in at.caption)
     assert at.session_state["last_analyzed"] == "HDFCBANK.NS"
-    assert at.query_params["ticker"] == ["HDFCBANK.NS"]
+    assert _qp(at) == "HDFCBANK.NS"
 
     # A later hand-off wins; the (now applied) URL param must not override it.
     at.session_state["analyze_ticker"] = "INFY.NS"
     at.run()
     assert not at.exception, at.exception
     assert at.session_state["last_analyzed"] == "INFY.NS"
-    assert at.query_params["ticker"] == ["INFY.NS"]
+    assert _qp(at) == "INFY.NS"
     at.run()
     assert at.session_state["last_analyzed"] == "INFY.NS"
 
