@@ -46,6 +46,7 @@ _STANDALONE_SCRIPTS = [
     ("research.portfolio_fit_efficacy",     "research/portfolio_fit_efficacy.py", ["main"]),
     ("research.regime_study",               "research/regime_study.py", ["main"]),
     ("research.score_variants_momentum_vol", "research/score_variants_momentum_vol.py", ["main"]),
+    ("research.score_regime_alt_factors",  "research/score_regime_alt_factors.py", ["main"]),
     ("research.revenue_growth_discovery",   "research/revenue_growth_discovery.py", ["main"]),
     ("research.fundamental_quality",        "research/fundamental_quality.py", ["main"]),
     ("research.score_variants",             "research/score_variants.py", ["main"]),
