@@ -42,12 +42,14 @@ def test_meta_from_another_day_does_not_fill():
     assert df.index[-1].date() == dt.date(2026, 10, 5)       # unchanged old behaviour
 
 
-def test_vix_uses_meta_for_a_null_last_close(monkeypatch):
+def _vix(monkeypatch, meta_day):
     import io
     import json
     import utils.vix as V
+    days = [(2026, 10, 1), (2026, 10, 5), (2026, 10, 6)]
     body = json.dumps({"chart": {"result": [{
-        "meta": {"regularMarketPrice": 14.1},
+        "meta": {"regularMarketPrice": 14.1, "regularMarketTime": _ts(meta_day, 10, 0)},
+        "timestamp": [_ts(d) for d in days],
         "indicators": {"quote": [{"close": [15.0, 14.78, None]}]},
     }], "error": None}}).encode()
 
@@ -64,5 +66,12 @@ def test_vix_uses_meta_for_a_null_last_close(monkeypatch):
             return _R(body)
     monkeypatch.setattr(V, "_VIX_CACHE", None)
     monkeypatch.setattr(F, "_get_yf_crumb", lambda: (_Opener(), ""))
-    out = V.get_india_vix_regime()
-    assert out["vix"] == 14.1
+    return V.get_india_vix_regime()
+
+
+def test_vix_uses_meta_for_a_null_last_close(monkeypatch):
+    assert _vix(monkeypatch, (2026, 10, 6))["vix"] == 14.1
+
+
+def test_vix_ignores_meta_from_another_day(monkeypatch):
+    assert _vix(monkeypatch, (2026, 10, 7))["vix"] == 14.78     # last real close, as before

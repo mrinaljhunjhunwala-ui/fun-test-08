@@ -108,9 +108,21 @@ def get_india_vix_regime() -> Dict:
         # Yahoo leaves the latest session's close null for hours after the
         # close; the price is only in meta. Without this the reading is a
         # session old (same bug as data/fetcher._fill_last_daily_close).
+        # Only when meta's trade time is on the last bar's own IST date, so a
+        # stale meta or a holiday pad can't put a wrong reading in place.
         _meta = (_results[0] or {}).get("meta") or {}
-        if closes and closes[-1] is None and _meta.get("regularMarketPrice"):
-            closes[-1] = _meta["regularMarketPrice"]
+        _tss = (_results[0] or {}).get("timestamp") or []
+        if closes and closes[-1] is None and _meta.get("regularMarketPrice") and _tss:
+            try:
+                import datetime as _dt
+                _ist = _dt.timedelta(hours=5, minutes=30)
+
+                def _day(ts):
+                    return (_dt.datetime.fromtimestamp(int(ts), tz=_dt.timezone.utc) + _ist).date()
+                if _day(_meta.get("regularMarketTime")) == _day(_tss[-1]):
+                    closes[-1] = float(_meta["regularMarketPrice"])
+            except (TypeError, ValueError, OverflowError):
+                pass
         valid  = [v for v in closes if v is not None]
         if len(valid) < 2:
             raise ValueError("insufficient VIX data")
