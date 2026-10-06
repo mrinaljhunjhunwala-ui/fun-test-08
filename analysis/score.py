@@ -794,8 +794,9 @@ def volume_reading(df: pd.DataFrame, now_ist=None) -> Dict:
     used), volume (that bar's volume, or the projected full-day figure),
     baseline (mean volume of the 20 sessions before that bar), basis
     ("latest" | "previous_session" | "projected"), session_minutes (minutes
-    since 09:15 IST while today's session is open, else None) and up_day
-    (bar close >= previous close; close >= open for a single bar).
+    since 09:15 IST while today's session is open, else None), up_day
+    (bar close >= previous close; close >= open for a single bar) and
+    flat_day (|close - previous close| under 0.1 x ATR(14)).
 
     Intraday frames and frames of 20 bars or fewer get basis "latest" with the
     plain Volume_Ratio. Never raises: anything unreadable degrades to 1.0x.
@@ -805,7 +806,7 @@ def volume_reading(df: pd.DataFrame, now_ist=None) -> Dict:
     except Exception as e:                 # a display helper must never take a page down
         _log.debug("volume_reading failed: %s: %s", type(e).__name__, e)
         return {"ratio": 1.0, "ratio_raw": None, "volume": None, "baseline": None,
-                "basis": "latest", "session_minutes": None, "up_day": True}
+                "basis": "latest", "session_minutes": None, "up_day": True, "flat_day": False}
 
 
 def _volume_reading(df: pd.DataFrame, now_ist=None) -> Tuple[Dict, pd.DataFrame]:
@@ -970,7 +971,9 @@ def _score_volume(df: pd.DataFrame,
         # Delivery % comes from the latest bhavcopy, i.e. the previous session
         # while today's is open; a projected bar is today's, so the two can't
         # be paired into a divergence flag (review 2026-10-06).
-        pts["delivery_divergence"] = bool(up_day and vol_ratio > 1.5 and z is not None and z < -1.0
+        # A flat day isn't a "frothy move", so the dead band applies here too.
+        pts["delivery_divergence"] = bool(up_day and not reading["flat_day"]
+                                          and vol_ratio > 1.5 and z is not None and z < -1.0
                                           and reading["basis"] != "projected")
     else:
         pts["delivery_available"] = False

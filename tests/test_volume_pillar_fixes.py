@@ -226,3 +226,17 @@ def test_flat_day_is_in_the_reading_and_narrative():
         "TESTCO.NS", ind, 60.0, "B", "WATCHLIST", {}, {}, vol_detail, [],
         100.0, 95.0, 110.0, 2.0, "Other", "normal", None, 15, False)[1]
     assert "on a flat day — above-average turnover" in narrative
+
+
+def test_volume_reading_fallback_has_every_key():
+    r = S.volume_reading(None)          # unreadable -> fallback dict, never raises
+    assert set(r) == {"ratio", "ratio_raw", "volume", "baseline", "basis",
+                      "session_minutes", "up_day", "flat_day"}
+    assert r["flat_day"] is False
+
+
+def test_flat_day_never_raises_the_delivery_divergence_flag():
+    ind = _last_move_frame(+0.05)       # flat, technically up, ratio 3x
+    deliv = {"today": 18.0, "mean": 45.0, "zscore": -2.0, "n": 60}
+    _, detail = S._score_volume(ind, delivery_info=deliv)
+    assert detail["flat_day"] is True and detail["delivery_divergence"] is False
