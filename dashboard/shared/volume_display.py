@@ -25,7 +25,8 @@ def reading(df: pd.DataFrame, now_ist=None) -> Dict:
         except Exception:
             pass
         return {"ratio": raw if raw is not None else 1.0, "ratio_raw": raw, "volume": None,
-                "baseline": None, "basis": "latest", "session_minutes": None, "up_day": True}
+                "baseline": None, "basis": "latest", "session_minutes": None, "up_day": True,
+                "flat_day": False}
 
 
 def _compact(n: Optional[float]) -> str:
@@ -53,6 +54,10 @@ def basis_label(r: Dict) -> str:
 
 def vol_ratio_tile(r: Dict, high: float = 1.5) -> Tuple[str, str]:
     """(value, note) for an indicator tile, e.g. ('1.62x', 'High volume · on pace (11:30) · 3.2M vs 2.0M')."""
+    if r.get("ratio_raw") is None:
+        # volume_reading reports a neutral 1.0 when volume is unknown; don't
+        # present that as a measurement.
+        return "–", "Volume unavailable"
     ratio = r.get("ratio")
     value = f"{float(ratio):.2f}x" if ratio is not None and not pd.isna(ratio) else "–"
     note = "High volume" if (ratio is not None and not pd.isna(ratio) and ratio > high) else "Normal"

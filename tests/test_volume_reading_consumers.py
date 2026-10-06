@@ -71,14 +71,16 @@ def test_signals_use_projection_later_in_the_day(monkeypatch):
 
 
 def test_tile_labels_basis_and_volumes():
-    v, note = VD.vol_ratio_tile({"ratio": 1.62, "volume": 3_200_000, "baseline": 2_000_000,
-                                 "basis": "projected", "session_minutes": 135})
+    v, note = VD.vol_ratio_tile({"ratio": 1.62, "ratio_raw": 0.55, "volume": 3_200_000,
+                                 "baseline": 2_000_000, "basis": "projected", "session_minutes": 135})
     assert v == "1.62x"
     assert note == "High volume · on pace (11:30) · 32.0L vs 20.0L avg"
-    v, note = VD.vol_ratio_tile({"ratio": 0.9, "basis": "previous_session"})
+    v, note = VD.vol_ratio_tile({"ratio": 0.9, "ratio_raw": 0.9, "basis": "previous_session"})
     assert (v, note) == ("0.90x", "Normal · last session")
-    v, note = VD.vol_ratio_tile({"ratio": 1.1, "basis": "latest", "volume": None})
+    v, note = VD.vol_ratio_tile({"ratio": 1.1, "ratio_raw": 1.1, "basis": "latest", "volume": None})
     assert (v, note) == ("1.10x", "Normal")
+    # unknown volume: volume_reading's neutral 1.0 must not read as a measurement
+    assert VD.vol_ratio_tile({"ratio": 1.0, "ratio_raw": None, "basis": "latest"}) == ("–", "Volume unavailable")
 
 
 def test_reading_never_raises_on_bad_frames():
