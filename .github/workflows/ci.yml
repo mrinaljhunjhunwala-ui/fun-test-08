@@ -41,10 +41,19 @@ jobs:
             BASE="${{ github.event.before }}"
             if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD~1"; fi
           fi
-          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE"...HEAD -- '*.py' || true)
+          BASE=$(git merge-base "$BASE" HEAD)
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" HEAD -- '*.py' || true)
           if [ -z "$CHANGED" ]; then echo "No changed Python files to lint."; exit 0; fi
-          echo "$CHANGED"
-          echo "$CHANGED" | xargs ruff check
+          # "No NEW violations": compare per-file counts at the base vs HEAD.
+          count() { ruff check --output-format concise -q --stdin-filename "$1" - | grep -c . || true; }
+          FAIL=0
+          for f in $CHANGED; do
+            if git cat-file -e "$BASE:$f" 2>/dev/null; then B=$(git show "$BASE:$f" | count "$f"); else B=0; fi
+            H=$(count "$f" < "$f")
+            echo "$f: base=$B head=$H"
+            if [ "$H" -gt "$B" ]; then echo "::error file=$f::ruff violations rose $B -> $H"; ruff check "$f" || true; FAIL=1; fi
+          done
+          exit $FAIL
 
       - name: Set up Python
         uses: actions/setup-python@v6
