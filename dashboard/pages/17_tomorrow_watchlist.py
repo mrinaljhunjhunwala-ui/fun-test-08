@@ -60,7 +60,7 @@ from dashboard.shared.cache import (
 from analysis.tw_scorecard import settle_stats, split_by_market
 from dashboard.shared.trade_utils import _display_label, _paper_trade_popover
 from dashboard.shared.flags_ui import render_flag_badge_html  # QF2: shortlist-only flag badge
-from dashboard.shared.session_label import session_possessive
+from dashboard.shared.session_label import session_possessive  # noqa: E402
 from dashboard.shared.ui_components import (
     chip_pill, chip_delta, chip_tag, empty_state, fmt_inr,
     section_header, gate_strip, rank_chip, signal_table, follow_card,

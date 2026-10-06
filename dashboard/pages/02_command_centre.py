@@ -12,7 +12,7 @@ import trade_store as _store
 
 from dashboard.shared.design import apply_design
 from dashboard.shared.nav import render_sidebar
-from dashboard.shared.session_label import session_label, session_possessive
+from dashboard.shared.session_label import session_label, session_possessive  # noqa: E402
 from dashboard.shared.picks_ui import render_pick_analysis
 from dashboard.shared.chart_helpers import render_top_bar, tick_pulse_tracker
 from dashboard.shared.ui_components import chip_pill, ticker_hover_wrap

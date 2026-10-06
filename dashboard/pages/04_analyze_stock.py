@@ -377,7 +377,7 @@ def _tqs_band(tqs: float) -> str:
 # once per distinct param value (tracked in "_as_qp_applied") so a ticker
 # the user picks later in the session is never overridden on rerun. An
 # in-app hand-off (already in session_state) wins over the URL.
-from dashboard.shared.deeplink import normalise_ticker_param as _norm_qp
+from dashboard.shared.deeplink import normalise_ticker_param as _norm_qp  # noqa: E402
 try:
     _qp_ticker = _norm_qp(st.query_params.get("ticker"))
 except Exception:
