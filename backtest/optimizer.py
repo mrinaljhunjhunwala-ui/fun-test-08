@@ -58,6 +58,23 @@ CONSTRAINTS = {
 }
 
 
+# Audit 2026-10-03: the grid search fits parameters on the same period the
+# follow-on backtest reports, so those numbers are in-sample and overstated.
+IN_SAMPLE_WARNING = (
+    "WARNING: --optimize fits parameters on the same period it then reports - "
+    "results below are in-sample and overstate what to expect out of sample; "
+    "check them on a later period."
+)
+IN_SAMPLE_LABEL = "Results: in-sample (optimised on this same period)"
+
+
+def in_sample_banner(optimised: bool) -> str:
+    """Return the warning + label lines to print before optimised results ('' if not optimised)."""
+    if not optimised:
+        return ""
+    return f"\n  {IN_SAMPLE_WARNING}\n  {IN_SAMPLE_LABEL}\n"
+
+
 def _count_combos(grid: Dict) -> int:
     n = 1
     for v in grid.values():
