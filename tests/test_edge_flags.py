@@ -74,7 +74,7 @@ def test_new_listing_uses_listing_date():
 
 
 def test_short_history_without_listing_date_counts_bars():
-    assert "short_history" in _keys(edge_flags(_frame(n=120), {}, today=dt.date(2026, 10, 5)))
+    assert "new_listing" in _keys(edge_flags(_frame(n=45), {}, today=dt.date(2026, 10, 5)))
 
 
 def test_stale_and_zero_volume():
@@ -139,3 +139,20 @@ def test_renderer_shows_flags_and_stays_silent_for_normal_stocks(monkeypatch):
     assert shown == []
     monkeypatch.setattr(NSI, "get_security_info", lambda t: (_ for _ in ()).throw(OSError("x")))
     assert UI.flags_for("X.NS", _frame()) == []
+
+
+def test_unknown_listing_date_with_long_frame_is_not_flagged():
+    # A caller may pass 6 months of bars for a decades-old stock.
+    assert edge_flags(_frame(n=125), {"series": "EQ"}, today=dt.date(2026, 10, 5)) == []
+    assert "new_listing" in _keys(edge_flags(_frame(n=20), {}, today=dt.date(2026, 10, 5)))
+
+
+def test_data_health_probe_states(monkeypatch):
+    from dashboard.shared import data_health as DH
+    monkeypatch.setattr(NSI, "_cache", {"t": 0.0, "ok": False, "data": {}})
+    assert DH.probe_nse_security_info().status == DH.STATUS_IDLE
+    monkeypatch.setattr(NSI, "_cache", {"t": 1_790_000_000.0, "ok": False, "data": {}})
+    assert DH.probe_nse_security_info().status == DH.STATUS_DEGRADED
+    monkeypatch.setattr(NSI, "_cache", {"t": 1_790_000_000.0, "ok": True, "data": {"A": {}, "B": {}}})
+    p = DH.probe_nse_security_info()
+    assert p.status == DH.STATUS_HEALTHY and "2 symbols" in p.note

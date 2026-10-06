@@ -66,7 +66,10 @@ def edge_flags(df: Optional[pd.DataFrame], info: Optional[Dict] = None,
                today: Optional[_dt.date] = None) -> List[EdgeFlag]:
     """Caveats for the latest bar of a DAILY frame. Never raises."""
     info = info or {}
-    today = today or _dt.date.today()
+    # IST, not the server clock: Streamlit Cloud runs in UTC, so 00:00-05:30
+    # IST would otherwise count from yesterday.
+    today = today or (_dt.datetime.now(_dt.timezone.utc)
+                      + _dt.timedelta(hours=5, minutes=30)).date()
     flags: List[EdgeFlag] = []
     try:
         flags += _series_flags(info)
@@ -91,8 +94,10 @@ def _history_flags(df, info: Dict, today: _dt.date) -> List[EdgeFlag]:
     n = 0 if df is None else len(df)
     listed = info.get("listed_on")
     since_listing = _sessions_between(listed, today) if isinstance(listed, _dt.date) else None
-    if since_listing is None and n == 0:
-        return []                          # no data at all is not evidence of a new listing
+    if since_listing is None and (n == 0 or n >= _SHORT_HISTORY_SESSIONS):
+        # Without a listing date, the frame length only proves a NEW listing:
+        # a caller may pass 6 months of bars for a decades-old stock.
+        return []
     sessions = since_listing if since_listing is not None else n
     if sessions >= _FULL_HISTORY_SESSIONS:
         return []

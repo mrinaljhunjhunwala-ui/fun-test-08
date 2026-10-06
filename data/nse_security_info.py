@@ -96,6 +96,14 @@ def _load() -> Dict[str, Dict]:
     return sec
 
 
+def status() -> Dict:
+    """{"fetched_at": epoch | None, "ok": bool, "symbols": int} for data_health."""
+    with _lock:
+        data = _cache.get("data") or {}
+        return {"fetched_at": float(_cache["t"]) or None, "ok": bool(_cache["ok"]),
+                "symbols": len(data) if isinstance(data, dict) else 0}
+
+
 def get_security_info(symbol: str) -> Dict:
     """{"series", "band", "listed_on"?} for one NSE symbol, or {} when unknown
     or the files can't be fetched."""
