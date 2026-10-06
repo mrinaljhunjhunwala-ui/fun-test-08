@@ -1602,8 +1602,12 @@ def _build_narrative(
         "previous_session": f"The last completed session's volume was {vol:.1f}×",
         "projected":        f"Today's volume is on pace for {vol:.1f}×",
     }.get(_basis, f"Volume in the latest session was {vol:.1f}×")
-    _side = ("turnover" if vol_pts.get("flat_day")
-             else "buying" if vol_pts.get("up_day", True) else "selling")
+    if vol_pts.get("flat_day"):
+        _day_word, _side = "a flat", "turnover"
+    elif vol_pts.get("up_day", True):
+        _day_word, _side = "an up", "buying"
+    else:
+        _day_word, _side = "a down", "selling"
     if vol > 1.5 and bull_pats and _basis == "latest":
         parts.append(
             f"{_vol_phrase} the 20-day average with a "
@@ -1611,9 +1615,7 @@ def _build_narrative(
         )
     elif vol > 1.5:
         parts.append(
-            f"{_vol_phrase} the 20-day average on "
-            f"{ {'buying': 'an up', 'selling': 'a down'}.get(_side, 'a flat') } "
-            f"day — above-average {_side}."
+            f"{_vol_phrase} the 20-day average on {_day_word} day — above-average {_side}."
         )
     elif bear_pats:
         parts.append(
