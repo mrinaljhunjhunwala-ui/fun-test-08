@@ -29,6 +29,7 @@ the most useful entries for avoiding repeat work.
 
 | date | study | answer | decision | report |
 |---|---|---|---|---|
+| 2026-10-06 | Sector-neutral reversal (#299) | Range reversal is within-sector selection: rev20 minus sector median IC20 +0.051 (t 3.75, 71% weeks +, 8/9 years); sector part −0.022 (laggard sectors don't bounce; sector-level IC −0.053, t −1.5); still fails #235 rule (A t 1.97, B t 1.00) | Production unchanged; any future reversal re-test should use the sector-neutral form | [REVERSAL_SECTOR_NEUTRAL_2026-10-06](REVERSAL_SECTOR_NEUTRAL_2026-10-06.md) |
 | 2026-10-06 | Range-regime reversal variant: costs, blend, liquidity, #235 rule | Direction consistent in both folds but no variant reaches t>2 in both; net-of-cost edge not significant (rev20 top-decile +0.51 pts/20s, t 1.6; liquid half +0.29, t 0.8); composite top decile lags range weeks net (−0.56, t −2.1) | Production unchanged, keep disclaimer; re-run after ~50 more range weeks | [REVERSAL_VARIANT_2026-10-06](REVERSAL_VARIANT_2026-10-06.md) |
 | 2026-10-06 | Alt factors by regime (#294) | Only short-term reversal beats the composite outside trend_up (range IC20 +0.043, t 2.8); gross edge ~1 pt per 20 sessions | Variant study; keep disclaimer | [REGIME_ALT_FACTORS_2026-10-06](REGIME_ALT_FACTORS_2026-10-06.md) |
 | 2026-10-06 | Momentum vol-scaling (#290) | No improvement | Production unchanged | `research/score_variants_momentum_vol.py` |
@@ -62,6 +63,5 @@ the most useful entries for avoiding repeat work.
   so the regime samples will be small.
 - **Range-regime reversal, prospective re-test.** Re-run `research/score_variants_reversal.py`
   after about 50 more range weeks have accumulated (roughly late 2027), using the same rule and
-  no tuning. See [REVERSAL_VARIANT_2026-10-06](REVERSAL_VARIANT_2026-10-06.md).
-- **Sector-neutral reversal.** It is untested whether the range-regime reversal
-  effect is within-sector or a sector rotation effect.
+  no tuning. Test the sector-neutral form (`research/score_reversal_sector_neutral.py`) as
+  the primary candidate; #299 found it cleaner than raw rev20. See [REVERSAL_VARIANT_2026-10-06](REVERSAL_VARIANT_2026-10-06.md).
