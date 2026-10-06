@@ -83,8 +83,9 @@ def test_backtests_actually_charge_both_legs():
     # Flat price, so every rupee lost is charges on BOTH legs.
     if callable(COMMISSION):      # backtesting.py >= 0.6: exact per-fill charges
         expected = C.round_trip(100.0, 100.0, 1000)["total"]
-    else:                         # older backtesting.py: flat per-side rate (₹2L calibration)
-        expected = 2 * COMMISSION * 100_000
+    else:                         # backtesting.py 0.5.x: a float charged ONCE per round trip
+        assert COMMISSION == pytest.approx(C.representative_round_trip_pct())
+        expected = COMMISSION * 100_000
     assert lost == pytest.approx(expected, rel=0.05)
     assert lost > 0.002 * 100_000          # more than the old sell-side-only STT model's ~0.23%
 
@@ -93,7 +94,8 @@ def test_callable_support_follows_backtesting_version(monkeypatch):
     import backtesting
     monkeypatch.setattr(backtesting, "__version__", "0.5.0")
     assert C.supports_callable_commission() is False
-    assert not callable(C.backtest_commission_arg())
+    # 0.5.x charges the float once per round trip, so it gets the FULL round-trip rate.
+    assert C.backtest_commission_arg() == pytest.approx(C.representative_round_trip_pct())
     monkeypatch.setattr(backtesting, "__version__", "0.6.5")
     assert C.supports_callable_commission() is True
     assert C.backtest_commission_arg() is C.backtest_commission

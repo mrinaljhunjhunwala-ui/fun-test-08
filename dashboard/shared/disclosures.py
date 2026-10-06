@@ -54,8 +54,8 @@ brokerage lower of ₹{_s.brokerage_cap:.0f} or {_s.brokerage_pct * 100:.1f}% (m
 Round trip ≈ **{_rt_2l:.2f}%** on a ₹2L order and ≈ **{_rt_20k:.2f}%** on a ₹20K order
 (fixed fees weigh more on small orders). Rates as of {_s.as_of}.
 {"Each fill is charged exactly for its own order size." if _c.supports_callable_commission() else
- "This backtesting engine version takes a flat rate, so every fill is charged the ₹2L-order rate; "
- "orders much smaller (larger) than ₹2L are under- (over-) charged."}
+ "This backtesting engine version takes one flat rate per trade, so every trade is charged the "
+ "₹2L-order round trip; orders much smaller (larger) than ₹2L are under- (over-) charged."}
 
 **Execution — realistic timing.** Signals are computed on each bar's **close**; orders fill at
 the **next bar's open**. There are no same-bar fills and no look-ahead (verified by an automated

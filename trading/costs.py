@@ -144,12 +144,20 @@ def backtest_commission(order_size: float, price: float) -> float:
 
 
 def backtest_commission_arg():
-    """The `commission=` argument for backtesting.Backtest: the exact per-fill
-    callable where the installed backtesting.py accepts one (>= 0.4), else a
-    flat per-side rate at a representative ticket size."""
+    """The `commission=` argument for backtesting.Backtest.
+
+    backtesting.py >= 0.6 charges `commission` on EVERY fill and accepts a
+    callable, so the exact per-fill charges are passed. 0.5.x (what the
+    `<0.6` requirement installs on CI / Streamlit Cloud) accepts only a float
+    and charges it ONCE per round trip — verified 2026-10-06: commission=0.001
+    on a ₹1L flat round trip cost exactly ₹100. So for 0.5.x the FULL
+    round-trip rate (at a ₹2L ticket) is passed, not half of it.
+    (FIX BT-COMMISSION of 2026-09-24 halved it assuming per-fill charging,
+    which only 0.6+ does — deployed backtests charged half the round trip.)
+    """
     if supports_callable_commission():
         return backtest_commission
-    return representative_round_trip_pct() / 2
+    return representative_round_trip_pct()
 
 
 def supports_callable_commission() -> bool:

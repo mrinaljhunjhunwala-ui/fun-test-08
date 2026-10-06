@@ -26,10 +26,12 @@ _log = logging.getLogger("backtest.runner")
 # ── Indian market costs (trading/costs.py) ──────────────────────────────────
 # FIX COST-MODEL (audit 2026-10-03 #23): the old constants charged STT on the
 # sell side only (delivery STT is 0.1% on BOTH legs) and left out stamp duty
-# and DP charges. Every fill is now priced by trading.costs: the exact
-# per-fill callable where backtesting.py supports one, else a flat per-side
-# rate at a representative ₹2L ticket. backtesting.py charges `commission`
-# on every fill (FIX BT-COMMISSION), so either form is per side.
+# and DP charges. Every trade is now priced by trading.costs: on
+# backtesting.py >= 0.6 the exact per-fill callable (charged on entry AND
+# exit); on 0.5.x, which charges a float ONCE per round trip, the full
+# round-trip rate at a representative ₹2L ticket. See
+# trading.costs.backtest_commission_arg() — FIX BT-COMMISSION's halving was
+# only right for 0.6+.
 from trading import costs as _costs  # noqa: E402
 
 COMMISSION     = _costs.backtest_commission_arg()
@@ -59,7 +61,7 @@ def run_backtest(
         period:          yfinance period string
         cash:            Starting capital in INR
         commission:      per-fill charges: trading.costs callable or a per-side rate
-                         (default PER_SIDE_COST = half the Indian round trip)
+                         (default COMMISSION from trading.costs)
         plot:            Show backtesting.py chart for the last ticker (default True)
         optimize:        Run parameter optimisation (slow — only for single ticker)
         strategy_params: Dict of parameter overrides from Phase 2a optimiser
