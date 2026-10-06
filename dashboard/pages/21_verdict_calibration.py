@@ -54,6 +54,7 @@ from dashboard.shared.design import apply_design   # noqa: E402
 from dashboard.shared.nav import render_sidebar    # noqa: E402
 from dashboard.shared.chart_helpers import render_top_bar  # noqa: E402
 from dashboard.shared.tokens import COLORS as _TK  # noqa: E402
+from dashboard.shared.ui_components import section_header  # noqa: E402
 
 
 # FIX: this page previously called st.set_page_config, violating the
@@ -194,7 +195,7 @@ def _ledger_unavailable(err: str, what: str) -> None:
     )
 
 
-_ledger = _vl.load_ledger(limit=5000)
+_ledger = _vl.load_ledger(limit=1_000_000)   # FIX CAL-LIMIT (#26): 5000 dropped the oldest rows
 if _ledger_read_error(_ledger):
     _ledger_unavailable(_ledger_read_error(_ledger), "every number on this page")
     st.stop()
@@ -249,6 +250,40 @@ _o1.metric("Verdicts logged", f"{_total:,}")
 _o2.metric("Shadow trades", f"{int((_ledger['source'] == 'shadow_auto').sum()):,}")
 _o3.metric("Played out ≥20d", f"{_played_20d:,}")
 _o4.metric("Played out ≥60d", f"{_played_60d:,}")
+
+# ── Live scorecard (out-of-sample record, audit #26) ──────────────────────────
+# Each settled call's edge = direction × (return − Nifty return); AVOID calls
+# count as ahead when the stock lagged. Stats run over non-overlapping periods
+# of the horizon's length, so same-window picks aren't counted as independent.
+if hasattr(_vl, "live_scorecard"):
+    st.markdown(section_header("Live scorecard", "out-of-sample · since logging began"),
+                unsafe_allow_html=True)
+    _lc1, _lc2 = st.columns([1, 3])
+    _lsc_h = _lc1.selectbox("Horizon", [1, 5, 20], index=1, key="_lsc_h",
+                            format_func=lambda h: f"{h} session{'s' if h > 1 else ''}")
+    _lsc = _vl.live_scorecard(horizon_days=_lsc_h, **_src_kw(_vl.live_scorecard))
+    if _lsc.get("error"):
+        st.caption(f"Live scorecard unavailable: {_lsc['error']}")
+    elif _lsc["summary"].empty:
+        _lc2.caption("No calls have settled at this horizon yet.")
+    else:
+        _lc2.caption(
+            "Edge = return minus the Nifty's over the same window, sign-flipped for AVOID "
+            "calls. 'Independent periods' groups calls into non-overlapping "
+            f"{_lsc_h}-session blocks — the honest sample size. "
+            f"{_lsc['pending']:,} call(s) are still waiting for this horizon to pass."
+        )
+        _show = _lsc["summary"].rename(columns={
+            "side": "Calls", "picks": "Settled", "sessions": "Sessions",
+            "independent_periods": "Independent periods", "mean_edge_pct": "Mean edge %",
+            "picks_ahead_pct": "Calls ahead %", "periods_ahead_pct": "Periods ahead %",
+            "periods_ahead_lower_pct": "Periods ahead, 95% lower %", "t_stat": "t (periods)",
+            "evidence": "Read",
+        })
+        st.dataframe(_show, hide_index=True, width="stretch")
+        if not _lsc["timeline"].empty:
+            st.line_chart(_lsc["timeline"].set_index("logged_date")["mean_edge_pct"], height=160)
+        st.caption("A record of past calls, not a forecast. Educational only — not investment advice.")
 
 # ── Pre-registered evidence tests (fixed before each sample matured) ──────────
 @st.cache_data(ttl=3600, show_spinner=False)
