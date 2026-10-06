@@ -109,9 +109,10 @@ def run_backtest(
                     maximize="Sharpe Ratio",
                     constraint=lambda p: p.rsi_oversold < p.rsi_overbought,
                 )
-                print("[in-sample: optimised on this same period] ", end="")
+                _tag = "  [in-sample: optimised on this same period]"
             else:
                 stats = bt.run(**(strategy_params or {}))
+                _tag = ""
 
             result = {
                 "Ticker":          ticker,
@@ -123,7 +124,7 @@ def run_backtest(
                 "# Trades":        int(stats["# Trades"]),
                 "Profit Factor":   round(stats.get("Profit Factor", 0), 2),
             }
-            print(f"✓  Return: {stats['Return [%]']:.1f}%  Sharpe: {stats['Sharpe Ratio']:.2f}")
+            print(f"✓  Return: {stats['Return [%]']:.1f}%  Sharpe: {stats['Sharpe Ratio']:.2f}{_tag}")
             
             # Retain Backtest instance only for the last-input ticker (for plotting)
             bt_to_return = bt if ticker == tickers[-1] else None
