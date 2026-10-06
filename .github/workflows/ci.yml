@@ -26,6 +26,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history so the ruff step can diff against the PR base
+
+      - name: Ruff (changed Python files only)
+        # Lints only .py files added/modified vs the PR base (or the previous commit on push),
+        # so pre-existing violations in untouched files (e.g. dashboard/pages) don't fail CI.
+        # Config: pyproject.toml → [tool.ruff].
+        run: |
+          pip install --quiet "ruff>=0.6.0,<1.0"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            BASE="${{ github.event.before }}"
+            if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD~1"; fi
+          fi
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE"...HEAD -- '*.py' || true)
+          if [ -z "$CHANGED" ]; then echo "No changed Python files to lint."; exit 0; fi
+          echo "$CHANGED"
+          echo "$CHANGED" | xargs ruff check
 
       - name: Set up Python
         uses: actions/setup-python@v6
