@@ -1125,8 +1125,8 @@ if analyze_btn or _prefill_active or (
                     _conf_bits.append(f"{str(_fv.confidence).lower()} data coverage")
                 if _confirmation_available:
                     _conf_bits.append(f"{_bull} of {_tot} confirmation signals agree")
-                if _conf_bits:
-                    st.caption("Confidence · " + " · ".join(_conf_bits))
+                _conf_bits.append("educational analysis only – not SEBI-registered investment advice")
+                st.caption("Confidence · " + " · ".join(_conf_bits))
                 _render_regime_note()
 
                 # ── Context chips: earnings window + thesis freshness ───────

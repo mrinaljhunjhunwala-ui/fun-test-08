@@ -135,6 +135,7 @@ def test_overview_layout_non_financial(_stubs):
     i_comb = next(i for i, b in enumerate(blobs) if "Combined read" in b)
     assert i_hero < i_lens < i_comb
     assert any("Confidence ·" in str(c.value) and "5 of 6" in str(c.value) for c in at.caption)
+    assert any("not SEBI-registered investment advice" in str(c.value) for c in at.caption)
     labels = [e.label for e in at.expander]
     assert any("Horizon reads" in x for x in labels) and any("Thesis · bull" in x for x in labels)
     assert not any("gate-by-gate" in x for x in labels)        # no nested expander
