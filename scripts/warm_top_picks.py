@@ -172,7 +172,30 @@ def main() -> int:
     else:
         _log.error("warm_top_picks: all-scored kv_set FAILED — watchlist page will fall "
                    "back to live per-ticker scoring this cycle")
+
+    _n_sent = log_shadow_picks(result.get("buys", []) if isinstance(result, dict) else [])
+    _log.info("warm_top_picks: shadow ledger — %d pick(s) sent (repeats in a session are no-ops)",
+              _n_sent)
     return 0
+
+
+def log_shadow_picks(buys) -> int:
+    """Log each Top Picks card to verdict_log (source "shadow_auto"), exactly
+    as Command Centre does when it renders the card. That page call was the
+    only writer, so a day nobody opened Command Centre (6 Oct 2026: 28 scans,
+    0 rows) left a hole in the live track record. log_verdict dedupes per
+    (session, ticker, horizon, source), so page views and repeat scans add
+    nothing twice; the first scan of the session sets the entry price."""
+    from dashboard.shared.pick_freshness import compose_finalverdict_for_card
+
+    n = 0
+    for b in buys or []:
+        try:
+            compose_finalverdict_for_card(b, tqs=None)   # logs as "shadow_auto"
+            n += 1
+        except Exception as e:
+            _log.debug("shadow log skipped %s: %s", b.get("ticker"), e)
+    return n
 
 
 if __name__ == "__main__":
