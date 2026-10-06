@@ -29,6 +29,7 @@ the most useful entries for avoiding repeat work.
 
 | date | study | answer | decision | report |
 |---|---|---|---|---|
+| 2026-10-06 | Revenue growth by live regime (#301) | Too thin and not reproduced: 42 monthly dates (range 10, trend_down 2, risk_off 1); rev-growth per-date IC −0.02 overall (6m t −0.8), trend_up −0.05, range +0.02 with sign flip train→holdout; earlier +0.14 headline did NOT reproduce on nifty500 2022-10→2026-04 | Not a candidate; next: reconcile the +0.14 with fundamental_quality on its own universe/window, per-date IC | [REVENUE_GROWTH_BY_REGIME_2026-10-06](REVENUE_GROWTH_BY_REGIME_2026-10-06.md) |
 | 2026-10-06 | Sector-neutral reversal (#299) | Range reversal is within-sector selection: rev20 minus sector median IC20 +0.051 (t 3.75, 71% weeks +, 8/9 years); sector part −0.022 (laggard sectors don't bounce; sector-level IC −0.053, t −1.5); still fails #235 rule (A t 1.97, B t 1.00) | Production unchanged; any future reversal re-test should use the sector-neutral form | [REVERSAL_SECTOR_NEUTRAL_2026-10-06](REVERSAL_SECTOR_NEUTRAL_2026-10-06.md) |
 | 2026-10-06 | Range-regime reversal variant: costs, blend, liquidity, #235 rule | Direction consistent in both folds but no variant reaches t>2 in both; net-of-cost edge not significant (rev20 top-decile +0.51 pts/20s, t 1.6; liquid half +0.29, t 0.8); composite top decile lags range weeks net (−0.56, t −2.1) | Production unchanged, keep disclaimer; re-run after ~50 more range weeks | [REVERSAL_VARIANT_2026-10-06](REVERSAL_VARIANT_2026-10-06.md) |
 | 2026-10-06 | Alt factors by regime (#294) | Only short-term reversal beats the composite outside trend_up (range IC20 +0.043, t 2.8); gross edge ~1 pt per 20 sessions | Variant study; keep disclaimer | [REGIME_ALT_FACTORS_2026-10-06](REGIME_ALT_FACTORS_2026-10-06.md) |
@@ -58,9 +59,12 @@ the most useful entries for avoiding repeat work.
 - **Point-in-time universe.** No historical index-membership list exists in the
   repo, so every study carries survivorship bias. Sourcing NSE's historical
   constituent files would make every result above more trustworthy.
-- **Revenue growth by regime.** It is the strongest fundamental signal found, but
-  it has never been split by live_regime. Its point-in-time data starts 2022-10,
-  so the regime samples will be small.
+- **Reconcile the revenue-growth headline.** FUNDAMENTAL_QUALITY_REPORT's ρ ≈ +0.14
+  did not reproduce in #301 (per-date IC about −0.02 on nifty500, 2022-10 → 2026-04).
+  Re-run research/fundamental_quality.py on its own universe and window, and report
+  per-date IC, to find whether the cause is the universe, the window, the statement
+  source (Screener.in now ahead of yfinance) or pooled vs per-date IC. Until then,
+  treat the +0.14 as unconfirmed.
 - **Range-regime reversal, prospective re-test.** Re-run `research/score_variants_reversal.py`
   after about 50 more range weeks have accumulated (roughly late 2027), using the same rule and
   no tuning. Test the sector-neutral form (`research/score_reversal_sector_neutral.py`) as

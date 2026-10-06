@@ -66,6 +66,7 @@ _STANDALONE_SCRIPTS = [
     ("research.regime_axes_search",         "research/regime_axes_search.py", ["main"]),
     ("research.mean_reversion_factors",     "research/mean_reversion_factors.py", ["main"]),
     ("research.revenue_growth_trend_interaction", "research/revenue_growth_trend_interaction.py", ["main"]),
+    ("research.fundamental_growth_regime",  "research/fundamental_growth_regime.py", ["main"]),
     ("tools.validate_valuation",            "tools/validate_valuation.py", ["main"]),
     ("tools.refresh_flags_batch",           "tools/refresh_flags_batch.py", ["main"]),
     ("tools.composite_golden",              "tools/composite_golden.py", ["main", "build_snapshot", "run_case"]),
