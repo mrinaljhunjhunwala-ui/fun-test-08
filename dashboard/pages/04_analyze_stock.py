@@ -1068,10 +1068,10 @@ if analyze_btn or _prefill_active or (
             # Tab strip. Overview is plain page flow (its horizon radio reruns
             # the whole page); every other tab body is an @st.fragment below
             # (Task 2.4 F3 PR C.2) so widgets inside a tab rerun only that tab.
-            # Deep Dive was folded in as a tab (Slice 2, UI_UX_DESIGN_2026-09).
-            (tab_ov, tab_dd, tab_fund, tab_chart, tab_thesis,
+            # Deep Dive now sits at the foot of Overview (audit Y4).
+            (tab_ov, tab_fund, tab_chart, tab_thesis,
              tab_news, tab_ca, tab_pf) = st.tabs([
-                "Overview", "Deep Dive", "Fundamentals", "Chart", "Thesis",
+                "Overview", "Fundamentals", "Chart", "Thesis",
                 "News & Flags", "Corp Actions", "Portfolio Fit",
             ])
 
@@ -1117,95 +1117,17 @@ if analyze_btn or _prefill_active or (
                     unsafe_allow_html=True,
                 )
 
-                # ── Combined read across three horizons ─────────────────────
-                # 5-way posture per horizon (conviction >= 75 splits BUY into
-                # Strong Positive; <= 25 splits AVOID into Strong Negative).
-                def _posture_for(_hzv):
-                    _v = _hzv.verdict
-                    _c = int(getattr(_hzv, "conviction", 50) or 50)
-                    if _v == "STRONG BUY" or (_v == "BUY" and _c >= 75):
-                        return ("Strong Positive", "var(--bull)")
-                    if _v == "BUY":
-                        return ("Positive", "var(--bull)")
-                    if _v == "WATCH":
-                        return ("Neutral", "var(--accent)")
-                    if _v == "AVOID" and _c <= 25:
-                        return ("Strong Negative", "var(--bear)")
-                    if _v == "AVOID":
-                        return ("Negative", "var(--bear)")
-                    return ("Neutral", "var(--dim)")
-
-                if _fv is not None:
-                    _fv_horizon_labels = {
-                        "short":  "Short-term · days–weeks",
-                        "medium": "Medium · 1–6 months",
-                        "long":   "Long-term · 1 year+",
-                    }
-                    st.radio(
-                        "Focus horizon",
-                        options=list(_fv_horizon_labels.keys()),
-                        format_func=lambda k: _fv_horizon_labels[k],
-                        index=list(_fv_horizon_labels.keys()).index(_fv_horizon),
-                        horizontal=True,
-                        key="_fv_horizon",
-                        help=(
-                            "Same subsystem readings, three lenses.\n"
-                            "• Short: technical setup + trend dominant.\n"
-                            "• Medium: technical + trend + regime, valuation informational.\n"
-                            "• Long: quality + valuation + thesis dominate."
-                        ),
-                    )
-                    _fv_colors = {
-                        "STRONG BUY": "var(--bull)", "BUY": "var(--bull)",
-                        "WATCH": "var(--accent)", "HOLD": "var(--dim)", "AVOID": "var(--bear)",
-                    }
-                    _cells = [(
-                        f"Combined read · {_fv.horizon}",
-                        f'<span style="color:{_fv_colors.get(_fv.verdict, "var(--dim)")}">'
-                        f"{verdict_display_label(_fv.verdict)}</span>",
-                        f"{_fv.confidence} confidence · conviction {_fv.conviction}/100",
-                    )]
-                    for _hz, _hz_title in (("short", "Short-term"), ("medium", "Medium-term"),
-                                           ("long", "Long-term")):
-                        _hzv = _hz_verdicts.get(_hz)
-                        if _hzv is None:
-                            continue
-                        _hp, _hc = _posture_for(_hzv)
-                        _cells.append((_hz_title, f'<span style="color:{_hc}">{_hp}</span>',
-                                       f"conviction {_hzv.conviction}/100"))
-                    _cells.append((
-                        "Trend quality · TQS",
-                        f"{_fv_tqs:.0f} / 90" if _fv_tqs is not None else "—",
-                        _tqs_band(_fv_tqs) if _fv_tqs is not None else "unavailable",
-                    ))
-                    st.markdown(gate_strip(_cells), unsafe_allow_html=True)
-                    st.caption(
-                        f"{_fv.primary_reason} · Same subsystem inputs re-weighted per horizon; "
-                        "independent of the chart window."
-                    )
-                    with st.expander("Why? — gate-by-gate breakdown", expanded=False):
-                        st.caption(
-                            "Verdict combines every subsystem via a decision tree "
-                            "(quality/thesis are vetoes, valuation/trend are dampers, "
-                            "technical is the driver). Gates showing 'insufficient data' "
-                            "are ones whose inputs weren't computed on this page — the "
-                            "aggregator uses what's available and marks confidence "
-                            "accordingly."
-                        )
-                        for _g in _fv.gates:
-                            _pill = ("✅" if _g.passed is True else
-                                     "❌" if _g.passed is False else "❓")
-                            _effect_txt = _g.effect if _g.effect != "none" else ""
-                            st.markdown(
-                                f"{_pill} **{_g.name.title()}** "
-                                f"{'(' + _effect_txt + ')' if _effect_txt else ''} — "
-                                f"{_g.message}"
-                            )
-                        if _fv.subsystem_labels:
-                            st.caption(
-                                "Subsystem readings: " +
-                                " · ".join(f"{k}: {v}" for k, v in _fv.subsystem_labels.items())
-                            )
+                # One headline: the composite posture above. Confidence and the market-
+                # regime caveat sit directly under it; every other lens is collapsed under
+                # "Other lenses" below (audit Y4: eight verdicts on one page disagreed).
+                _conf_bits = []
+                if _fv is not None and getattr(_fv, "confidence", None):
+                    _conf_bits.append(f"{str(_fv.confidence).lower()} data coverage")
+                if _confirmation_available:
+                    _conf_bits.append(f"{_bull} of {_tot} confirmation signals agree")
+                _conf_bits.append("educational analysis only – not SEBI-registered investment advice")
+                st.caption("Confidence · " + " · ".join(_conf_bits))
+                _render_regime_note()
 
                 # ── Context chips: earnings window + thesis freshness ───────
                 _ctx_chips = [_ed_badge]
@@ -1233,7 +1155,7 @@ if analyze_btn or _prefill_active or (
                     else:
                         _ctx_chips.append(chip_pill(
                             "No Deep Dive saved", "neutral",
-                            title="The Deep Dive tab builds a research prompt you can run "
+                            title="Deep Dive (foot of Overview) builds a research prompt you can run "
                                   "with your own annual report / concall PDFs."))
                 except Exception as _fresh_e:
                     _log.debug("Thesis freshness check failed for %s: %s", ticker, _fresh_e)
@@ -1282,24 +1204,6 @@ if analyze_btn or _prefill_active or (
                     if _lvl_cells:
                         st.markdown(level_strip(_lvl_cells), unsafe_allow_html=True)
 
-                    # IR1 bull / bear / risk, now the mockup's thesis card: the
-                    # banner-flavour thesis with its descriptive verdict. The
-                    # full list + provenance stay in the Thesis tab.
-                    st.markdown(section_header("Thesis", "rule-based · not personalised advice"),
-                                unsafe_allow_html=True)
-                    if _fv_th is not None:
-                        st.markdown(
-                            thesis_grid(
-                                getattr(_fv_th, "bull_factors", []) or [],
-                                getattr(_fv_th, "bear_factors", []) or [],
-                                getattr(_fv_th, "key_risks", []) or [],
-                                verdict_label=str(getattr(_fv_th, "verdict", "") or ""),
-                                verdict_text=str(getattr(_fv_th, "verdict_rationale", "") or ""),
-                            ),
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.caption("Thesis unavailable for this ticker right now.")
 
                 # ── Right: fundamentals · overlay signals · reference levels ─
                 with _ov_r:
@@ -1360,41 +1264,6 @@ if analyze_btn or _prefill_active or (
                             unsafe_allow_html=True,
                         )
 
-                    # Overlay signals: sidecars that never rewrite the composite
-                    # (weekly trend, RS, signal agreement, conviction adjustment,
-                    # positioning, TQS x valuation).
-                    _wk_tone = {"uptrend": "good", "downtrend": "bad",
-                                "sideways": "warn"}.get(_dc.get("weekly"), "neutral")
-                    _o_rows = [("Weekly trend",
-                                chip_pill(str(_dc.get("weekly") or "—").title(), _wk_tone))]
-                    if _dc.get("rs_pct") is not None:
-                        _o_rows.append(("RS vs Nifty 50", chip_delta(float(_dc["rs_pct"]))))
-                    _rs_score = getattr(cs, "rs_score", None)
-                    if _rs_score is not None:
-                        _o_rows.append(("RS percentile", f"{float(_rs_score):.0f} / 100"))
-                    _o_rows.append(("Signal agreement",
-                                    f"{_bull} of {_tot} bullish" if _confirmation_available else "—"))
-                    _o_rows.append((
-                        "Conviction",
-                        f'<span style="color:{_cv_c}">{_conviction:.0f}</span> / 100 '
-                        + (chip_tag(f"base {cs.score:.0f} · {_delta_s}")
-                           if _confirmation_available else chip_tag("no adjustment")),
-                    ))
-                    _pos_score = getattr(cs, "positioning_score", None)
-                    if _pos_score is not None:
-                        _o_rows.append(("Positioning (OI · PCR)", f"{float(_pos_score):.1f} / 10"))
-                    _ov_score = getattr(cs, "overlay_score", None)
-                    if _ov_score is not None:
-                        _o_rows.append(("Quality × Value", f"{_ov_score} / 100"))
-                    if getattr(cs, "vix_regime", None):
-                        _o_rows.append(("VIX regime", str(cs.vix_regime).title()))
-                    _o_note = ("Conviction adjustments: " + " · ".join(_conf_reasons)
-                               if _conf_reasons else "")
-                    st.markdown(
-                        kit_card("Overlay signals", kv_list(_o_rows, note=_o_note),
-                                 sub="sidecar · never rewrites composite"),
-                        unsafe_allow_html=True,
-                    )
 
                     # Reference levels: the engine's ATR stop and score-scaled
                     # target, the same numbers Paper Trade and Size Position use.
@@ -1472,6 +1341,193 @@ if analyze_btn or _prefill_active or (
                     logging.getLogger("dashboard.analyze_stock").debug(
                         "AI co-pilot panel render failed: %s", _ai_err)
 
+                # ── Other lenses: each reads the stock differently ──────────────────
+                st.markdown(section_header("Other lenses", "collapsed · each can disagree with the posture"),
+                            unsafe_allow_html=True)
+                with st.expander("🧭 Horizon reads · short / medium / long", expanded=False):
+                    st.caption("Re-weights the same inputs per holding period and adds valuation, "
+                               "quality and thesis gates, so it can differ from the chart-based posture.")
+                    # ── Combined read across three horizons ─────────────────────
+                    # 5-way posture per horizon (conviction >= 75 splits BUY into
+                    # Strong Positive; <= 25 splits AVOID into Strong Negative).
+                    def _posture_for(_hzv):
+                        _v = _hzv.verdict
+                        _c = int(getattr(_hzv, "conviction", 50) or 50)
+                        if _v == "STRONG BUY" or (_v == "BUY" and _c >= 75):
+                            return ("Strong Positive", "var(--bull)")
+                        if _v == "BUY":
+                            return ("Positive", "var(--bull)")
+                        if _v == "WATCH":
+                            return ("Neutral", "var(--accent)")
+                        if _v == "AVOID" and _c <= 25:
+                            return ("Strong Negative", "var(--bear)")
+                        if _v == "AVOID":
+                            return ("Negative", "var(--bear)")
+                        return ("Neutral", "var(--dim)")
+
+                    if _fv is not None:
+                        _fv_horizon_labels = {
+                            "short":  "Short-term · days–weeks",
+                            "medium": "Medium · 1–6 months",
+                            "long":   "Long-term · 1 year+",
+                        }
+                        st.radio(
+                            "Focus horizon",
+                            options=list(_fv_horizon_labels.keys()),
+                            format_func=lambda k: _fv_horizon_labels[k],
+                            index=list(_fv_horizon_labels.keys()).index(_fv_horizon),
+                            horizontal=True,
+                            key="_fv_horizon",
+                            help=(
+                                "Same subsystem readings, three lenses.\n"
+                                "• Short: technical setup + trend dominant.\n"
+                                "• Medium: technical + trend + regime, valuation informational.\n"
+                                "• Long: quality + valuation + thesis dominate."
+                            ),
+                        )
+                        _fv_colors = {
+                            "STRONG BUY": "var(--bull)", "BUY": "var(--bull)",
+                            "WATCH": "var(--accent)", "HOLD": "var(--dim)", "AVOID": "var(--bear)",
+                        }
+                        _cells = [(
+                            f"Combined read · {_fv.horizon}",
+                            f'<span style="color:{_fv_colors.get(_fv.verdict, "var(--dim)")}">'
+                            f"{verdict_display_label(_fv.verdict)}</span>",
+                            f"{_fv.confidence} confidence · conviction {_fv.conviction}/100",
+                        )]
+                        for _hz, _hz_title in (("short", "Short-term"), ("medium", "Medium-term"),
+                                               ("long", "Long-term")):
+                            _hzv = _hz_verdicts.get(_hz)
+                            if _hzv is None:
+                                continue
+                            _hp, _hc = _posture_for(_hzv)
+                            _cells.append((_hz_title, f'<span style="color:{_hc}">{_hp}</span>',
+                                           f"conviction {_hzv.conviction}/100"))
+                        _cells.append((
+                            "Trend quality · TQS",
+                            f"{_fv_tqs:.0f} / 90" if _fv_tqs is not None else "—",
+                            _tqs_band(_fv_tqs) if _fv_tqs is not None else "unavailable",
+                        ))
+                        st.markdown(gate_strip(_cells), unsafe_allow_html=True)
+                        st.caption(
+                            f"{_fv.primary_reason} · Same subsystem inputs re-weighted per horizon; "
+                            "independent of the chart window."
+                        )
+                        st.markdown("**Why – gate by gate**")
+                        st.caption(
+                            "Verdict combines every subsystem via a decision tree "
+                            "(quality/thesis are vetoes, valuation/trend are dampers, "
+                            "technical is the driver). Gates showing 'insufficient data' "
+                            "are ones whose inputs weren't computed on this page — the "
+                            "aggregator uses what's available and marks confidence "
+                            "accordingly."
+                        )
+                        for _g in _fv.gates:
+                            _pill = ("✅" if _g.passed is True else
+                                     "❌" if _g.passed is False else "❓")
+                            _effect_txt = _g.effect if _g.effect != "none" else ""
+                            st.markdown(
+                                f"{_pill} **{_g.name.title()}** "
+                                f"{'(' + _effect_txt + ')' if _effect_txt else ''} — "
+                                f"{_g.message}"
+                            )
+                        if _fv.subsystem_labels:
+                            st.caption(
+                                "Subsystem readings: " +
+                                " · ".join(f"{k}: {v}" for k, v in _fv.subsystem_labels.items())
+                            )
+                with st.expander("📝 Thesis · bull / bear / risks", expanded=False):
+                    st.caption("Rule-based count of bull and bear factors, fundamentals included; "
+                               "a strong chart with weak fundamentals reads differently here.")
+                    if _fv_th is not None:
+                        st.markdown(
+                            thesis_grid(
+                                getattr(_fv_th, "bull_factors", []) or [],
+                                getattr(_fv_th, "bear_factors", []) or [],
+                                getattr(_fv_th, "key_risks", []) or [],
+                                verdict_label=str(getattr(_fv_th, "verdict", "") or ""),
+                                verdict_text=str(getattr(_fv_th, "verdict_rationale", "") or ""),
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.caption("Thesis unavailable for this ticker right now.")
+                with st.expander("📡 Signal agreement · conviction · overlays", expanded=False):
+                    st.caption("Weekly trend, relative strength and positioning are sidecar reads; "
+                               "they never change the composite and can point the other way.")
+                    _wk_tone = {"uptrend": "good", "downtrend": "bad",
+                                "sideways": "warn"}.get(_dc.get("weekly"), "neutral")
+                    _o_rows = [("Weekly trend",
+                                chip_pill(str(_dc.get("weekly") or "—").title(), _wk_tone))]
+                    if _dc.get("rs_pct") is not None:
+                        _o_rows.append(("RS vs Nifty 50", chip_delta(float(_dc["rs_pct"]))))
+                    _rs_score = getattr(cs, "rs_score", None)
+                    if _rs_score is not None:
+                        _o_rows.append(("RS percentile", f"{float(_rs_score):.0f} / 100"))
+                    _o_rows.append(("Signal agreement",
+                                    f"{_bull} of {_tot} bullish" if _confirmation_available else "—"))
+                    _o_rows.append((
+                        "Conviction",
+                        f'<span style="color:{_cv_c}">{_conviction:.0f}</span> / 100 '
+                        + (chip_tag(f"base {cs.score:.0f} · {_delta_s}")
+                           if _confirmation_available else chip_tag("no adjustment")),
+                    ))
+                    _pos_score = getattr(cs, "positioning_score", None)
+                    if _pos_score is not None:
+                        _o_rows.append(("Positioning (OI · PCR)", f"{float(_pos_score):.1f} / 10"))
+                    _ov_score = getattr(cs, "overlay_score", None)
+                    if _ov_score is not None:
+                        _o_rows.append(("Quality × Value", f"{_ov_score} / 100"))
+                    if getattr(cs, "vix_regime", None):
+                        _o_rows.append(("VIX regime", str(cs.vix_regime).title()))
+                    _o_note = ("Conviction adjustments: " + " · ".join(_conf_reasons)
+                               if _conf_reasons else "")
+                    st.markdown(
+                        kit_card("Overlay signals", kv_list(_o_rows, note=_o_note),
+                                 sub="sidecar · never rewrites composite"),
+                        unsafe_allow_html=True,
+                    )
+                try:
+                    if _fv_tqs_res is not None:
+                        _p1 = float(getattr(_fv_tqs_res, "p1", 0.0))
+                        _p2 = float(getattr(_fv_tqs_res, "p2", 0.0))
+                        _p3 = float(getattr(_fv_tqs_res, "p3", 0.0))
+                        _p4 = float(getattr(_fv_tqs_res, "p4", 0.0))
+                        with st.expander(f"🌊 TQS breakdown — {_fv_tqs:.0f}/90 "
+                                         f"({_tqs_band(_fv_tqs)})"
+                                         if _fv_tqs is not None else "🌊 TQS breakdown",
+                                         expanded=False):
+                            st.caption("Trend persistence only; a high TQS can sit beside a neutral posture.")
+                            _pc1, _pc2, _pc3, _pc4 = st.columns(4)
+                            _pc1.metric("Strength /22.5",    f"{_p1:.1f}",
+                                        help="Trend backbone — SMA stack, price above 200SMA, ADX regime.")
+                            _pc2.metric("Persistence /22.5", f"{_p2:.1f}",
+                                        help="How LONG the trend has held — days above 50SMA, sequence of higher-highs.")
+                            _pc3.metric("Momentum /22.5",    f"{_p3:.1f}",
+                                        help="Rate of change — RSI regime, MACD histogram, Sharpe 20-day.")
+                            _pc4.metric("Confirmation /22.5", f"{_p4:.1f}",
+                                        help="Volume / breadth confirmation — OBV z-score, volume regime.")
+                            _weakest = min(_p1, _p2, _p3, _p4)
+                            _weak_name = {_p1: "Strength", _p2: "Persistence",
+                                          _p3: "Momentum", _p4: "Confirmation"}[_weakest]
+                            st.caption(
+                                f"Weakest pillar: **{_weak_name}** at {_weakest:.1f}/22.5. "
+                                "The TQS in the combined-read strip is the sum of all four."
+                            )
+                except Exception as _tqs_pill_e:
+                    import logging
+                    logging.getLogger("dashboard.analyze_stock").debug(
+                        "TQS pillar breakdown failed for %s: %s", ticker, _tqs_pill_e)
+                st.caption("The pre-trade checklist is a pass/fail list for one entry, not a read "
+                           "on the stock; it can fail on a constructive posture.")
+                try:
+                    from dashboard.shared.checklist_ui import render_checklist_expander
+                    render_checklist_expander(ticker, df, df_weekly=None, expanded=False)
+                except Exception as _chk_e:
+                    import logging
+                    logging.getLogger("dashboard.analyze_stock").debug(
+                        "checklist expander failed for %s: %s", ticker, _chk_e)
+
                 # ── More detail: drill-downs one click away ─────────────────
                 st.markdown(section_header("More detail", "expand what you need"),
                             unsafe_allow_html=True)
@@ -1525,43 +1581,6 @@ if analyze_btn or _prefill_active or (
                     import logging
                     logging.getLogger("dashboard.analyze_stock").debug(
                         "verdict history render failed for %s: %s", ticker, _vl_hist_e)
-                try:
-                    if _fv_tqs_res is not None:
-                        _p1 = float(getattr(_fv_tqs_res, "p1", 0.0))
-                        _p2 = float(getattr(_fv_tqs_res, "p2", 0.0))
-                        _p3 = float(getattr(_fv_tqs_res, "p3", 0.0))
-                        _p4 = float(getattr(_fv_tqs_res, "p4", 0.0))
-                        with st.expander(f"🌊 TQS breakdown — {_fv_tqs:.0f}/90 "
-                                         f"({_tqs_band(_fv_tqs)})"
-                                         if _fv_tqs is not None else "🌊 TQS breakdown",
-                                         expanded=False):
-                            _pc1, _pc2, _pc3, _pc4 = st.columns(4)
-                            _pc1.metric("Strength /22.5",    f"{_p1:.1f}",
-                                        help="Trend backbone — SMA stack, price above 200SMA, ADX regime.")
-                            _pc2.metric("Persistence /22.5", f"{_p2:.1f}",
-                                        help="How LONG the trend has held — days above 50SMA, sequence of higher-highs.")
-                            _pc3.metric("Momentum /22.5",    f"{_p3:.1f}",
-                                        help="Rate of change — RSI regime, MACD histogram, Sharpe 20-day.")
-                            _pc4.metric("Confirmation /22.5", f"{_p4:.1f}",
-                                        help="Volume / breadth confirmation — OBV z-score, volume regime.")
-                            _weakest = min(_p1, _p2, _p3, _p4)
-                            _weak_name = {_p1: "Strength", _p2: "Persistence",
-                                          _p3: "Momentum", _p4: "Confirmation"}[_weakest]
-                            st.caption(
-                                f"Weakest pillar: **{_weak_name}** at {_weakest:.1f}/22.5. "
-                                "The TQS in the combined-read strip is the sum of all four."
-                            )
-                except Exception as _tqs_pill_e:
-                    import logging
-                    logging.getLogger("dashboard.analyze_stock").debug(
-                        "TQS pillar breakdown failed for %s: %s", ticker, _tqs_pill_e)
-                try:
-                    from dashboard.shared.checklist_ui import render_checklist_expander
-                    render_checklist_expander(ticker, df, df_weekly=None, expanded=False)
-                except Exception as _chk_e:
-                    import logging
-                    logging.getLogger("dashboard.analyze_stock").debug(
-                        "checklist expander failed for %s: %s", ticker, _chk_e)
                 try:
                     from strategies.sector_rotation import SECTORS as _SEC_MAP
                     from analysis.score import score_stock as _score_stock_peer
@@ -1666,21 +1685,32 @@ if analyze_btn or _prefill_active or (
                         "Raw values — the **🎯 Pre-trade checklist** expander further up "
                         "translates each of these into a pass/fail read against the setup."
                     )
-                with st.expander("↔️ Related per-ticker views: Deep Dive tab · Quality Watch",
+                with st.expander("↔️ Related per-ticker views: Deep Dive · Quality Watch",
                                  expanded=False):
                     st.markdown(
-                        "- **Overview (this tab)** — posture, combined read, chart, thesis, "
-                        "sector-aware fundamentals, overlay signals and reference levels; "
-                        "the 8-factor pre-trade checklist is an expander above.\n"
-                        "- **Deep Dive tab** — prepares a full equity-research prompt (all of "
+                        "- **Overview (this tab)** – posture, chart, sector-aware fundamentals "
+                        "and reference levels up top; horizon reads, thesis, overlays, TQS and "
+                        "the pre-trade checklist under Other lenses.\n"
+                        "- **Deep Dive (below)** – prepares a full equity-research prompt (all of "
                         "this page's outputs + fundamentals + governance flags + thesis verdict) "
                         "to paste into a Claude conversation with the annual report / concall "
                         "PDFs attached. Save the write-up back with a date.\n"
                         "- **Quality Watch** — long-term-hold suitability lens (fundamental "
                         "quality flags, governance, event risk). Use for a name you plan to sit in."
                     )
-                _render_regime_note()
                 _render_score_methodology()
+
+                # Deep Dive (was its own tab): behind a toggle, because building
+                # the prompt context pulls fundamentals, flags and thesis.
+                st.markdown(section_header("Deep Dive", "research prompt for your annual report / concall PDFs"),
+                            unsafe_allow_html=True)
+
+                @st.fragment
+                def _frag_deep_dive():
+                    from dashboard.shared.deep_dive_tab import render_deep_dive_tab
+                    render_deep_dive_tab(ticker)
+                if st.toggle("Build the Deep Dive research prompt", key=f"_dd_open_{ticker}"):
+                    _frag_deep_dive()
 
 
             # ────────────────────────────────────────────────────────────────
@@ -2474,16 +2504,6 @@ if analyze_btn or _prefill_active or (
                     st.caption(f"⚠️ Portfolio fit unavailable: {_pf_e}")
             with tab_pf:
                 _frag_pf()
-
-            @st.fragment
-            def _frag_deep_dive():
-                # Slice 2 -- Deep Dive folded in from the old page 20.
-                # See dashboard/shared/deep_dive_tab.py for the unique
-                # bits (LLM prompt builder + saved research history).
-                from dashboard.shared.deep_dive_tab import render_deep_dive_tab
-                render_deep_dive_tab(ticker)
-            with tab_dd:
-                _frag_deep_dive()
 
         except Exception as e:
             # F6 · make sure the loading skeleton clears even on the score /

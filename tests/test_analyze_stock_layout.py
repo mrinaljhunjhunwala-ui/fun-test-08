@@ -19,7 +19,7 @@ from streamlit.testing.v1 import AppTest
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _PAGE = os.path.join(_ROOT, "dashboard", "pages", "04_analyze_stock.py")
 
-_TABS = ["Overview", "Deep Dive", "Fundamentals", "Chart", "Thesis",
+_TABS = ["Overview", "Fundamentals", "Chart", "Thesis",
          "News & Flags", "Corp Actions", "Portfolio Fit"]
 
 
@@ -128,6 +128,19 @@ def test_overview_layout_non_financial(_stubs):
     assert "Overlay signals" in html and "4 / 6" not in html and "5 of 6 bullish" in html
     assert "Reference levels" in html and "1 : 1.9" in html
 
+    # Audit Y4: one headline, then every other lens collapsed under "Other lenses".
+    blobs = [str(m.value) for m in at.markdown]
+    i_hero = next(i for i, b in enumerate(blobs) if "Posture ·" in b)
+    i_lens = next(i for i, b in enumerate(blobs) if "Other lenses" in b)
+    i_comb = next(i for i, b in enumerate(blobs) if "Combined read" in b)
+    assert i_hero < i_lens < i_comb
+    assert any("Confidence ·" in str(c.value) and "5 of 6" in str(c.value) for c in at.caption)
+    assert any("not SEBI-registered investment advice" in str(c.value) for c in at.caption)
+    labels = [e.label for e in at.expander]
+    assert any("Horizon reads" in x for x in labels) and any("Thesis · bull" in x for x in labels)
+    assert not any("gate-by-gate" in x for x in labels)        # no nested expander
+    assert any(t.label == "Build the Deep Dive research prompt" for t in at.toggle)
+
     # Rule 1: the head and hero never print the engine's action string.
     hero = next(str(m.value) for m in at.markdown if "Posture ·" in str(m.value))
     head = next(str(m.value) for m in at.markdown if 'class="stock-hd"' in str(m.value))
@@ -152,3 +165,13 @@ def test_fundamentals_tab_keeps_leverage_for_non_financials(_stubs):
     at = _run(cache, mp, "TESTCO2", "Energy", "Test Energy Two Ltd")
     assert not at.exception, at.exception
     assert "Debt/Equity" in _html(at)
+
+
+def test_deep_dive_toggle_renders_offline(_stubs):
+    mp, cache = _stubs
+    at = _run(cache, mp, "TESTCO3", "Energy", "Test Energy Three Ltd")
+    assert not at.exception, at.exception
+    tg = next(t for t in at.toggle if t.label == "Build the Deep Dive research prompt")
+    at = tg.set_value(True).run()
+    assert not at.exception, at.exception
+    assert any("Step 1 · Copy this prompt" in str(m.value) for m in at.markdown)
