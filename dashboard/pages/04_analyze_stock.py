@@ -372,6 +372,24 @@ def _tqs_band(tqs: float) -> str:
 # session_state — must happen BEFORE the search widgets render so the
 # selectbox/text_input default values stay untouched (we don't fight the
 # widget state, we just override the *resolved* ticker and force the run).
+#
+# Deep link: /analyze_stock?ticker=HDFCBANK seeds the same hand-off key,
+# once per distinct param value (tracked in "_as_qp_applied") so a ticker
+# the user picks later in the session is never overridden on rerun. An
+# in-app hand-off (already in session_state) wins over the URL.
+from dashboard.shared.deeplink import normalise_ticker_param as _norm_qp
+try:
+    _qp_ticker = _norm_qp(st.query_params.get("ticker"))
+except Exception:
+    _qp_ticker = None
+_prefill_source = "another page"
+if (_qp_ticker and _qp_ticker != st.session_state.get("_as_qp_applied")
+        and not st.session_state.get("analyze_ticker")):
+    st.session_state["analyze_ticker"] = _qp_ticker
+    _prefill_source = "link"
+if _qp_ticker:
+    st.session_state["_as_qp_applied"] = _qp_ticker
+
 _prefill_ticker = st.session_state.pop("analyze_ticker", None)
 _prefill_active = bool(_prefill_ticker)
 
@@ -445,7 +463,7 @@ with col_btn:
     analyze_btn = st.button("🔍 Analyze", type="primary", key="analyze_btn")
 
 if _prefill_active:
-    st.caption(f"📥 Opened from My Portfolio — analyzing **{_prefill_ticker.replace('.NS','')}**.")
+    st.caption(f"📥 Opened from {_prefill_source} — analyzing **{_prefill_ticker.replace('.NS','')}**.")
 
 _mt_clean, _mt_err = _validate_ticker(manual_ticker)
 if _mt_err:
@@ -455,7 +473,7 @@ if _mt_err:
 ticker = ""
 if _prefill_active:
     # FIX A8: a handed-off ticker always wins over stale widget state
-    ticker = _prefill_ticker if _prefill_ticker.endswith(".NS") else _prefill_ticker + ".NS"
+    ticker = _prefill_ticker if _prefill_ticker.endswith((".NS", ".BO")) else _prefill_ticker + ".NS"
 elif _mt_clean:
     ticker = _mt_clean + ".NS"
 elif selected_option != _AS_PLACEHOLDER:
@@ -477,6 +495,14 @@ if analyze_btn or _prefill_active or (
     and st.session_state.last_analyzed == ticker
 ):
     st.session_state.last_analyzed = ticker
+    # Keep ?ticker= in sync so the address bar is a shareable link. Marking
+    # it applied stops the deep-link block above re-seeding it next run.
+    try:
+        if st.query_params.get("ticker") != ticker:
+            st.query_params["ticker"] = ticker
+        st.session_state["_as_qp_applied"] = ticker
+    except Exception:
+        pass
     # Recent-tickers ring buffer (5 max) — feeds the sidebar command bar
     # (dashboard/shared/nav._render_command_bar) with quick-jump chips
     # when the search box is empty. Newest first; dedup on ticker.
