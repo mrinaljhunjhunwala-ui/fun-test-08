@@ -162,6 +162,24 @@ def _session_sqlite(tmp_path_factory):
 # ── Layer 2: per-test isolation ──────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
+def _offline_bhavcopy_tier(request, monkeypatch, tmp_path):
+    """fetch_single's last tier (NSE bhavcopy) must not hit the network or the
+    real data/cache dir in offline tests: point its cache at tmp and make the
+    default downloader fail. Tests opt in by patching _default_download."""
+    if request.node.get_closest_marker("slow") is not None:
+        yield
+        return
+    import data.nse_bhavcopy_prices as _bp
+
+    def _offline(d):
+        raise ConnectionError("bhavcopy download disabled in offline tests")
+
+    monkeypatch.setattr(_bp, "_CACHE_DIR", str(tmp_path / "bhavcopy"))
+    monkeypatch.setattr(_bp, "_default_download", _offline)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _isolate_trade_store(request, monkeypatch, tmp_path):
     global _opt_in_url
 

@@ -72,7 +72,7 @@ _FETCH_CACHE_LOCK = threading.Lock()
 # tier so dashboard/shared/data_health.py's Command Centre panel can surface
 # actual Yahoo / Stooq / Angel liveness without launching probes. Written on
 # every fetch_single call - success or failure per tier.
-_LAST_DIAG_BY_PROVIDER: dict = {"AngelOne": {}, "Stooq": {}, "Yahoo": {}}
+_LAST_DIAG_BY_PROVIDER: dict = {"AngelOne": {}, "Stooq": {}, "Yahoo": {}, "NSE-bhavcopy": {}}
 
 
 def get_last_diagnostic(provider: str) -> dict:
@@ -620,7 +620,8 @@ class _SkipAngel(Exception):
 def fetch_single(ticker: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
     """
     Fetch OHLCV for one ticker.
-    Priority: Angel One (Tier 0) → Stooq (Tier 1) → Yahoo Finance (Tier 2).
+    Priority: Angel One (Tier 0) → Stooq (Tier 1) → Yahoo Finance (Tier 2)
+    → NSE bhavcopy (Tier 3, daily only, last ~60 sessions, NOT split-adjusted).
     Results are cached in-process with TTL expiry (5 minutes) — repeated calls
     within the TTL window return the cached copy; expired entries trigger a re-fetch.
     """
@@ -702,6 +703,19 @@ def fetch_single(ticker: str, period: str = "2y", interval: str = "1d") -> pd.Da
             df = None
             _fail("Yahoo", e)
             _record_provider_diagnostic("Yahoo", ok=False, symbol=ticker,
+                                        reason=f"{type(e).__name__}: {e}")
+
+    # ── Tier 3: NSE bhavcopy (daily only; last resort; <=60 sessions, unadjusted) ─
+    if (df is None or df.empty) and interval == "1d":
+        try:
+            from data.nse_bhavcopy_prices import fetch_bhavcopy_history
+            df = fetch_bhavcopy_history(ticker, period=period)
+            served = "NSE-bhavcopy"
+            _record_provider_diagnostic("NSE-bhavcopy", ok=True, symbol=ticker)
+        except Exception as e:
+            df = None
+            _fail("NSE-bhavcopy", e)
+            _record_provider_diagnostic("NSE-bhavcopy", ok=False, symbol=ticker,
                                         reason=f"{type(e).__name__}: {e}")
 
     if df is None or df.empty:
