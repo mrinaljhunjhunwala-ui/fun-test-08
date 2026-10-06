@@ -1638,6 +1638,13 @@ if analyze_btn or _prefill_active or (
                         _ovr_suf = ""
                     _rsi_val = latest.get("RSI", 50)
                     _stk_val = latest.get("Stoch_K", 50)
+                    # Same volume reading as the composite score (previous
+                    # session / projected while today's session is open).
+                    from dashboard.shared.volume_display import (
+                        reading as _vol_reading, vol_ratio_tile as _vol_ratio_tile,
+                    )
+                    _vol_r = _vol_reading(df)
+                    _vol_tile = _vol_ratio_tile(_vol_r)
                     indicators_display = [
                         ("RSI (14)",  f"{_rsi_val:.1f}",
                          f"Oversold (<30){_ovr_suf}"   if _rsi_val < 30
@@ -1646,8 +1653,7 @@ if analyze_btn or _prefill_active or (
                         ("ADX",       f"{latest.get('ADX', 0):.1f}",
                          "Trending (>25)" if latest.get("ADX", 0) > 25 else "Ranging"),
                         ("ATR",       f"₹{latest.get('ATR', 0):.1f}", "Daily move range"),
-                        ("Vol Ratio", f"{latest.get('Volume_Ratio', 0):.2f}x",
-                         "High volume" if latest.get("Volume_Ratio", 1) > 1.5 else "Normal"),
+                        ("Vol Ratio", *_vol_tile),
                         ("Stoch K",   f"{_stk_val:.1f}",
                          f"Oversold{_ovr_suf}" if _stk_val < 20
                          else "Overbought" if _stk_val > 80 else ""),
@@ -1721,8 +1727,9 @@ if analyze_btn or _prefill_active or (
                         from dashboard.shared.disclosures import (
                             evidence_gated_pattern_label as _sh2_pat,
                         )
+                        from dashboard.shared.volume_display import reading as _pat_vol_reading
                         _pat_out = _sh2_pat(active_pats,
-                                            latest.get("Volume_Ratio"))
+                                            _pat_vol_reading(df).get("ratio"))
                     except Exception:
                         _pat_out = None
                     if _pat_out:
