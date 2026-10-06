@@ -173,6 +173,14 @@ stays positive while the composite is negative or flat.
    sessions in range and risk_off, against the 0.30% round-trip cost that score_efficacy assumes.
    Reversal portfolios also turn over almost entirely each period. A net-of-cost spread could be
    close to zero in a long-only top-decile use.
+   Worked out for range: rev20's d10−d1 is +0.88 pts gross per 20 sessions. A long-short
+   rebalance pays a round trip on both legs, each ~0.30% (score_efficacy's `COST_ROUNDTRIP_PCT`;
+   the #286 cost model gives ~0.29% at ₹2L). That leaves a **net edge of roughly 0.3 pts per 20
+   sessions, before slippage and impact**. Any variant study must therefore report net-of-cost
+   decile spreads and turnover, not only IC.
+   Reversal can also hurt in V-shaped markets. In 2020, the range-regime IC20 for rev20 was
+   strongly negative (−0.144), because the post-COVID range rewarded momentum. A tilt toward
+   reversal that switches on by regime will be wrong in exactly those rebounds.
 4. **The risk_off "low-vol" and "liquidity" effects run in reverse** (volatile and illiquid names
    rebounded). Survivorship in a current-constituents universe distorts them, so they should not
    be productised.
