@@ -116,6 +116,13 @@ def _cache_get(cache_key, now: float):
         return None
 
 
+def peek_cached(ticker: str, period: str = "2y", interval: str = "1d") -> Optional[pd.DataFrame]:
+    """The frame fetch_single() cached for these arguments, or None. Never
+    fetches: for callers that only want data a scan already paid for."""
+    cached = _cache_get((ticker, period, interval), time.time())
+    return None if cached is None else cached.copy()
+
+
 def _cache_put(cache_key, df, now: float) -> None:
     """Store `df` under `cache_key`, evicting expired then oldest entries."""
     with _FETCH_CACHE_LOCK:

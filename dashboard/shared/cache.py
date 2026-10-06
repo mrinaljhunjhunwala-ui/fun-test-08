@@ -837,6 +837,21 @@ def _sector_df_from_tuple(sector_ranks: tuple):
 # FIX 1: Removed duplicate @st.cache_data decorator (was stacked twice — caused
 # the cached result to be wrapped in an extra layer and never properly invalidated).
 @st.cache_data(ttl=300, show_spinner=False)
+def _list_exclusion(tk: str, period: str = "2y") -> "str | None":
+    """Why tk is kept off Top Picks / Tomorrow's Watchlist (locked circuit,
+    under 60 sessions listed, BZ series), or None. Reads the frame score_stock
+    just fetched from the fetcher's cache — never fetches again — plus NSE
+    security info (one shared file, cached 12h). Safe in worker threads."""
+    try:
+        from analysis.edge_flags import list_exclusion
+        from data.fetcher import peek_cached
+        from data.nse_security_info import get_security_info
+        return list_exclusion(peek_cached(tk, period=period), get_security_info(tk))
+    except Exception as _e:
+        _log.debug("cache._list_exclusion skipped for %s: %s", tk, _e)
+        return None
+
+
 def _home_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple = ()) -> dict:
     """
     Scan the FULL NSE universe (~745 liquid large/mid/small/micro-caps) and
@@ -885,6 +900,7 @@ def _home_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple
             # FIX C6: route through the shared mapper (extended fields needed here)
             _d = _score_to_dict(s, extended=True)
             _d["ticker"] = tk
+            _d["list_excluded"] = _list_exclusion(tk)
             return _d
         except Exception as _e:
             _log.debug("cache._home_top_picks._one degraded for %s: %s", tk, _e)
@@ -919,6 +935,7 @@ def _home_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple
     # unavailable-fraction crosses UNAVAIL_WARN_FRACTION.
     _n_scanned = len(results)
     _n_unavail = 0
+    _excluded: dict = {}      # ticker -> why it's kept off the lists (edge flags)
     for s in results:
         act = s.get("action", "")
         sc  = s.get("score", 0)
@@ -927,6 +944,9 @@ def _home_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple
         # score <= 0 guard was missing the DATA_UNAVAILABLE string check fully.
         if sc <= 0 or act in ("UNAVAILABLE", "DATA_UNAVAILABLE"):
             _n_unavail += 1
+            continue
+        if s.get("list_excluded"):
+            _excluded[s["ticker"]] = s["list_excluded"]
             continue
         # Long side: STRONG BUY / BUY / WATCHLIST all surface so we always
         # have enough candidates. Cards show each stock's true action label.
@@ -965,6 +985,7 @@ def _home_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple
         "n_scored_ok": _n_ok,
         "n_unavailable": _n_unavail,
         "vix_regime": vix_regime,
+        "excluded": _excluded,
     }
     # FIX WL-SNAP1: return the FULL scored map (ticker -> score_dict) for
     # every ticker the scan produced a valid score for, so watchlist scoring
@@ -1202,7 +1223,8 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
                     # on this page. They were already being computed; just never
                     # threaded through.
                     "horizon": getattr(s, "horizon", ""),
-                    "valid_until": getattr(s, "valid_until", "")}
+                    "valid_until": getattr(s, "valid_until", ""),
+                    "list_excluded": _list_exclusion(tk)}
         except Exception as _e:
             _log.debug("cache._tomorrow_watchlist score failed for %s: %s", tk, _e)
             return None
@@ -1232,9 +1254,13 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
     _funnel = {"eligible": 0, "buy_action": 0, "score_ge_52": 0,
                "momentum_ge_8": 0, "volume_ge_5": 0}
 
+    _excluded: dict = {}      # ticker -> why it's kept off the buckets (edge flags)
     for s in results:
         act, sc = s.get("action", ""), s.get("score", 0)
         if sc <= 0 or act in ("UNAVAILABLE", "DATA_UNAVAILABLE"):
+            continue
+        if s.get("list_excluded"):
+            _excluded[s["ticker"]] = s["list_excluded"]
             continue
 
         # Component scores — calibrated to actual ranges:
@@ -1300,6 +1326,7 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
     # how many it actually scored. Older persisted snapshots lack these keys.
     out["n_universe"] = len(_UNIV)
     out["n_scored"]   = len(results)
+    out["excluded"]   = _excluded
     out["breakout_funnel"] = dict(_funnel)
     # Bear-regime scoring (#168/#198) holds Technical at 20/40 and RS at 5/10,
     # so no name can reach the BUY label the breakout gate needs and few fall

@@ -130,6 +130,16 @@ def _run_scan() -> None:
     with st.spinner(f"Scanning {len(universe)} stocks… this may take a few minutes…"):
         signals = scan_tickers(universe, strategy=screen_key, period="1y")
 
+    # New listings (under 60 sessions) don't get ranked: their indicators are
+    # still warming up. Reads the frames the scan just cached; never refetches.
+    from dashboard.shared.cache import _list_exclusion
+    _excluded = {}
+    for _sig in signals or []:
+        _why = _list_exclusion(_sig.get("ticker", ""), period="1y")
+        if _why and _why.startswith("new listing"):
+            _excluded[_sig["ticker"]] = _why
+    signals = [s for s in (signals or []) if s.get("ticker") not in _excluded]
+
     if signals and enrich_scores:
         from analysis.score import score_stock
         vix_info = get_vix_info()
@@ -227,6 +237,7 @@ def _run_scan() -> None:
         "n_universe": len(universe),
         "screen":   screen_choice,
         "enriched": bool(enrich_scores),
+        "excluded": _excluded,
         "ran_at":   _dt.datetime.now().strftime("%d %b %H:%M"),
     }
     st.session_state.pop("scr_detail", None)
@@ -305,6 +316,11 @@ with _right:
         _run_scan()
 
     run = st.session_state.get("scr_run")
+    if run:
+        from dashboard.shared.edge_flags_ui import excluded_note as _scr_excluded_note
+        _scr_excl = _scr_excluded_note(run.get("excluded"))
+        if _scr_excl:
+            st.caption(_scr_excl)
     if not run:
         st.markdown(empty_state(
             "Pick a preset and run the screen",

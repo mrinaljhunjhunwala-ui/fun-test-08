@@ -41,3 +41,14 @@ def render_edge_flags(ticker: str, df) -> None:
         for f in flags
     )
     st.markdown(f'<div style="margin:6px 0 10px 0">{chips}{lines}</div>', unsafe_allow_html=True)
+
+
+def excluded_note(excluded, limit: int = 8) -> "str | None":
+    """One caption naming the stocks a scan kept off a ranked list and why
+    ({ticker: reason}, from cache._list_exclusion). None when nothing was."""
+    if not isinstance(excluded, dict) or not excluded:
+        return None
+    items = [f"{str(t).replace('.NS', '')} ({r})" for t, r in sorted(excluded.items())]
+    more = f" and {len(items) - limit} more" if len(items) > limit else ""
+    return ("🚫 Left off this list: " + ", ".join(items[:limit]) + more
+            + ". Their scores still show on Analyze Stock with the flag.")

@@ -82,6 +82,28 @@ def edge_flags(df: Optional[pd.DataFrame], info: Optional[Dict] = None,
     return sorted(flags, key=lambda f: order.get(f.tone, 3))
 
 
+# Flags that keep a stock off ranked lists (Top Picks, Tomorrow's Watchlist,
+# screener ranking). The score still shows on Analyze Stock beside the red
+# flag. A circuit only excludes when locked (high == low) on the latest bar.
+_LIST_EXCLUDED = {
+    "new_listing": "new listing (under 60 sessions)",
+    "series_bz": "BZ series",
+    "upper_circuit": "locked at upper circuit",
+    "lower_circuit": "locked at lower circuit",
+}
+
+
+def list_exclusion(df: Optional[pd.DataFrame], info: Optional[Dict] = None,
+                   today: Optional[_dt.date] = None) -> Optional[str]:
+    """Why a stock is kept off ranked lists, or None. Never raises."""
+    for f in edge_flags(df, info, today):
+        if f.key.endswith("_circuit") and f.tone != "red":
+            continue                       # at the limit but still trading
+        if f.key in _LIST_EXCLUDED:
+            return _LIST_EXCLUDED[f.key]
+    return None
+
+
 def _series_flags(info: Dict) -> List[EdgeFlag]:
     series = str(info.get("series") or "").upper()
     if series in _SERIES_NOTES:
