@@ -51,6 +51,8 @@ def test_trend_regime_note_only_for_low_info_regimes():
     from dashboard.shared.disclosures import trend_regime_note
     assert "low-information" in trend_regime_note("trend_down")
     assert "range-bound" in trend_regime_note("RANGE")
+    assert "slightly negative" in trend_regime_note("trend_down")
+    assert "+0.004" in trend_regime_note("range")
     for lbl in ("trend_up", "risk_off", None, "unknown"):
         assert trend_regime_note(lbl) is None
     txt = trend_regime_note("range").lower()

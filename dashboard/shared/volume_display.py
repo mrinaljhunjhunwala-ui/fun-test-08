@@ -61,6 +61,9 @@ def vol_ratio_tile(r: Dict, high: float = 1.5) -> Tuple[str, str]:
     ratio = r.get("ratio")
     value = f"{float(ratio):.2f}x" if ratio is not None and not pd.isna(ratio) else "–"
     note = "High volume" if (ratio is not None and not pd.isna(ratio) and ratio > high) else "Normal"
+    if r.get("flat_day"):
+        # the score scales volume points by 0.7 when price barely moved (#288)
+        note += " · flat day"
     lbl = basis_label(r)
     if lbl:
         note += f" · {lbl}"

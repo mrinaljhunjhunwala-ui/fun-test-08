@@ -79,6 +79,8 @@ def test_tile_labels_basis_and_volumes():
     assert (v, note) == ("0.90x", "Normal · last session")
     v, note = VD.vol_ratio_tile({"ratio": 1.1, "ratio_raw": 1.1, "basis": "latest", "volume": None})
     assert (v, note) == ("1.10x", "Normal")
+    v, note = VD.vol_ratio_tile({"ratio": 2.0, "ratio_raw": 2.0, "basis": "latest", "flat_day": True})
+    assert (v, note) == ("2.00x", "High volume · flat day")
     # unknown volume: volume_reading's neutral 1.0 must not read as a measurement
     assert VD.vol_ratio_tile({"ratio": 1.0, "ratio_raw": None, "basis": "latest"}) == ("–", "Volume unavailable")
 
