@@ -742,12 +742,24 @@ else:
         _pt_unrealised += (_o_cur - _o_ep) * _o_qty
         _pt_today_pnl  += (_o_cur - _o_prv) * _o_qty
 
+    # FIX COST-MODEL (audit #23): realised P&L was gross of every charge.
+    # Charges are estimated per closed trade with trading.costs (delivery or
+    # intraday rates by account type); the stored pnl stays gross.
+    from trading.costs import (
+        DELIVERY as _DELIV, INTRADAY as _INTRA, charges_for_trades as _charges_for,
+    )
+    _pt_product  = _INTRA if paper_account_type(st.session_state.get("pt_account", "")) == "MIS" else _DELIV
     _pt_realised = 0.0
+    _pt_charges  = 0.0
     _wins_cnt    = 0
     if not all_closed.empty and "pnl" in all_closed.columns:
+        all_closed = all_closed.copy()
+        all_closed["charges"] = _charges_for(all_closed, _pt_product)
         _all_cl_pnl  = pd.to_numeric(all_closed["pnl"], errors="coerce")
-        _pt_realised = float(_all_cl_pnl.sum())
-        _wins_cnt    = int((_all_cl_pnl > 0).sum())
+        _all_cl_net  = _all_cl_pnl - all_closed["charges"]
+        _pt_charges  = float(all_closed["charges"].sum())
+        _pt_realised = float(_all_cl_net.sum())
+        _wins_cnt    = int((_all_cl_net > 0).sum())
 
     _pt_unr_pct = (_pt_unrealised / _pt_deployed * 100) if _pt_deployed > 0 else 0
 
@@ -790,8 +802,9 @@ else:
 
         f'<div style="flex:1;min-width:130px">'
         f'<div style="font-size:10px;color:var(--ink-mid);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">'
-        f'Realised P&amp;L &nbsp;<span style="color:var(--dim)">({_wins_cnt}/{_n_closed} won)</span></div>'
+        f'Realised P&amp;L · net &nbsp;<span style="color:var(--dim)">({_wins_cnt}/{_n_closed} won)</span></div>'
         f'<div style="font-size:22px;font-weight:700;color:{_re_col}">{_re_arr} ₹{fmt_inr(abs(_pt_realised))}</div>'
+        f'<div style="font-size:10px;color:var(--dim)">after est. charges ₹{fmt_inr(_pt_charges)}</div>'
         f'</div>'
 
         f'<div style="flex:1;min-width:130px">'
@@ -952,7 +965,7 @@ else:
         )
         _cl_disp = all_closed[
             [c for c in ["id", "ticker", "price", "quantity", "sl", "tp",
-                          "exit_price", "exit_reason", "pnl", "pnl_pct",
+                          "exit_price", "exit_reason", "pnl", "charges", "pnl_pct",
                           "status", "timestamp"]
              if c in all_closed.columns]
         ].copy()
@@ -974,16 +987,21 @@ else:
             f'<th style="{_CTH}">TP ₹</th>'
             f'<th style="{_CTH}">Exit ₹</th>'
             f'<th style="{_CTL}">Exit Reason</th>'
-            f'<th style="{_CTH}">P&amp;L ₹</th>'
+            f'<th style="{_CTH}">P&amp;L ₹ (gross)</th>'
+            f'<th style="{_CTH}" title="Estimated: STT, stamp duty, exchange/SEBI fees, GST, DP and brokerage">Charges ₹ (est.)</th>'
+            f'<th style="{_CTH}">Net ₹</th>'
             f'<th style="{_CTH}">P&amp;L %</th>'
             f'<th style="{_CTH}">Date</th>'
             f'</tr></thead><tbody>'
         )
         for _, _cr in _cl_disp.iterrows():
             _c_pnl  = float(_cr.get("pnl",     0) or 0)
+            _c_chg  = float(_cr.get("charges", 0) or 0)
+            _c_net  = _c_pnl - _c_chg
             _c_pct  = float(_cr.get("pnl_pct", 0) or 0)
             _c_col  = "var(--bull)" if _c_pnl >= 0 else "var(--bear)"
-            _c_bg   = "rgba(38,166,154,0.06)" if _c_pnl >= 0 else "rgba(239,83,80,0.06)"
+            _n_col  = "var(--bull)" if _c_net >= 0 else "var(--bear)"
+            _c_bg   = "rgba(38,166,154,0.06)" if _c_net >= 0 else "rgba(239,83,80,0.06)"
             _c_tick = str(_cr.get("ticker", "")).replace(".NS", "")
             _c_ep   = f"₹{float(_cr.get('price', 0)):,.2f}"
             _c_sl   = f"₹{float(_cr.get('sl', 0)):,.2f}" if _cr.get("sl")         else "—"
@@ -1000,7 +1018,9 @@ else:
                 f'<td style="{_CTD}">{_c_tp}</td>'
                 f'<td style="{_CTD}"><b>{_c_xp}</b></td>'
                 f'<td style="{_CTX}">{_c_xr}</td>'
-                f'<td style="{_CTD};color:{_c_col};font-weight:700">₹{_c_pnl:+,.0f}</td>'
+                f'<td style="{_CTD};color:{_c_col}">₹{_c_pnl:+,.0f}</td>'
+                f'<td style="{_CTD};color:var(--dim)">₹{_c_chg:,.0f}</td>'
+                f'<td style="{_CTD};color:{_n_col};font-weight:700">₹{_c_net:+,.0f}</td>'
                 f'<td style="{_CTD};color:{_c_col}">{_c_pct:+.1f}%</td>'
                 f'<td style="{_CTD}">{_c_dt}</td>'
                 f'</tr>'

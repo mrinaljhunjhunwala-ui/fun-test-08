@@ -84,10 +84,13 @@ def test_indicators_no_scattered_midseries_nan():
 # ───────────────────────── Priority 2: backtest cost realism ────────────────────
 
 def test_backtest_costs_realistic():
-    from backtest.runner import TOTAL_COST, STT_RATE, BROKERAGE_RATE, EXCHANGE_FEES
-    # round-trip = STT (sell side once) + brokerage x2 legs + exchange x2 legs
-    expected = STT_RATE + 2 * BROKERAGE_RATE + 2 * EXCHANGE_FEES
-    assert abs(TOTAL_COST - expected) < 1e-9
+    from backtest.runner import TOTAL_COST
+    from trading.costs import DEFAULT, representative_round_trip_pct
+    # FIX COST-MODEL (audit #23): the old formula charged STT on the sell
+    # side only. Delivery STT is 0.1% on BOTH legs, so it alone is 0.2% of a
+    # round trip; TOTAL_COST now comes from trading.costs.
+    assert TOTAL_COST == representative_round_trip_pct()
+    assert TOTAL_COST > 2 * DEFAULT.stt_delivery
     # sanity: a real round-trip cost for Indian equity delivery is ~0.1-0.5%
     assert 0.0010 < TOTAL_COST < 0.005, f"TOTAL_COST {TOTAL_COST} outside realistic band"
 

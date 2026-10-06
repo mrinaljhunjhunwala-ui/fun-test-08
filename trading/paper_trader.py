@@ -476,8 +476,11 @@ class PaperTrader:
         closed["exit_reason"]     = closed["exit_reason"].fillna("Manual")
         closed["actual_shares"]   = closed["quantity"]
 
-        # Charges estimate: ~0.17% round-trip (STT + brokerage + exchange)
-        closed["charges"]   = (closed["price"] * closed["quantity"] * 0.0017).round(2)
+        # FIX COST-MODEL (audit #23): was a flat 0.17% of the ENTRY value only.
+        # Round-trip delivery charges per trade from trading.costs (STT both
+        # legs, stamp duty, exchange/SEBI, GST, DP, brokerage).
+        from trading.costs import charges_for_trades
+        closed["charges"]   = charges_for_trades(closed)
         closed["gross_pnl"] = closed["pnl"]
         closed["net_pnl"]   = (closed["pnl"] - closed["charges"]).round(2)
 
@@ -525,7 +528,8 @@ class PaperTrader:
         payoff    = abs(avg_win / avg_loss) if avg_loss != 0 else float("inf")
         expectancy= (win_rate/100 * avg_win) + ((1 - win_rate/100) * avg_loss)
 
-        charges   = (closed["price"] * closed["quantity"] * 0.0017).sum()
+        from trading.costs import charges_for_trades       # FIX COST-MODEL
+        charges   = float(charges_for_trades(closed).sum())
         net_pnl   = total_pnl - charges
 
         print(f"\n  {'='*50}")
