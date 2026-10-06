@@ -12,6 +12,7 @@ import trade_store as _store
 
 from dashboard.shared.design import apply_design
 from dashboard.shared.nav import render_sidebar
+from dashboard.shared.session_label import session_label, session_possessive  # noqa: E402
 from dashboard.shared.picks_ui import render_pick_analysis
 from dashboard.shared.chart_helpers import render_top_bar, tick_pulse_tracker
 from dashboard.shared.ui_components import chip_pill, ticker_hover_wrap
@@ -122,7 +123,7 @@ def _index_cell(label: str, name: str) -> tuple:
     px_chg = _cc_idx.get(label)
     if not px_chg:
         return (name, "–", "feed unavailable")
-    return (name, fmt_inr(px_chg[0], 0), chip_delta(px_chg[1]) + "today")
+    return (name, fmt_inr(px_chg[0], 0), chip_delta(px_chg[1]) + session_label())
 
 
 def _pulse_cells() -> list:
@@ -175,7 +176,7 @@ def _posture_why() -> str:
     bits = []
     nifty = _cc_idx.get("NIFTY 50")
     if nifty:
-        bits.append(f"Nifty 50 at <b>{fmt_inr(nifty[0], 0)}</b> ({nifty[1]:+.2f}% today).")
+        bits.append(f"Nifty 50 at <b>{fmt_inr(nifty[0], 0)}</b> ({nifty[1]:+.2f}% {session_label()}).")
     if _cc_label != "unknown":
         bits.append(f"The regime classifier reads <b>{_cc_label.replace('_', ' ')}</b>"
                     + (f" with {_html.escape(_cc_conf)} confidence." if _cc_conf else "."))
@@ -252,9 +253,9 @@ def _gainers_html() -> str:
     except Exception:
         rows = []
     if not rows:
-        return _panel_html("Top gainers · today", "Nifty 50 · live",
+        return _panel_html(f"Top gainers · {session_label()}", "Nifty 50 · live",
                            '<div class="ledger-note" style="padding:14px">'
-                           "No Nifty 50 name is up today, or quotes are unavailable.</div>")
+                           f"No Nifty 50 name is up {session_label()}, or quotes are unavailable.</div>")
     body = signal_table(
         [("#", "l"), ("Ticker", "l"), ("LTP", "r"), ("Δ %", "r")],
         [[rank_chip(i),
@@ -264,7 +265,7 @@ def _gainers_html() -> str:
           chip_delta(r["chg_pct"])]
          for i, r in enumerate(rows, start=1)],
     )
-    return _panel_html("Top gainers · today", "Nifty 50 · live, 60 s cache", body)
+    return _panel_html(f"Top gainers · {session_label()}", "Nifty 50 · live, 60 s cache", body)
 
 
 def _changes_html() -> str:
@@ -444,10 +445,10 @@ def _render_top_picks_section(vix_regime: str, sector_tuple: tuple) -> None:
         # for consistency with other pages that will adopt this next.
         st.markdown(
             '<div class="t-h1" style="margin:6px 0 4px 0">'
-            '🔥 Today\'s Top Picks — NSE Scan</div>',
+            f'🔥 {session_possessive(title=True)} Top Picks — NSE Scan</div>',
             unsafe_allow_html=True,
         )
-        st.caption("Strongest and weakest **trend-quality** setups today. "
+        st.caption(f"Strongest and weakest **trend-quality** setups from {session_possessive()} scan. "
                    "Scores rank trend health — they are **not a forecast of returns**. "
                    "The pick list is regenerated every ~15 min by a scheduled scan and this page "
                    "picks up each new snapshot within seconds; prices on each card tick live "

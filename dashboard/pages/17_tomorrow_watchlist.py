@@ -60,6 +60,7 @@ from dashboard.shared.cache import (
 from analysis.tw_scorecard import settle_stats, split_by_market
 from dashboard.shared.trade_utils import _display_label, _paper_trade_popover
 from dashboard.shared.flags_ui import render_flag_badge_html  # QF2: shortlist-only flag badge
+from dashboard.shared.session_label import session_possessive  # noqa: E402
 from dashboard.shared.ui_components import (
     chip_pill, chip_delta, chip_tag, empty_state, fmt_inr,
     section_header, gate_strip, rank_chip, signal_table, follow_card,
@@ -72,7 +73,7 @@ render_top_bar()
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<h1 class="page-title-serif">Tomorrow\'s <em>Watchlist</em></h1>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="page-subtitle">Next-session setups from today\'s close: breakouts setting up, '
+    f'<p class="page-subtitle">Next-session setups from {session_possessive()} close: breakouts setting up, '
     'breakdown risks and divergence candidates. Separate from intraday Top Picks.</p>',
     unsafe_allow_html=True,
 )
@@ -335,7 +336,7 @@ def _gate_cells() -> list:
          (f"of {n_uni:,} · Nifty 500" if n_uni else "Nifty 500") if n_sc
          else "count arrives with the next scan"),
         ("Shortlisted", f"{n_short}",
-         f"{n_short / n_sc * 100:.1f}% cleared a bucket" if n_sc else "setups on today's scan"),
+         f"{n_short / n_sc * 100:.1f}% cleared a bucket" if n_sc else f"setups on {session_possessive()} scan"),
         ("Split", f"{len(_brk_items)} · {len(_bdn_items)} · {len(_rev_items)}",
          "breakout · breakdown · reversal"),
     ]
@@ -375,7 +376,7 @@ try:
 except Exception:
     pass
 st.caption(
-    "Runs end-of-day on today's daily close and stays cached until the next session; "
+    f"Runs end-of-day on {session_possessive()} daily close and stays cached until the next session; "
     "not intraday."
     + (" · ⚠️ showing the previous session while a refresh runs." if _is_stale else "")
 )
