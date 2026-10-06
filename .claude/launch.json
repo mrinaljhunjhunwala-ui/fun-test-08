@@ -9,6 +9,7 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONUTF8": "1",
+        "DATABASE_URL": "",
         "PYTHONIOENCODING": "utf-8",
         "NSE_SIDEBAR_QV_OFF": "1",
         "NSE_ACCEPT_STALE_SNAPSHOTS": "1",
