@@ -155,6 +155,8 @@ def main():
                 period       = args.period,
                 cash         = args.cash,
             )
+            from backtest.optimizer import in_sample_banner
+            print(in_sample_banner(bool(best_params)))
 
         # Phase 2b  —  Portfolio backtest (equal-weight)
         if args.portfolio:
@@ -199,6 +201,8 @@ def main():
                 period       = args.period,
                 cash         = args.cash,
             )
+            from backtest.optimizer import in_sample_banner
+            print(in_sample_banner(bool(best_params)))
 
         run_sector_rotation_backtest(
             strategy_cls    = strategy_cls,

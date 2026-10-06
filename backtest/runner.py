@@ -109,6 +109,7 @@ def run_backtest(
                     maximize="Sharpe Ratio",
                     constraint=lambda p: p.rsi_oversold < p.rsi_overbought,
                 )
+                print("[in-sample: optimised on this same period] ", end="")
             else:
                 stats = bt.run(**(strategy_params or {}))
 
