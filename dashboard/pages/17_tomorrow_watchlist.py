@@ -384,6 +384,10 @@ from dashboard.shared.disclosures import (
     render_regime_reliability_note as _tw_regime_note,
 )
 _tw_regime_note()
+from dashboard.shared.edge_flags_ui import excluded_note as _tw_excluded_note  # noqa: E402
+_tw_excl = _tw_excluded_note((_wl or {}).get("excluded"))
+if _tw_excl:
+    st.caption(_tw_excl)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

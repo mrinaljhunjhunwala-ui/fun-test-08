@@ -706,6 +706,10 @@ def _render_top_picks_section(vix_regime: str, sector_tuple: tuple) -> None:
             f"📊 {_picks_meta.get('n_strong_buys', 0)} strong-trend setup(s) in today's scan — "
             "remaining cards below are watchlist-grade backfill, marked accordingly."
         )
+    from dashboard.shared.edge_flags_ui import excluded_note as _cc_excluded_note
+    _cc_excl = _cc_excluded_note(_picks_meta.get("excluded"))
+    if _cc_excl:
+        st.caption(_cc_excl)
 
     # FIX CC-LOAD1 (original): this section used to batch-fetch live price,
     # re-anchor entry/SL/TP AND compute suggested qty for every buy+sell
