@@ -161,6 +161,24 @@ def _probe_diagnostic_provider(display: str, group: str,
     return ProviderCheck(display, group, status, at, warnings, note)
 
 
+def probe_nse_security_info() -> ProviderCheck:
+    """NSE sec_list / EQUITY_L (Analyze Stock trading-status flags). A failed
+    fetch only hides the flags, so surface it here instead of failing silent."""
+    name = "NSE security status (series / bands)"
+    try:
+        from data.nse_security_info import status
+        st_ = status()
+    except Exception:
+        return ProviderCheck(name, "corp_info", STATUS_UNAVAILABLE, note="status getter unavailable")
+    if not st_["fetched_at"]:
+        return ProviderCheck(name, "corp_info", STATUS_IDLE, note="not fetched yet in this process")
+    at = datetime.fromtimestamp(st_["fetched_at"]).isoformat(timespec="seconds")
+    if st_["ok"]:
+        return ProviderCheck(name, "corp_info", STATUS_HEALTHY, at, note=f"{st_['symbols']:,} symbols")
+    return ProviderCheck(name, "corp_info", STATUS_DEGRADED, None, warnings=1,
+                         note="last fetch failed; trading-status flags hidden until it recovers")
+
+
 def probe_nse_corp_info() -> ProviderCheck:
     try:
         from data.nse_corp_info import get_last_diagnostic
@@ -444,6 +462,7 @@ def collect_all_health() -> List[ProviderCheck]:
         probe_vix(),
         probe_nse_delivery(),
         probe_nse_corp_info(),
+        probe_nse_security_info(),
         probe_bse_corp_info(),
         probe_news_feed(),
         probe_nse_rss(),

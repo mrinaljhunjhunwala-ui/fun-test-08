@@ -1001,6 +1001,10 @@ if analyze_btn or _prefill_active or (
                                chg=_day_abs, chg_pct=float(day_chg), note=_px_note),
                     unsafe_allow_html=True,
                 )
+                # Trading-status caveats (audit #20): new listing, no recent
+                # trades, circuit lock, trade-to-trade / SME series. Display only.
+                from dashboard.shared.edge_flags_ui import render_edge_flags
+                render_edge_flags(ticker, df)
             with _hd_r:
                 with st.container(key="as_actions"):
                     _ac1, _ac2, _ac3, _ac4 = st.columns([1.15, 1.15, 1.25, 0.45])
