@@ -48,6 +48,7 @@ _STANDALONE_SCRIPTS = [
     ("research.score_variants_momentum_vol", "research/score_variants_momentum_vol.py", ["main"]),
     ("research.score_regime_alt_factors",  "research/score_regime_alt_factors.py", ["main"]),
     ("research.score_variants_reversal",    "research/score_variants_reversal.py", ["main"]),
+    ("research.score_reversal_sector_neutral", "research/score_reversal_sector_neutral.py", ["main"]),
     ("research.revenue_growth_discovery",   "research/revenue_growth_discovery.py", ["main"]),
     ("research.fundamental_quality",        "research/fundamental_quality.py", ["main"]),
     ("research.score_variants",             "research/score_variants.py", ["main"]),
