@@ -153,21 +153,26 @@ def render_regime_reliability_note() -> None:
         st.caption(note)
 
 
-# 5y replay, weekly rank IC vs 20-session excess return (docs/DECAY_ATTRIBUTION_2026-10-01.md):
-# trend_up +0.045 (t +5.2), range +0.000, trend_down -0.029 (t -1.5).
-_LOW_INFO_TREND_REGIMES = {"range": "range-bound", "trend_down": "falling"}
+# 10y efficacy run, rank IC vs 20-session forward return by NIFTY trend regime:
+# trend_up +0.090, range +0.004, trend_down -0.029 (5y replay agreed in sign:
+# docs/DECAY_ATTRIBUTION_2026-10-01.md). Value = (regime name, how the score ranked there).
+_LOW_INFO_TREND_REGIMES = {
+    "range": ("range-bound", "about zero (+0.004 over 10 years)"),
+    "trend_down": ("falling", "near zero or slightly negative (−0.03 over 10 years)"),
+}
 
 
 def trend_regime_note(label) -> "str | None":
-    """Descriptive caption for NIFTY trend regimes where the 5-year replay found the
+    """Descriptive caption for NIFTY trend regimes where the 10-year run found the
     composite score carried no ranking information. None for every other regime."""
-    name = _LOW_INFO_TREND_REGIMES.get(str(label or "").lower())
-    if not name:
+    entry = _LOW_INFO_TREND_REGIMES.get(str(label or "").lower())
+    if not entry:
         return None
+    name, reading = entry
     return (f"ℹ️ **Historically low-information regime** — NIFTY is currently {name}. "
-            "In the 5-year replay the composite score did not rank stocks in this regime "
-            "(weekly rank correlation with 20-session excess return ≈ 0), while it did in "
-            "rising markets. Scores here describe the chart; they have not predicted returns.")
+            "In this regime the composite score's rank correlation with the next "
+            f"20 sessions' return has been {reading}, against +0.09 in rising markets. "
+            "Scores and ranked lists here describe the chart; they have not predicted returns.")
 
 
 def evidence_gated_pattern_label(
