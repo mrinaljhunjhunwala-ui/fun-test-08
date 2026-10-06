@@ -194,3 +194,49 @@ def test_projected_volume_is_not_paired_with_todays_unfinished_candle():
         100.0, 95.0, 110.0, 2.0, "Other", "normal", None, 15, False)[1]
     assert "Today's volume is on pace for" in narrative
     assert "Hammer candlestick" not in narrative
+
+
+# ── Dead band: a move under 0.1 x ATR is a flat day (direction x0.7) ─────────
+
+def _last_move_frame(move_atr: float):
+    ind = add_all_indicators(_frame(end="2026-10-01"))
+    prev, atr = float(ind["Close"].iloc[-2]), float(ind["ATR"].iloc[-1])
+    ind.iloc[-1, ind.columns.get_loc("Close")] = prev + move_atr * atr
+    ind.iloc[-1, ind.columns.get_loc("Volume_Ratio")] = 3.0          # top bucket: 10 raw
+    return ind
+
+
+@pytest.mark.parametrize("move_atr, flat, pts", [
+    (+0.05, True, 7.0),       # tiny up move: flat, 10 x 0.7
+    (-0.05, True, 7.0),       # tiny down move: flat, not the x0.4 cut
+    (+0.30, False, 10.0),     # real up day
+    (-0.30, False, 4.0),      # real down day
+])
+def test_flat_day_dead_band(move_atr, flat, pts):
+    _, detail = S._score_volume(_last_move_frame(move_atr))
+    assert detail["flat_day"] is flat
+    assert detail["vol_ratio"] == pytest.approx(pts)
+
+
+def test_flat_day_is_in_the_reading_and_narrative():
+    ind = _last_move_frame(-0.05)
+    assert S.volume_reading(ind)["flat_day"] is True
+    _, vol_detail = S._score_volume(ind)
+    narrative = S._build_narrative(
+        "TESTCO.NS", ind, 60.0, "B", "WATCHLIST", {}, {}, vol_detail, [],
+        100.0, 95.0, 110.0, 2.0, "Other", "normal", None, 15, False)[1]
+    assert "on a flat day — above-average turnover" in narrative
+
+
+def test_volume_reading_fallback_has_every_key():
+    r = S.volume_reading(None)          # unreadable -> fallback dict, never raises
+    assert set(r) == {"ratio", "ratio_raw", "volume", "baseline", "basis",
+                      "session_minutes", "up_day", "flat_day"}
+    assert r["flat_day"] is False
+
+
+def test_flat_day_never_raises_the_delivery_divergence_flag():
+    ind = _last_move_frame(+0.05)       # flat, technically up, ratio 3x
+    deliv = {"today": 18.0, "mean": 45.0, "zscore": -2.0, "n": 60}
+    _, detail = S._score_volume(ind, delivery_info=deliv)
+    assert detail["flat_day"] is True and detail["delivery_divergence"] is False
