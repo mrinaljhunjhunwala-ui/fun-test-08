@@ -10,7 +10,6 @@ Usage
         is_trading_day,
         market_status,          # rich dict for UI
         next_open_datetime,
-        cache_ttl_seconds,      # smart TTL: short when open, long when closed
         NSE_HOLIDAYS,
     )
 
@@ -161,7 +160,7 @@ def market_status(dt: datetime | None = None) -> dict:
 
     if session == "open":
         sublabel = f"Closes in {_fmt_delta(nxt_close - dt)}"
-        next_event = f"Market closes at 3:30 PM IST"
+        next_event = "Market closes at 3:30 PM IST"
         next_event_dt = nxt_close
     elif session == "preopen":
         opens_in = datetime.combine(dt.date(), _MARKET_OPEN, tzinfo=_IST) - dt
@@ -215,21 +214,6 @@ def _next_close_datetime(from_dt: datetime) -> datetime:
         return datetime.combine(d, _MARKET_CLOSE, tzinfo=_IST)
     nxt = next_open_datetime(from_dt)
     return datetime.combine(nxt.date(), _MARKET_CLOSE, tzinfo=_IST)
-
-
-def cache_ttl_seconds(
-    open_ttl: int = 60,
-    closed_ttl: int = 3600,
-    dt: datetime | None = None,
-) -> int:
-    """
-    Return a smart cache TTL:
-    - *open_ttl*   (default 60 s)   when market is open
-    - *closed_ttl* (default 3600 s) when market is closed / holiday / weekend
-
-    Use as the `ttl` argument to ``@st.cache_data``.
-    """
-    return open_ttl if is_market_open(dt) else closed_ttl
 
 
 def _fmt_delta(delta: timedelta, future: bool = False) -> str:

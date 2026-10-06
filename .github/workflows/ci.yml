@@ -26,12 +26,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history so the ruff step can diff against the PR base
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
+
+      - name: Ruff (changed Python files only)
+        # Lints only .py files added/modified vs the PR base (or the previous commit on push),
+        # so pre-existing violations in untouched files (e.g. dashboard/pages) don't fail CI.
+        # Config: pyproject.toml → [tool.ruff].
+        run: |
+          # Exact pin: a minor bump can add default rules and skew base-vs-head counts.
+          pip install --quiet "ruff==0.16.5"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            BASE="${{ github.event.before }}"
+            if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD~1"; fi
+          fi
+          BASE=$(git merge-base "$BASE" HEAD)
+          # -M: a renamed file is compared against its OLD path at the base.
+          CHANGED=$(git diff -M --name-status --diff-filter=ACMR "$BASE" HEAD -- '*.py' || true)
+          if [ -z "$CHANGED" ]; then echo "No changed Python files to lint."; exit 0; fi
+          # "No NEW violations": compare per-file counts at the base vs HEAD.
+          count() { ruff check --output-format concise -q --stdin-filename "$1" - | grep -c . || true; }
+          FAIL=0
+          while IFS=$'\t' read -r st p1 p2; do
+            case "$st" in R*|C*) old="$p1"; f="$p2" ;; *) old="$p1"; f="$p1" ;; esac
+            case "$f" in *.py) ;; *) continue ;; esac
+            if git cat-file -e "$BASE:$old" 2>/dev/null; then B=$(git show "$BASE:$old" | count "$f"); else B=0; fi
+            H=$(count "$f" < "$f")
+            echo "$f: base=$B head=$H"
+            if [ "$H" -gt "$B" ]; then echo "::error file=$f::ruff violations rose $B -> $H"; ruff check "$f" || true; FAIL=1; fi
+          done <<< "$CHANGED"
+          exit $FAIL
 
       - name: Install dependencies
         run: |
