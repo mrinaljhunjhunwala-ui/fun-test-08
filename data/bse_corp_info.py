@@ -38,11 +38,11 @@ CONTRACT (matches nse_corp_info.py's get_corp_info exactly):
       nse_corp_info.get_last_diagnostic, so the UI/warning banner can report
       on this source exactly the same way it already does for NSE
 
-REQUIRES: `bse` package. NOT added to requirements.txt by this change —
-that's a one-line addition (`bse==3.3.0`) the project owner should make
-deliberately given the GPLv3 note above, rather than something silently
-pulled in. Until then, this module is written to degrade to {} (with a
-clear log message) rather than raise ImportError into the app.
+REQUIRES: `bse` package — in requirements.txt since 2026-10-07 (verified
+live against RELIANCE on bse 3.3.3: announcements "Table" envelope and
+actions "Purpose"/"exdate" fields unchanged). If it's missing anyway, this
+module still degrades to {} with a WARNING and a diagnostic the Data Health
+page surfaces, rather than raising ImportError into the app.
 """
 from __future__ import annotations
 
@@ -86,6 +86,18 @@ def _get_client():
         _log.warning("data.bse_corp_info: `bse` package unavailable (%s) — BSE fallback "
                     "disabled until it's installed (pip install bse)", e)
         return None
+
+
+def package_status() -> tuple[bool, str]:
+    """(available, reason) for the optional `bse` dependency, without making
+    a network call — lets the Data Health page say "BSE fallback disabled"
+    instead of the fallback silently returning {} forever."""
+    if _bse_import_error is not None:
+        return False, f"`bse` package unavailable ({_bse_import_error})"
+    import importlib.util
+    if importlib.util.find_spec("bse") is None:
+        return False, "`bse` package not installed (pip install -r requirements.txt)"
+    return True, ""
 
 
 def _normalize_symbol(ticker: str) -> str:

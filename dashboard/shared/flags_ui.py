@@ -46,6 +46,8 @@ from analysis.qualitative_flags import (
     FlagCategory,
     FlagSentiment,
     QualitativeFlag,
+    describe_rss_gaps,
+    get_rss_feed_gaps,
     load_flags,
     manual_flag,
     refresh_all_flags,
@@ -251,7 +253,8 @@ def render_flag_strip(ticker: str, company_name: Optional[str] = None) -> None:
         else:
             st.info(
                 "No flags on record for this ticker yet — nothing turned up "
-                "across NSE's API, NSE's RSS feeds, or recent news. This is "
+                "across NSE's API, NSE's RSS feeds (see feed coverage below), "
+                "or recent news. This is "
                 "not the same as \"all clear\"; add a manual note below if "
                 "you know of something the auto-scan wouldn't catch (e.g. "
                 "a brand JV, or a state excise policy change)."
@@ -267,6 +270,12 @@ def render_flag_strip(ticker: str, company_name: Optional[str] = None) -> None:
         for f in sorted(flags, key=lambda x: (x.sentiment != FlagSentiment.RED,
                                                x.sentiment != FlagSentiment.AMBER)):
             st.markdown(_flag_card_html(f), unsafe_allow_html=True)
+
+    # Audit 2026-10-07: an empty/stale NSE RSS feed must not read as "no
+    # insider/governance events" — say which feeds had no data behind them.
+    gap_lines = describe_rss_gaps(get_rss_feed_gaps())
+    if gap_lines:
+        st.caption("Feed coverage: " + " · ".join(gap_lines))
 
     with st.expander("➕ Add analyst note (manual flag)"):
         st.caption(

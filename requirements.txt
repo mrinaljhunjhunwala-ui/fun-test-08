@@ -26,6 +26,11 @@ requests>=2.31.0,<3.0
 beautifulsoup4>=4.12.0,<5.0
 lxml>=4.9.0,<7.0
 
+# BSE corp-info fallback (data/bse_corp_info.py) when NSE's WAF blocks corp-info.
+# Pure Python, deps: requests + mthrottle. GPLv3 (fine for this non-distributed
+# tool). Without it the BSE fallback silently never ran (audit 2026-10-07).
+bse>=3.3.3,<4.0
+
 # ── Backtesting ──────────────────────────────────────────────────────────────
 backtesting>=0.3.3,<0.6
 

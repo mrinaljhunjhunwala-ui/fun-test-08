@@ -54,6 +54,15 @@ def _no_live_nse_rss(monkeypatch):
                         lambda *a, **k: {})
 
 
+@pytest.fixture(autouse=True)
+def _no_live_bse(monkeypatch):
+    """The `bse` package is a real requirement since 2026-10-07, so the
+    NSE->BSE corp-info fallback now actually runs when NSE comes back empty.
+    Keep it offline by default; tests that exercise it patch it themselves."""
+    import data.bse_corp_info as _bci
+    monkeypatch.setattr(_bci, "get_corp_info", lambda *a, **k: {})
+
+
 # ── fake kv store (mirrors trade_store.kv_get/kv_set signatures exactly) ──
 class _FakeKv:
     def __init__(self):
@@ -695,7 +704,9 @@ def test_nse_rss_feeds_fetch_parses_items(monkeypatch):
     items = rf.fetch_feed("related_party_transactions", use_cache=False)
     assert len(items) == 2
     diag = rf.get_last_diagnostic("related_party_transactions")
-    assert diag["ok"] is True
+    # Fixture dates are fixed (Jul 2026), so the feed reads "stale" once they
+    # age past nse_rss_feeds._STALE_DAYS; items are still parsed either way.
+    assert diag["status"] in ("ok", "stale") and diag["items"] == 2
 
 
 def test_nse_rss_feeds_filters_by_company(monkeypatch):
@@ -731,3 +742,34 @@ def test_nse_rss_feeds_handles_request_failure(monkeypatch):
 def test_nse_rss_feeds_unknown_category_returns_empty():
     import data.nse_rss_feeds as rf
     assert rf.fetch_feed("not_a_real_category") == []
+
+
+# --- Audit 2026-10-07: empty RSS feeds are "no data", not "all clear" -----
+
+def test_describe_rss_gaps_wording():
+    from analysis.qualitative_flags import describe_rss_gaps
+    lines = describe_rss_gaps({
+        "insider_trading": "empty — InsiderTrading.xml returned HTTP 200 with 0 items",
+        "corporate_governance": "stale — newest item is 2026-05-02",
+        "sast_regulation_29": "feed fetch failed: Timeout",
+    })
+    joined = " | ".join(lines)
+    assert "insider-trading feed returned no data" in joined
+    assert "corporate-governance feed is stale" in joined
+    assert "SAST Reg 29 feed was unavailable" in joined
+    assert all("not an all-clear" in ln for ln in lines)
+    assert describe_rss_gaps({}) == [] and describe_rss_gaps(None) == []
+
+
+def test_data_health_rss_probe_degrades_on_empty_feed(monkeypatch):
+    from dashboard.shared import data_health as dh
+    diags = {
+        "related_party_transactions": {"ok": True, "status": "ok", "at": "2026-10-07T10:00:00",
+                                       "reason": "ok (20 items)"},
+        "insider_trading": {"ok": False, "status": "empty", "at": "2026-10-07T10:00:01",
+                            "reason": "empty"},
+    }
+    monkeypatch.setattr(_nse_rss_feeds_mod, "get_last_diagnostic", lambda c: diags.get(c))
+    check = dh.probe_nse_rss()
+    assert check.status == dh.STATUS_DEGRADED
+    assert "insider_trading: empty" in check.note

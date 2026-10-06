@@ -155,3 +155,33 @@ def test_scripcode_lookup_is_cached(monkeypatch):
     bci.get_corp_info("INFY", use_cache=False)
     bci.get_corp_info("INFY", use_cache=False)
     assert calls["getScripCode"] == 1
+
+
+# --- Audit 2026-10-07: the `bse` package's absence must be visible ---------
+
+def test_package_status_reports_missing(monkeypatch):
+    import importlib.util
+    monkeypatch.setattr(bci, "_bse_import_error", None)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    ok, why = bci.package_status()
+    assert ok is False and "not installed" in why
+
+
+def test_package_status_reports_import_error(monkeypatch):
+    monkeypatch.setattr(bci, "_bse_import_error", "No module named 'bse'")
+    ok, why = bci.package_status()
+    assert ok is False and "unavailable" in why
+
+
+def test_data_health_probe_surfaces_missing_bse(monkeypatch):
+    from dashboard.shared import data_health as dh
+    monkeypatch.setattr(bci, "package_status", lambda: (False, "`bse` package not installed"))
+    check = dh.probe_bse_corp_info()
+    assert check.status == dh.STATUS_UNAVAILABLE
+    assert "BSE fallback disabled" in check.note
+
+
+def test_requirements_pin_bse():
+    from pathlib import Path
+    req = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8")
+    assert any(line.strip().startswith("bse") for line in req.splitlines())
