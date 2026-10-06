@@ -125,3 +125,24 @@ def test_top_picks_drop_excluded_but_keep_their_scores(scan_env):
     assert out["meta"]["excluded"] == _EXCL
     # the full scored map still serves My Watchlist / Analyze with these names
     assert set(out["all_scored"]) == {"OK.NS", "LOCKED.NS", "NEWCO.NS"}
+
+
+def test_scan_peek_key_matches_score_stock_fetch(monkeypatch):
+    """_list_exclusion peeks (ticker, "2y", "1d"); score_stock must fetch with that
+    exact key, or the circuit check silently loses its bars."""
+    import analysis.score as S
+    S._load_deps()
+    seen = []
+
+    def _rec(t, period="2y", interval="1d"):
+        seen.append((t, period, interval))
+        raise ValueError("offline")
+    monkeypatch.setattr(S, "_fetch_single", _rec)
+    monkeypatch.setattr(S, "_resolve_ticker", lambda t: t)
+    S.score_stock("OK.NS", vix_info={"regime": "normal", "vix": None, "allow_buy": True})
+    assert ("OK.NS", "2y", "1d") in seen
+    from data.universe import get_universe
+    S2 = __import__("analysis.score", fromlist=["_resolve_ticker"])
+    monkeypatch.undo()
+    S2._load_deps()
+    assert all(S2._resolve_ticker(t) == t for t in get_universe("nifty500")[:50])
