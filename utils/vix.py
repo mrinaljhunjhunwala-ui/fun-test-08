@@ -104,7 +104,13 @@ def get_india_vix_regime() -> Dict:
                 "India VIX schema drift: indicators.quote missing "
                 "(provider may have renamed the field)"
             )
-        closes = (_quote_list[0] or {}).get("close") or []
+        closes = list((_quote_list[0] or {}).get("close") or [])
+        # Yahoo leaves the latest session's close null for hours after the
+        # close; the price is only in meta. Without this the reading is a
+        # session old (same bug as data/fetcher._fill_last_daily_close).
+        _meta = (_results[0] or {}).get("meta") or {}
+        if closes and closes[-1] is None and _meta.get("regularMarketPrice"):
+            closes[-1] = _meta["regularMarketPrice"]
         valid  = [v for v in closes if v is not None]
         if len(valid) < 2:
             raise ValueError("insufficient VIX data")
