@@ -419,6 +419,8 @@ def _parse_yahoo_chart(data: dict, ticker: str, yf_interval: str) -> pd.DataFram
         "Volume": quote.get("volume", [None] * len(dates)),
     }, index=idx)
 
+    if not _intraday:
+        df = _fill_last_daily_close(df, r0.get("meta") or {})
     df = df.dropna(subset=["Close"])
     df = df[df["Close"] > 0]
     if not _intraday:
@@ -430,6 +432,34 @@ def _parse_yahoo_chart(data: dict, ticker: str, yf_interval: str) -> pd.DataFram
         _novol = df["Volume"].fillna(0) == 0
         df = df[~(_flat & _novol)]
     df.sort_index(inplace=True)
+    return df
+
+
+def _fill_last_daily_close(df: pd.DataFrame, meta: dict) -> pd.DataFrame:
+    """Yahoo's v8 chart leaves the latest daily bar's close null (seen 12h after
+    the 6 Oct 2026 close) and carries the price only in meta.regularMarketPrice.
+    The dropna on Close then deleted that session, so every daily history ended
+    one session early and the ledger backfill updated 0 rows. Fill it from meta
+    when meta's trade time is on the bar's own IST date, as yfinance does."""
+    if df.empty or pd.notna(df["Close"].iloc[-1]):
+        return df
+    px, t = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+    try:
+        px = float(px)
+        t_ist = (datetime.datetime.fromtimestamp(int(t), tz=datetime.timezone.utc)
+                 + datetime.timedelta(hours=5, minutes=30)).date()
+    except (TypeError, ValueError, OverflowError):
+        return df
+    if px <= 0 or t_ist != df.index[-1].date():
+        _log.warning("Yahoo last daily bar %s has no close and meta can't fill it "
+                     "(meta time %s, price %s)", df.index[-1].date(), t_ist, px)
+        return df
+    df = df.copy()
+    last = df.index[-1]
+    df.loc[last, "Close"] = px
+    for col, pick in (("Open", None), ("High", max), ("Low", min)):
+        v = df.at[last, col]
+        df.loc[last, col] = px if pd.isna(v) else (pick(float(v), px) if pick else v)
     return df
 
 
