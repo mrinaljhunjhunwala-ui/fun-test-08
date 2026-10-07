@@ -76,6 +76,8 @@ _STANDALONE_SCRIPTS = [
     ("tools.backfill_ledger",               "tools/backfill_ledger.py", ["main", "run_backfill"]),
     ("tools.fix_offsession_rows",           "tools/fix_offsession_rows.py",
      ["main", "find_plan", "apply_plan"]),
+    ("tools.repair_ledger_entry_basis",     "tools/repair_ledger_entry_basis.py",
+     ["main", "find_plan", "apply_plan"]),
 ]
 _IDS = [mod for mod, _, _ in _STANDALONE_SCRIPTS]
 

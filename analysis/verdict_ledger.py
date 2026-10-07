@@ -525,6 +525,20 @@ def _find_bar(df: pd.DataFrame, target: _dt.date) -> Optional[float]:
         return None
 
 
+def _session_close(df: Optional[pd.DataFrame], session: _dt.date) -> Optional[float]:
+    """Close of `session` (first bar on-or-after it), but only when the history
+    actually starts on or before that session — otherwise the "first bar
+    on-or-after" would silently be some later day's close."""
+    if df is None or df.empty:
+        return None
+    try:
+        if pd.Timestamp(df.index[0]).date() > session:
+            return None
+    except Exception:
+        return None
+    return _find_bar(df, session)
+
+
 def _fetch_history(ticker: str) -> Optional[pd.DataFrame]:
     """One-year history through today. Errors → None (silent skip)."""
     try:
@@ -677,15 +691,23 @@ def backfill_returns(*, max_rows: int = 200,
                 # from Friday — see _entry_session.
                 anchor = _entry_session(logged)
 
-                # Anchor entry to the logged session's bar if we don't have it.
-                if entry is None or pd.isna(entry):
-                    entry = _find_bar(tdf, anchor)
-                if entry is None or entry <= 0:
+                # FIX LEDGER-BASIS (review of #304): both legs are measured
+                # close-to-close from the entry session. The logged
+                # entry_price is whatever the scan saw (often intraday since
+                # #304), while NIFTY was always anchored on the session
+                # close — mixing the two made "edge vs Nifty" partly an
+                # intraday-vs-close artefact. entry_price stays in
+                # verdict_log for display; it is only the fallback when the
+                # history no longer reaches back to the entry session.
+                close_entry = _session_close(tdf, anchor)
+                if close_entry is not None:
+                    entry = close_entry
+                if entry is None or pd.isna(entry) or entry <= 0:
                     if nifty_last is not None:
                         misses.append(log_id)
                     continue
 
-                nifty_entry = _find_bar(nifty_df, anchor) if nifty_df is not None else None
+                nifty_entry = _session_close(nifty_df, anchor)
 
                 updates: Dict[str, Optional[float]] = {}
                 for h in HORIZONS_DAYS:
@@ -1223,7 +1245,9 @@ def tag_calibration(*, horizon_days: int, min_n: int = 5,
 def shadow_pnl(*, horizon_days: int = 20) -> pd.DataFrame:
     """
     'What would you have made if you'd taken every BUY/STRONG BUY the model
-    emitted?' Filters shadow-source rows with a positive-side verdict and a
+    emitted?' Returns are close-to-close from the entry session's close;
+    `price_when_logged` is the price the logging surface saw (often intraday),
+    for reference only. Filters shadow-source rows with a positive-side verdict and a
     computed forward return for the horizon.
     """
     try:
@@ -1242,11 +1266,15 @@ def shadow_pnl(*, horizon_days: int = 20) -> pd.DataFrame:
         return df
     # FIX LEDGER-ALPHA: alpha is NaN (unavailable) when Nifty return is missing.
     df["alpha"] = df[ret_col] - (df[nifty_col] if nifty_col in df.columns else np.nan)
-    keep =["logged_date", "ticker", "verdict", "conviction", "horizon",
+    # Returns and alpha are close-to-close from the entry session (see
+    # backfill_returns); the logged price is shown for reference only, under
+    # a name that says so — it is NOT the base of return_{h}d_pct.
+    keep = ["logged_date", "ticker", "verdict", "conviction", "horizon",
             "entry_price", f"price_{horizon_days}d", ret_col, nifty_col, "alpha",
             "primary_reason"]
     keep = [c for c in keep if c in df.columns]
     return df[keep].rename(columns={
+        "entry_price":            "price_when_logged",
         f"price_{horizon_days}d": f"exit_{horizon_days}d",
         ret_col:                  f"return_{horizon_days}d_pct",
         nifty_col:                f"nifty_{horizon_days}d_pct",

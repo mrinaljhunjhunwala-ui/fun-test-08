@@ -660,7 +660,7 @@ else:
         subset=[c for c in [f"return_{_sh_horizon}d_pct", "alpha"]
                 if c in _sh.columns],
     ).format({
-        "entry_price":              "{:,.2f}",
+        "price_when_logged":        "{:,.2f}",
         f"exit_{_sh_horizon}d":     "{:,.2f}",
         f"return_{_sh_horizon}d_pct": "{:+.2f}%",
         f"nifty_{_sh_horizon}d_pct":  "{:+.2f}%",
@@ -668,6 +668,10 @@ else:
         "conviction":               "{:.0f}",
     }, na_rep="—")
     st.dataframe(_sty, hide_index=True, width="stretch")
+    st.caption("Returns and α are close-to-close from the close of the session the "
+               "call was logged in. *price_when_logged* is the price the page saw "
+               "at logging time (often intraday) — shown for reference, not the "
+               "base of the return.")
 
 # ── Section E — Full ledger drilldown ─────────────────────────────────────────
 st.markdown("---")
