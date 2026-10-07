@@ -595,6 +595,46 @@ def refresh_all_flags(
     return merged
 
 
+_RSS_FEED_LABELS = {
+    "related_party_transactions": "related-party-transactions",
+    "reason_for_encumbrance": "pledge (encumbrance)",
+    "sast_regulation_29": "SAST Reg 29",
+    "sast_regulation_31": "SAST Reg 31",
+    "corporate_governance": "corporate-governance",
+    "insider_trading": "insider-trading",
+}
+
+
+def describe_rss_gaps(gaps: Optional[dict]) -> list[str]:
+    """Turn {category: reason} (data.nse_rss_feeds.get_feed_gaps) into
+    user-facing lines, so a feed that returned nothing reads as "no data",
+    never as an implied all-clear for that category."""
+    lines = []
+    for category, reason in sorted((gaps or {}).items()):
+        label = _RSS_FEED_LABELS.get(category, category.replace("_", " "))
+        reason = str(reason or "")
+        if reason.startswith("stale"):
+            what = "is stale"
+        elif reason.startswith("empty"):
+            what = "returned no data"
+        else:
+            what = "was unavailable"
+        lines.append(f"NSE {label} feed {what} — no {label} flags here is not an "
+                     f"all-clear ({reason})")
+    return lines
+
+
+def get_rss_feed_gaps() -> dict:
+    """{category: reason} for NSE RSS feeds whose last fetch was empty,
+    stale or failed. Never raises."""
+    try:
+        from data.nse_rss_feeds import get_feed_gaps
+        return get_feed_gaps()
+    except Exception as e:
+        _log.warning("get_rss_feed_gaps: %s", e)
+        return {}
+
+
 def summarize_flags(flags: list[QualitativeFlag]) -> dict:
     """Quick counts for a badge/summary row, e.g. '2 green, 1 red, 1 amber'."""
     out = {"green": 0, "red": 0, "amber": 0}

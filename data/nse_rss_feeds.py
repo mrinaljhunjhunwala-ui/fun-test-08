@@ -52,6 +52,7 @@ WHAT THIS DOES NOT DO
 """
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -83,6 +84,23 @@ FEEDS: Dict[str, str] = {
     "insider_trading": "InsiderTrading.xml",
 }
 
+# Alternate filenames tried, in order, when the primary returns 0 items.
+# Audit 2026-10-07: InsiderTrading.xml (still the name linked from NSE's RSS
+# page) answers HTTP 200 with an empty <channel>, while Insider_Trading.xml
+# carries items. Corporate_Governance.xml is likewise empty and no live
+# replacement was found, so it reports "empty" until NSE repopulates it.
+_ALT_FEEDS: Dict[str, tuple] = {
+    "insider_trading": ("Insider_Trading.xml",),
+}
+
+# A feed whose newest item is older than this is reported "stale" — its
+# items are still returned, but "no matches" must not read as "no events".
+_STALE_DAYS = 30
+
+# Diagnostic statuses: "ok" (items, fresh), "stale", "empty" (HTTP 200 but
+# zero items), "error" (request/parse failure). Only "ok" sets ok=True.
+STATUS_OK, STATUS_STALE, STATUS_EMPTY, STATUS_ERROR = "ok", "stale", "empty", "error"
+
 _feed_cache = TTLCache(ttl_seconds=12 * 60 * 60, name="nse_rss_feeds")
 _last_diagnostic: Dict[str, Dict[str, Any]] = {}
 
@@ -112,26 +130,55 @@ def fetch_feed(category: str, use_cache: bool = True) -> List[Dict[str, str]]:
         if cached is not None:
             return cached
 
-    url = f"{_BASE}/{FEEDS[category]}"
+    filenames = (FEEDS[category],) + tuple(_ALT_FEEDS.get(category, ()))
+    diag: Dict[str, Any] = {}
+    items: List[Dict[str, str]] = []
+    for filename in filenames:
+        items, diag = _fetch_one(category, filename)
+        if items:
+            break
+    _last_diagnostic[category] = diag
+    # Cache only real content: an empty/failed feed is retried next call
+    # instead of pinning "nothing" for 12h.
+    if use_cache and items:
+        _feed_cache.set(cache_key, items)
+    return items
+
+
+def _parse_pub_date(raw: str) -> Optional[_dt.datetime]:
+    raw = (raw or "").strip()
+    for fmt in ("%d-%b-%Y %H:%M", "%d-%b-%Y %H:%M:%S", "%a, %d %b %Y %H:%M:%S %z",
+                "%a, %d %b %Y %H:%M:%S %Z", "%d-%b-%Y"):
+        try:
+            return _dt.datetime.strptime(raw, fmt).replace(tzinfo=None)
+        except ValueError:
+            continue
+    return None
+
+
+def _fetch_one(category: str, filename: str):
+    """Fetch + parse one feed file. Returns (items, diagnostic)."""
+    url = f"{_BASE}/{filename}"
+    at = _dt.datetime.now().isoformat(timespec="seconds")
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except requests.RequestException as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
-        _last_diagnostic[category] = {
-            "ok": False, "status_code": status,
+        _log.warning("fetch_feed(%s): request failed: %s", category, e)
+        return [], {
+            "ok": False, "status": STATUS_ERROR, "status_code": status, "at": at,
+            "file": filename, "items": 0,
             "reason": f"feed fetch failed: {type(e).__name__}: {e}",
         }
-        _log.warning("fetch_feed(%s): request failed: %s", category, e)
-        return []
     except ET.ParseError as e:
-        _last_diagnostic[category] = {
-            "ok": False, "status_code": 200,
+        _log.warning("fetch_feed(%s): RSS parse failed: %s", category, e)
+        return [], {
+            "ok": False, "status": STATUS_ERROR, "status_code": 200, "at": at,
+            "file": filename, "items": 0,
             "reason": f"got a response but couldn't parse RSS XML: {e}",
         }
-        _log.warning("fetch_feed(%s): RSS parse failed: %s", category, e)
-        return []
 
     items: List[Dict[str, str]] = []
     for item in root.findall(".//item"):
@@ -145,12 +192,31 @@ def fetch_feed(category: str, use_cache: bool = True) -> List[Dict[str, str]]:
             "pub_date": item.findtext("pubDate") or "",
         })
 
-    _last_diagnostic[category] = {
-        "ok": True, "status_code": 200, "reason": f"ok ({len(items)} items)",
-    }
-    if use_cache:
-        _feed_cache.set(cache_key, items)
-    return items
+    base = {"status_code": 200, "at": at, "file": filename, "items": len(items)}
+    if not items:
+        _log.warning("fetch_feed(%s): %s returned HTTP 200 with 0 items", category, filename)
+        return [], {**base, "ok": False, "status": STATUS_EMPTY,
+                    "reason": f"empty — {filename} returned HTTP 200 with 0 items"}
+
+    dates = [d for d in (_parse_pub_date(i["pub_date"]) for i in items) if d]
+    newest = max(dates) if dates else None
+    if newest is not None and (_dt.datetime.now() - newest).days > _STALE_DAYS:
+        return items, {**base, "ok": False, "status": STATUS_STALE,
+                       "newest": newest.date().isoformat(),
+                       "reason": f"stale — newest item in {filename} is "
+                                 f"{newest.date().isoformat()} ({len(items)} items)"}
+    return items, {**base, "ok": True, "status": STATUS_OK,
+                   "newest": newest.date().isoformat() if newest else None,
+                   "reason": f"ok ({len(items)} items)"}
+
+
+def get_feed_gaps() -> Dict[str, str]:
+    """{category: reason} for every feed whose last fetch was NOT "ok"
+    (empty, stale or failed). A category absent from get_all_relevant_items()
+    only means "no events" if it is also absent from here."""
+    return {cat: str(d.get("reason") or d.get("status") or "unavailable")
+            for cat, d in _last_diagnostic.items()
+            if cat in FEEDS and not d.get("ok")}
 
 
 def _matches_company(item: Dict[str, str], symbol: str, company_name: Optional[str]) -> bool:

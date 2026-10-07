@@ -209,3 +209,20 @@ def _isolate_trade_store(request, monkeypatch, tmp_path):
         pool = trade_store._pg_pool
         if pool is not None:
             pool.closeall()
+
+
+# ── Offline BSE corp-info (audit 2026-10-07) ─────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _offline_bse_client(request, monkeypatch):
+    """`bse` is a real requirement now, so the NSE->BSE corp-info fallback
+    runs whenever NSE comes back empty (page smoke, refresh_all_flags...).
+    Stub the client constructor -- the one boundary every BSE request goes
+    through -- so no non-slow test opens a socket or sleeps in mthrottle.
+    Tests that need a client monkeypatch `_get_client` themselves."""
+    if request.node.get_closest_marker("slow") is not None:
+        yield
+        return
+    import data.bse_corp_info as _bci
+    monkeypatch.setattr(_bci, "_get_client", lambda: None)
+    yield

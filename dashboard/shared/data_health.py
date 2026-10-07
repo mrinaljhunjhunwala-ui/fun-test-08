@@ -195,12 +195,21 @@ def probe_bse_corp_info() -> ProviderCheck:
     except ImportError:
         return ProviderCheck("BSE corp-info", "corp_info", STATUS_UNAVAILABLE,
                              note="diagnostic getter unavailable")
-    diag = _try(get_last_diagnostic, "500325")
-    if diag is None:
-        # Package may not be installed; that's the dependency-gated deferral
-        # documented in the audit (finding #5).
+    try:
+        from data.bse_corp_info import package_status
+        available, why = package_status()
+    except Exception:
+        available, why = True, ""
+    if not available:
+        # Audit 2026-10-07: a missing `bse` package silently disabled the
+        # NSE->BSE corp-info fallback. Say so instead of looking idle.
         return ProviderCheck("BSE corp-info", "corp_info", STATUS_UNAVAILABLE,
-                             note="bse package not installed (GPLv3 pending)")
+                             note=f"BSE fallback disabled: {why}")
+    # Diagnostics are keyed by normalised NSE symbol (not BSE scripcode).
+    diag = _try(get_last_diagnostic, "RELIANCE.NS")
+    if diag is None:
+        return ProviderCheck("BSE corp-info", "corp_info", STATUS_IDLE,
+                             note="fallback only runs when NSE corp-info is blocked")
     status, at, warnings, note = _status_from_diagnostic(diag)
     return ProviderCheck("BSE corp-info", "corp_info", status, at, warnings, note)
 
@@ -227,15 +236,24 @@ def probe_nse_rss() -> ProviderCheck:
                   "corporate_governance", "insider_trading")
     latest_at: Optional[str] = None
     best_diag: Optional[dict] = None
+    gaps: list[str] = []
     for cat in categories:
         diag = _try(get_last_diagnostic, cat)
         if not diag:
             continue
+        if not diag.get("ok"):
+            # empty (HTTP 200, 0 items), stale or failed — audit 2026-10-07:
+            # an empty feed used to read "ok (0 items)" here.
+            gaps.append(f"{cat}: {diag.get('status') or 'error'}")
         at = str(diag.get("at") or "")
         if latest_at is None or at > latest_at:
             latest_at = at
             best_diag = diag
     status, at, warnings, note = _status_from_diagnostic(best_diag)
+    if gaps:
+        status = STATUS_DEGRADED
+        warnings = max(warnings, len(gaps))
+        note = "no usable data from " + ", ".join(gaps)
     return ProviderCheck("NSE RSS feeds", "news", status, at, warnings, note)
 
 
