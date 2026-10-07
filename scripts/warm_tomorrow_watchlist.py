@@ -7,7 +7,7 @@ Tomorrow's Watchlist scan result to trade_store (shared Postgres, set via
 DATABASE_URL).
 
 Why this exists: dashboard/shared/cache.py's _tomorrow_watchlist() scans the
-full Nifty 500 universe and can take up to ~2 minutes cold. It's cached with
+full Nifty Total Market universe (~750) and can take up to ~2 minutes cold. It's cached with
 @st.cache_data(ttl=3600), but that cache is process-local to the running
 Streamlit Cloud container — it doesn't survive a redeploy/restart, and on a
 low-traffic app it routinely expires between visits. Whoever's browser

@@ -1002,7 +1002,9 @@ def _home_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple
         and s.get("score", 0) > 0
         and s.get("action", "") not in ("UNAVAILABLE", "DATA_UNAVAILABLE")
     }
-    return {"buys": buys, "sells": sells[:n], "meta": meta, "all_scored": _all_scored}
+    _momentum = _momentum_leaders_from_scan(_UNIV, _all_scored)
+    return {"buys": buys, "sells": sells[:n], "meta": meta, "all_scored": _all_scored,
+            "momentum_leaders": _momentum}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1158,7 +1160,8 @@ def get_top_picks(vix_regime: str = "normal", n: int = 20, sector_ranks: tuple =
 @st.cache_data(ttl=3600, show_spinner=False)   # 1hr cache — EOD signal, not intraday
 def _tomorrow_watchlist(n: int = 15) -> dict:
     """
-    Scan the Nifty 500 universe for NEXT-SESSION setups (based on today's close),
+    Scan the niftytotalmarket universe (~750; was nifty500 until 2026-10-07,
+    which missed microcaps such as CUPID) for NEXT-SESSION setups (based on today's close),
     distinct from intraday Top Picks. Reuses the composite-score infrastructure
     (score_stock folds in trend, momentum, RSI, volume, VIX + sector strength).
 
@@ -1193,7 +1196,7 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
     out = {"breakout_candidates": [], "breakdown_watch": [], "reversal_watch": [],
            "scan_time": scan_time}
     try:
-        _UNIV = get_universe("nifty500")
+        _UNIV = get_universe("niftytotalmarket")
     except Exception as _e:
         _log.debug("cache._tomorrow_watchlist universe failed: %s", _e)
         return out
@@ -1330,6 +1333,10 @@ def _tomorrow_watchlist(n: int = 15) -> dict:
     out["n_scored"]   = len(results)
     out["excluded"]   = _excluded
     out["breakout_funnel"] = dict(_funnel)
+    # Momentum leaders: same frames, regime-independent ranking. Never logged
+    # to the ledger from here (the warm_top_picks run logs them once).
+    out["momentum_leaders"] = _momentum_leaders_from_scan(
+        _UNIV, {r["ticker"]: r for r in results})
     # Bear-regime scoring (#168/#198) holds Technical at 20/40 and RS at 5/10,
     # so no name can reach the BUY label the breakout gate needs and few fall
     # low enough for breakdown. Record it so the page can say the empty
@@ -1497,6 +1504,66 @@ def get_tomorrow_watchlist(n: int = 15) -> dict:
     result = dict(result)
     result["source"] = "live_scan"
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Momentum leaders — regime-independent momentum ranking (separate list)
+# ─────────────────────────────────────────────────────────────────────────────
+_MOMENTUM_KV_KEY = "momentum_leaders_snapshot"
+
+
+def _momentum_leaders_from_scan(tickers, scored: "dict | None" = None, n: int = 15,
+                                period: str = "2y") -> dict:
+    """Rank the frames a scan ALREADY fetched (data.fetcher.peek_cached, never
+    fetches) with analysis.momentum_leaders. `scored` maps ticker -> the scan's
+    score dict, used for the composite posture and sector beside each row.
+    Never raises; an empty dict-of-lists when nothing is cached."""
+    out = {"leaders": [], "n_ranked": 0, "n_filtered": {}}
+    try:
+        from analysis.momentum_leaders import rank_momentum_leaders
+        from data.fetcher import peek_cached
+        from data.universe import get_sector
+        frames = {tk: peek_cached(tk, period=period) for tk in tickers}
+        extra = {}
+        for tk in frames:
+            s = (scored or {}).get(tk) or {}
+            try:
+                sec = s.get("sector") or get_sector(tk)
+            except Exception:
+                sec = s.get("sector") or ""
+            extra[tk] = {"sector": sec, "composite_score": s.get("score"),
+                         "composite_action": s.get("action")}
+        out = rank_momentum_leaders(frames, n=n,
+                                    exclusion=lambda tk, _df: _list_exclusion(tk, period=period),
+                                    extra=extra)
+    except Exception as _e:
+        _log.debug("cache._momentum_leaders_from_scan degraded: %s", _e)
+    out["scan_time"] = datetime.datetime.now().strftime("%d %b %H:%M")
+    return out
+
+
+def get_momentum_leaders() -> "dict | None":
+    """Momentum leaders from the persisted scan snapshot (written by
+    scripts/warm_top_picks.py), else the list embedded in the Tomorrow's
+    Watchlist snapshot. Never runs a scan or touches the network beyond the
+    KV read; None when neither snapshot carries a list."""
+    for key, user, path in ((_MOMENTUM_KV_KEY, _TOP_PICKS_KV_USER, None),
+                            (_TW_KV_KEY, _TW_KV_USER, "momentum_leaders")):
+        try:
+            snap = _store.kv_get(key, user_id=user)
+        except Exception as _e:
+            _log.debug("cache.get_momentum_leaders: kv_get %s failed: %s", key, _e)
+            continue
+        if not isinstance(snap, dict):
+            continue
+        data = snap.get("data")
+        if path and isinstance(data, dict):
+            data = data.get(path)
+        if isinstance(data, dict) and data.get("leaders"):
+            data = dict(data)
+            data["generated_at"] = snap.get("generated_at")
+            return data
+    return None
 
 
 @st.cache_data(ttl=600, show_spinner=False)

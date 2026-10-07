@@ -970,6 +970,15 @@ _sec_tuple = _sector_ranks_tuple()
 st.session_state["_sec_ranks_cache"] = _sec_tuple   # share with watchlist
 _render_top_picks_section(_cc_vix_r, _sec_tuple)
 
+# Momentum leaders: a separate, regime-independent list read from the same
+# scheduled scan's snapshot (no scan, no extra network here).
+try:
+    from dashboard.shared.cache import get_momentum_leaders as _get_mom
+    from dashboard.shared.momentum_leaders_ui import render_momentum_leaders as _render_mom
+    _render_mom(_get_mom())
+except Exception as _mom_e:
+    st.caption(f"Momentum leaders unavailable ({type(_mom_e).__name__}).")
+
 st.markdown("---")
 
 # ── PAPER TRADES OVERVIEW (quick view; moved below Top Picks per the mockup) ─────────────────────────────────

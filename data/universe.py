@@ -308,6 +308,14 @@ NIFTY_MICROCAP250: List[str] = [
     "YATHARTH.NS", "ZAGGLE.NS",
 ]
 
+# Liquid NSE names outside the index constituent lists (extension point,
+# 2026-10-07). Static on purpose; included in "niftytotalmarket". Add a name
+# here (and give it a sector below) when it trades >= Rs 5 cr/day median but
+# sits in no Nifty index list. Audit list: see the momentum-leaders PR.
+LIQUID_EXTRAS: List[str] = [
+    "DHANBANK.NS",      # Dhanlaxmi Bank: in no Nifty index list
+]
+
 _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
     "IT": [
         "TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTM.NS",
@@ -323,7 +331,7 @@ _SECTOR_ASSIGNMENTS: Dict[str, List[str]] = {
         "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "INDUSINDBK.NS",
         "IDFCFIRSTB.NS", "FEDERALBNK.NS", "BANDHANBNK.NS", "AUBANK.NS", "KARURVYSYA.NS", "PNB.NS",
         "UNIONBANK.NS", "IDBI.NS", "CANBK.NS", "BANKBARODA.NS", "RBLBANK.NS", "JKBANK.NS",
-        "DCBBANK.NS", "SOUTHBANK.NS", "EQUITASBNK.NS", "BANKINDIA.NS", "CENTRALBK.NS",
+        "DCBBANK.NS", "SOUTHBANK.NS", "DHANBANK.NS", "EQUITASBNK.NS", "BANKINDIA.NS", "CENTRALBK.NS",
         "CUB.NS", "INDIANB.NS", "IOB.NS", "J&KBANK.NS", "MAHABANK.NS", "UCOBANK.NS",
         "YESBANK.NS",
         # audit 2026-10-03: moved here from Other
@@ -528,7 +536,7 @@ def get_universe(level: str = "nifty50") -> List[str]:
         seen, result = set(), []
         for t in (list(NIFTY50_TICKERS) + NIFTY_NEXT50 + NIFTY_MIDCAP
                   + NIFTY_SMALLCAP + NIFTY_MIDCAP150 + NIFTY_SMALLCAP250
-                  + NIFTY_MICROCAP250):
+                  + NIFTY_MICROCAP250 + LIQUID_EXTRAS):
             if t not in seen:
                 seen.add(t); result.append(t)
         return result
