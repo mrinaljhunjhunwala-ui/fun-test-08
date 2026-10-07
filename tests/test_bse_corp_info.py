@@ -185,3 +185,9 @@ def test_requirements_pin_bse():
     from pathlib import Path
     req = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8")
     assert any(line.strip().startswith("bse") for line in req.splitlines())
+
+
+def test_conftest_stubs_bse_client_offline():
+    """conftest._offline_bse_client: non-slow tests never build a real client."""
+    assert bci._get_client() is None
+    assert bci.get_corp_info("RELIANCE.NS", use_cache=False) == {}

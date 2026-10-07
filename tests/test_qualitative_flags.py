@@ -54,15 +54,6 @@ def _no_live_nse_rss(monkeypatch):
                         lambda *a, **k: {})
 
 
-@pytest.fixture(autouse=True)
-def _no_live_bse(monkeypatch):
-    """The `bse` package is a real requirement since 2026-10-07, so the
-    NSE->BSE corp-info fallback now actually runs when NSE comes back empty.
-    Keep it offline by default; tests that exercise it patch it themselves."""
-    import data.bse_corp_info as _bci
-    monkeypatch.setattr(_bci, "get_corp_info", lambda *a, **k: {})
-
-
 # ── fake kv store (mirrors trade_store.kv_get/kv_set signatures exactly) ──
 class _FakeKv:
     def __init__(self):
