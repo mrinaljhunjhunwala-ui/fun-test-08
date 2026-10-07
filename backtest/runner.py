@@ -35,6 +35,8 @@ _log = logging.getLogger("backtest.runner")
 from trading import costs as _costs  # noqa: E402
 
 COMMISSION     = _costs.backtest_commission_arg()
+# finalize_trades=True on 0.6+ so a position open at the end still counts (0.5 behaviour)
+BT_KWARGS      = _costs.backtest_extra_kwargs()
 TOTAL_COST     = _costs.representative_round_trip_pct()      # disclosure figure
 PER_SIDE_COST  = TOTAL_COST / 2
 
@@ -100,6 +102,7 @@ def run_backtest(
                 cash=cash,
                 commission=commission,
                 exclusive_orders=True,
+                **BT_KWARGS,
             )
 
             if optimize and len(tickers) == 1:

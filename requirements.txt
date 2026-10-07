@@ -32,7 +32,7 @@ lxml>=4.9.0,<7.0
 bse>=3.3.3,<4.0
 
 # ── Backtesting ──────────────────────────────────────────────────────────────
-backtesting>=0.3.3,<0.6
+backtesting>=0.3.3,<0.7
 
 # ── ML — XGBoost baseline ────────────────────────────────────────────────────
 # Comment these out for a lighter Streamlit Cloud deploy (dashboard works without them):
