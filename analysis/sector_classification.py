@@ -226,3 +226,60 @@ def classify_sector(raw: Optional[str], name: Optional[str] = None) -> SectorPro
             return _build(token, raw)
 
     return _operating(OTHER, raw, capital_intensive=False, capex_caveat=False)
+
+
+# ── NSE official "Industry" → app sector taxonomy (data.universe.get_sector names) ──
+# NSE's index constituent CSVs carry a coarse Industry column. data.universe uses this
+# to give every index member a sector, so new constituents never fall into "Other".
+# Hand-curated _SECTOR_ASSIGNMENTS in data/universe.py still win where present.
+_NSE_INDUSTRY_TO_APP = {
+    "information technology": "IT",
+    "automobile and auto components": "Auto",
+    "fast moving consumer goods": "FMCG",
+    "chemicals": "Chemicals",
+    "forest materials": "Chemicals",
+    "capital goods": "CapitalGoods",
+    "construction": "CapitalGoods",
+    "services": "CapitalGoods",
+    "construction materials": "Cement",
+    "consumer durables": "Consumer",
+    "consumer services": "Retail",
+    "metals & mining": "Metal",
+    "power": "Energy",
+    "utilities": "Energy",
+    "oil gas & consumable fuels": "Energy",
+    "realty": "RealEstate",
+    "telecommunication": "Telecom",
+    "textiles": "Textiles",
+    "media entertainment & publication": "Media",
+    "diversified": "Conglomerate",
+    "healthcare": "Pharma",
+    "financial services": "Finance",
+}
+
+
+def app_sector_from_nse_industry(industry: Optional[str], company: Optional[str] = None) -> str:
+    """Map NSE's Industry label (+ company name hint) to an app sector name.
+
+    Financial Services is split by name so banks land in "Banking" and insurers in
+    "Insurance" (both, like "Finance", classify as financial -> P/B + ROE rule).
+    Unknown industry -> "Other".
+    """
+    ind = (industry or "").strip().lower()
+    nm = f" {(company or '').lower().replace('.', ' ')} "
+    sector = _NSE_INDUSTRY_TO_APP.get(ind, OTHER)
+    if sector == "Finance":
+        if " bank " in nm:
+            return "Banking"
+        if any(k in nm for k in ("insurance", "assurance", " life ")):
+            return "Insurance"
+    elif sector == "Pharma":
+        if any(k in nm for k in ("hospital", "health", "diagnost", "medical", "clinic",
+                                 "path lab", "metropolis", "nephro")):
+            return "Healthcare"
+    elif sector == "Retail":
+        if any(k in nm for k in ("hotel", "resort", "palace", "hospitality")):
+            return "Hospitality"
+    elif ind == "services" and ("shipping" in nm or " ship " in nm):
+        return "Shipping"
+    return sector
