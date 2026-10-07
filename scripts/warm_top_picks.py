@@ -63,7 +63,6 @@ def main() -> int:
             _TOP_PICKS_KV_KEY,
             _TOP_PICKS_KV_USER,
             _ALL_SCORES_KV_KEY,   # FIX WL-SNAP1
-            _MOMENTUM_KV_KEY,
             get_vix_info,
             _sector_ranks_tuple,
         )
@@ -176,12 +175,17 @@ def main() -> int:
                    "back to live per-ticker scoring this cycle")
 
     # Third write: momentum leaders (regime-independent ranking, same frames).
-    if isinstance(_momentum, dict):
-        ok3 = store.kv_set(_MOMENTUM_KV_KEY, {"data": _momentum, "generated_at": _gen_at},
-                           user_id=_TOP_PICKS_KV_USER)
-        _log.info("warm_top_picks: momentum leaders (%d) persisted=%s, ledger rows sent=%d",
-                  len(_momentum.get("leaders", [])), ok3,
-                  log_momentum_leaders(_momentum.get("leaders", [])))
+    # Best-effort: a failure here must never stop the shadow-ledger write below.
+    try:
+        if isinstance(_momentum, dict):
+            from dashboard.shared.cache import _MOMENTUM_KV_KEY
+            ok3 = store.kv_set(_MOMENTUM_KV_KEY, {"data": _momentum, "generated_at": _gen_at},
+                               user_id=_TOP_PICKS_KV_USER)
+            _n_mom = log_momentum_leaders(_momentum.get("leaders", []))
+            _log.info("warm_top_picks: momentum leaders (%d) persisted=%s, ledger new rows=%d",
+                      len(_momentum.get("leaders", [])), ok3, _n_mom)
+    except Exception as e:
+        _log.error("warm_top_picks: momentum leaders step failed: %s", e)
 
     _n_sent = log_shadow_picks(result.get("buys", []) if isinstance(result, dict) else [])
     _log.info("warm_top_picks: shadow ledger — %d pick(s) sent (repeats in a session are no-ops)",
@@ -223,13 +227,14 @@ def log_momentum_leaders(leaders) -> int:
         try:
             fv = combine(composite_score=r.get("composite_score"),
                          composite_action=r.get("composite_action"))
-            log_verdict(ticker=r["ticker"], final_verdict=fv,
-                        entry_price=r.get("price"),
-                        composite_score=r.get("composite_score"),
-                        signal_tags=[f"momentum:rank{r.get('rank')}",
-                                     f"momentum:score{int(r.get('momentum_score') or 0)}"],
-                        source="momentum_leaders")
-            n += 1
+            row_id = log_verdict(ticker=r["ticker"], final_verdict=fv,
+                                 entry_price=r.get("price"),
+                                 composite_score=r.get("composite_score"),
+                                 signal_tags=[f"momentum:rank{r.get('rank')}",
+                                              f"momentum:score{int(r.get('momentum_score') or 0)}"],
+                                 source="momentum_leaders")
+            if row_id is not None:
+                n += 1
         except Exception as e:
             _log.debug("momentum ledger skipped %s: %s", r.get("ticker"), e)
     return n

@@ -139,3 +139,38 @@ def test_universe_contains_cupid_and_dhanbank():
     assert "CUPID.NS" in u and "DHANBANK.NS" in u
     assert len(u) == len(set(u))
     assert get_sector("DHANBANK.NS") == "Banking"
+
+
+def test_momentum_ledger_counts_only_new_rows(monkeypatch):
+    import importlib
+    import analysis.verdict_ledger as VL
+    ids = iter([7, None])
+    monkeypatch.setattr(VL, "log_verdict", lambda **k: next(ids))
+    wtp = importlib.import_module("scripts.warm_top_picks")
+    rows = [{"ticker": "A.NS", "rank": 1, "momentum_score": 80, "composite_score": 44,
+             "composite_action": "HOLD", "price": 10.0},
+            {"ticker": "B.NS", "rank": 2, "momentum_score": 70}]
+    assert wtp.log_momentum_leaders(rows) == 1
+
+
+def test_momentum_failure_never_blocks_shadow_log(monkeypatch):
+    import importlib
+    import dashboard.shared.cache as cache_mod
+    import dashboard.shared.market_hours as mh
+    import trade_store
+    wtp = importlib.import_module("scripts.warm_top_picks")
+    monkeypatch.setattr(mh, "is_trading_day", lambda *a, **k: True)
+    monkeypatch.setattr(cache_mod, "get_vix_info", lambda: {"regime": "normal"})
+    monkeypatch.setattr(cache_mod, "_sector_ranks_tuple", lambda: ())
+    monkeypatch.setattr(cache_mod, "_home_top_picks", lambda **k: {
+        "buys": [{"ticker": "AAA.NS"}], "sells": [], "meta": {}, "all_scored": {},
+        "momentum_leaders": {"leaders": [{"ticker": "X.NS"}]}})
+    monkeypatch.setattr(trade_store, "kv_set", lambda *a, **k: True)
+
+    def boom(_rows):
+        raise RuntimeError("ledger down")
+    shadow = []
+    monkeypatch.setattr(wtp, "log_momentum_leaders", boom)
+    monkeypatch.setattr(wtp, "log_shadow_picks", lambda buys: shadow.append(buys) or 1)
+    assert wtp.main() == 0
+    assert shadow == [[{"ticker": "AAA.NS"}]]

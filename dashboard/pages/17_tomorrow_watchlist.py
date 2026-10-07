@@ -333,7 +333,7 @@ def _gate_cells() -> list:
     cells = [
         ("Scanned",
          f"{n_sc:,}" if n_sc else "–",
-         (f"of {n_uni:,} · Nifty 500" if n_uni else "Nifty 500") if n_sc
+         (f"of {n_uni:,} · Nifty Total Market" if n_uni else "Nifty Total Market") if n_sc
          else "count arrives with the next scan"),
         ("Shortlisted", f"{n_short}",
          f"{n_short / n_sc * 100:.1f}% cleared a bucket" if n_sc else f"setups on {session_possessive()} scan"),
