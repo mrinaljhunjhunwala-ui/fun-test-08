@@ -1,6 +1,6 @@
 name: CI
 
-# Runs the offline test suite on every push / PR to main:
+# Runs the offline test suite on every PR to main (and on manual dispatch):
 #   * unit + analytics tests (mocked / offline)
 #   * 17 Streamlit page smoke tests (network-blocked → deterministic)
 #   * valuation golden-snapshot regression (offline replay — fails on posture/confidence/
@@ -8,9 +8,10 @@ name: CI
 # The slow backtest end-to-end smoke (`-m slow`) and the live valuation diagnostic
 # (`tools/validate_valuation.py`) are intentionally NOT run here.
 
+# No push-to-main trigger (removed 2026-10-08 to save Actions minutes): every
+# change reaches main through a PR whose head CI already tested, so the
+# post-merge re-run was a duplicate. Use "Run workflow" to re-test main by hand.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
