@@ -215,3 +215,121 @@ def optimize_strategy(
 
     print(f"\n  Saved  →  {PARAMS_FILE}\n")
     return consensus
+
+
+# ── Holdout (walk-forward-lite) ────────────────────────────────────────────────
+# --optimize --holdout FRAC: fit params on the first (1-FRAC) of each ticker's
+# bars, then report the best params run on the last FRAC only. Indicators are
+# computed on the FULL frame before slicing (they only look backwards, so no
+# look-ahead) so the holdout's first bars aren't NaN warm-up.
+DEFAULT_HOLDOUT = 0.3
+MIN_HOLDOUT_BARS = 60
+OOS_LABEL = "OUT-OF-SAMPLE (holdout window - params never saw these bars)"
+IS_LABEL = "IN-SAMPLE (fit window)"
+
+
+def split_holdout(df: pd.DataFrame, frac: float):
+    """Split a time-ordered frame into (fit, test); test is the last `frac` of bars."""
+    if not 0 < frac < 1:
+        raise ValueError(f"holdout fraction must be in (0, 1), got {frac}")
+    n_test = int(round(len(df) * frac))
+    cut = len(df) - n_test
+    return df.iloc[:cut], df.iloc[cut:]
+
+
+def prepare_frame(ticker: str, period: str) -> pd.DataFrame:
+    """One fetch per ticker; indicators on the full frame; OHLCV-complete rows."""
+    df = add_all_indicators(fetch_single(ticker, period=period))
+    return df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+
+def _summ(stats) -> Dict:
+    return {
+        "Return (%)": round(float(stats["Return [%]"]), 2),
+        "Sharpe": round(float(stats["Sharpe Ratio"]), 2),
+        "Max DD (%)": round(float(stats["Max. Drawdown [%]"]), 2),
+        "Win Rate (%)": round(float(stats["Win Rate [%]"]), 2),
+        "# Trades": int(stats["# Trades"]),
+    }
+
+
+def _range(df: pd.DataFrame) -> str:
+    def fmt(x):
+        return x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else str(x)
+    return f"{fmt(df.index[0])} -> {fmt(df.index[-1])}" if len(df) else "-"
+
+
+def fit_and_test(df: pd.DataFrame, strategy_cls: Type, grid: Dict, frac: float,
+                 cash: float = 1_000_000, constraint=None) -> Dict:
+    """Optimise `grid` on the fit window of `df`, run the best params on the holdout.
+
+    Returns {best, fit_range, test_range, n_fit, n_test, in_sample, out_of_sample,
+    skipped}; out_of_sample is None (and `skipped` says why) when the holdout
+    has fewer than MIN_HOLDOUT_BARS bars.
+    """
+    # backtesting's optimiser copies columns into shared memory, which fails on
+    # pandas string dtypes ('StringDtype' has no .base) — keep numeric columns.
+    df = df.select_dtypes(include="number")
+    fit_df, test_df = split_holdout(df, frac)
+    out = {"best": {}, "fit_range": _range(fit_df), "test_range": _range(test_df),
+           "n_fit": len(fit_df), "n_test": len(test_df),
+           "in_sample": None, "out_of_sample": None, "skipped": None}
+    kw: Dict = dict(cash=cash, commission=COMMISSION, exclusive_orders=True, **BT_KWARGS)
+    opt_kwargs: Dict = dict(grid)
+    opt_kwargs["maximize"] = "Sharpe Ratio"
+    if constraint:
+        opt_kwargs["constraint"] = constraint
+    is_stats = Backtest(fit_df, strategy_cls, **kw).optimize(**opt_kwargs)
+    out["best"] = {p: getattr(getattr(is_stats._strategy, p), "item",
+                              lambda v=getattr(is_stats._strategy, p): v)()
+                   for p in grid if hasattr(is_stats._strategy, p)}
+    out["in_sample"] = _summ(is_stats)
+    if len(test_df) < MIN_HOLDOUT_BARS:
+        out["skipped"] = (f"holdout has only {len(test_df)} bars (< {MIN_HOLDOUT_BARS}) "
+                          "- out-of-sample skipped")
+        return out
+    oos_stats = Backtest(test_df, strategy_cls, **kw).run(**out["best"])
+    out["out_of_sample"] = _summ(oos_stats)
+    return out
+
+
+def format_holdout_report(ticker: str, res: Dict) -> str:
+    """Side-by-side IN-SAMPLE / OUT-OF-SAMPLE block for one ticker."""
+    lines = [f"\n  {ticker}   best params (fit window): {res['best']}",
+             f"  {IN_SAMPLE_WARNING}",
+             f"    {'Metric':<14}{IS_LABEL:>34}   {'OUT-OF-SAMPLE (holdout)':>30}",
+             f"    {'Window':<14}{res['fit_range']:>34}   {res['test_range']:>30}",
+             f"    {'Bars':<14}{res['n_fit']:>34}   {res['n_test']:>30}"]
+    oos = res["out_of_sample"] or {}
+    for k, v in (res["in_sample"] or {}).items():
+        lines.append(f"    {k:<14}{v:>34}   {oos.get(k, 'n/a'):>30}")
+    if res["skipped"]:
+        lines.append(f"    NOTE: {res['skipped']}")
+    else:
+        lines.append(f"    Reported result = {OOS_LABEL}")
+    return "\n".join(lines)
+
+
+def run_holdout_backtest(tickers: List[str], strategy_cls: Type, period: str = "2y",
+                         cash: float = 1_000_000, holdout: float = DEFAULT_HOLDOUT,
+                         grid: Optional[Dict] = None, constraint=None) -> Dict[str, Dict]:
+    """Per-ticker fit-then-holdout run; prints and returns {ticker: fit_and_test result}."""
+    name = strategy_cls.__name__
+    grid = grid if grid is not None else PARAM_GRIDS.get(name)
+    if constraint is None:
+        constraint = CONSTRAINTS.get(name)
+    if not grid:
+        print(f"  [optimizer] No parameter grid defined for {name}.")
+        return {}
+    print(f"\n{'='*60}\n  OPTIMISE + HOLDOUT  —  fit on first {1 - holdout:.0%}, "
+          f"report last {holdout:.0%}\n{'='*60}")
+    results: Dict[str, Dict] = {}
+    for t in tickers:
+        try:
+            res = fit_and_test(prepare_frame(t, period), strategy_cls, grid, holdout,
+                               cash=cash, constraint=constraint)
+            results[t] = res
+            print(format_holdout_report(t, res))
+        except Exception as e:  # one bad ticker must not abort the batch
+            print(f"\n  {t}: ERROR — {e}")
+    return results

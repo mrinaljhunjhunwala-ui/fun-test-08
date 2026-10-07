@@ -40,6 +40,13 @@ BT_KWARGS      = _costs.backtest_extra_kwargs()
 TOTAL_COST     = _costs.representative_round_trip_pct()      # disclosure figure
 PER_SIDE_COST  = TOTAL_COST / 2
 
+# run_backtest(optimize=True) single-ticker grid (unchanged values).
+_RUNNER_GRID = {"rsi_oversold": range(25, 45, 5), "rsi_overbought": range(55, 75, 5)}
+
+
+def _RUNNER_CONSTRAINT(p):
+    return p.rsi_oversold < p.rsi_overbought
+
 
 def run_backtest(
     tickers: List[str],
@@ -50,6 +57,7 @@ def run_backtest(
     plot: bool = True,
     optimize: bool = False,
     strategy_params: dict = None,
+    holdout: float = 0.0,
 ) -> pd.DataFrame:
     """
     Run backtest for each ticker and print a consolidated performance table.
@@ -105,13 +113,24 @@ def run_backtest(
                 **BT_KWARGS,
             )
 
-            if optimize and len(tickers) == 1:
-                stats = bt.optimize(
-                    rsi_oversold=range(25, 45, 5),
-                    rsi_overbought=range(55, 75, 5),
-                    maximize="Sharpe Ratio",
-                    constraint=lambda p: p.rsi_oversold < p.rsi_overbought,
-                )
+            if optimize and len(tickers) == 1 and holdout > 0:
+                # Fit on the first (1-holdout) bars, report the last `holdout`.
+                from backtest.optimizer import fit_and_test, format_holdout_report
+                res = fit_and_test(df, strategy_cls, _RUNNER_GRID, holdout,
+                                   cash=cash, constraint=_RUNNER_CONSTRAINT)
+                print(format_holdout_report(ticker, res))
+                if res["out_of_sample"] is None:
+                    return ticker, None, None
+                oos = res["out_of_sample"]
+                result = {"Ticker": ticker,
+                          "Return (%)": oos["Return (%)"], "Sharpe": oos["Sharpe"],
+                          "Max Drawdown (%)": oos["Max DD (%)"],
+                          "Win Rate (%)": oos["Win Rate (%)"], "# Trades": oos["# Trades"],
+                          "Window": f"OOS {res['test_range']}"}
+                return ticker, result, None
+            elif optimize and len(tickers) == 1:
+                stats = bt.optimize(**_RUNNER_GRID, maximize="Sharpe Ratio",
+                                    constraint=_RUNNER_CONSTRAINT)
                 _tag = "  [in-sample: optimised on this same period]"
             else:
                 stats = bt.run(**(strategy_params or {}))

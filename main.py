@@ -94,6 +94,10 @@ def parse_args():
     # Phase 2 flags
     p.add_argument("--optimize",  action="store_true",
                    help="[Phase 2a] Grid-search best strategy parameters first")
+    p.add_argument("--holdout",   type=float, default=None, metavar="FRAC",
+                   help="[Phase 2a] with --optimize: fit on the first (1-FRAC) of each "
+                        "ticker's bars, report the last FRAC out-of-sample "
+                        "(default 0.3; 0 = old in-sample-only behaviour)")
     p.add_argument("--portfolio", action="store_true",
                    help="[Phase 2b] Equal-weight allocation across all tickers")
 
@@ -101,7 +105,18 @@ def parse_args():
     p.add_argument("--n-sectors", type=int, default=3,
                    help="[Phase 3a] Number of top sectors to invest in (default 3)")
 
-    return p.parse_args()
+    args = p.parse_args()
+    args.holdout = resolve_holdout(args.optimize, args.holdout)
+    return args
+
+
+def resolve_holdout(optimize: bool, holdout) -> float:
+    """--holdout defaults to 0.3 under --optimize; 0 (off) otherwise. Must be in [0, 1)."""
+    if holdout is None:
+        return 0.3 if optimize else 0.0
+    if not 0 <= holdout < 1:
+        raise SystemExit(f"--holdout must be in [0, 1), got {holdout}")
+    return float(holdout)
 
 
 def print_header(args, tickers):
@@ -146,7 +161,15 @@ def main():
 
         best_params = {}
 
-        # Phase 2a  —  Parameter Optimisation
+        # Phase 2a  —  Parameter Optimisation with holdout: fit on the early
+        # window, report the late window per ticker (replaces the in-sample run).
+        if args.optimize and args.holdout > 0 and not args.portfolio:
+            from backtest.optimizer import run_holdout_backtest
+            run_holdout_backtest(tickers, strategy_cls, period=args.period,
+                                 cash=args.cash, holdout=args.holdout)
+            return
+
+        # Phase 2a  —  Parameter Optimisation (in-sample; --holdout 0 or --portfolio)
         if args.optimize:
             from backtest.optimizer import optimize_strategy
             best_params = optimize_strategy(
@@ -195,6 +218,11 @@ def main():
             from backtest.optimizer import optimize_strategy
             # Use first 5 tickers from Banking + IT as optimisation sample
             sample = (SECTORS["Banking"] + SECTORS["IT"])[:5]
+            if args.holdout > 0:
+                # Out-of-sample check of the optimiser on the sample tickers.
+                from backtest.optimizer import run_holdout_backtest
+                run_holdout_backtest(sample, strategy_cls, period=args.period,
+                                     cash=args.cash, holdout=args.holdout)
             best_params = optimize_strategy(
                 tickers      = sample,
                 strategy_cls = strategy_cls,
