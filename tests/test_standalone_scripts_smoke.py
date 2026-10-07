@@ -69,6 +69,8 @@ _STANDALONE_SCRIPTS = [
     ("research.fundamental_growth_regime",  "research/fundamental_growth_regime.py", ["main"]),
     ("research.revenue_growth_reconcile",   "research/revenue_growth_reconcile.py", ["main"]),
     ("research.falling_market_ranking",     "research/falling_market_ranking.py", ["main"]),
+    ("research.regime_breadth_study",       "research/regime_breadth_study.py",
+     ["main", "parse_full", "fill_cache", "regime_frame", "lag_table"]),
     ("tools.validate_valuation",            "tools/validate_valuation.py", ["main"]),
     ("tools.refresh_flags_batch",           "tools/refresh_flags_batch.py", ["main"]),
     ("tools.composite_golden",              "tools/composite_golden.py", ["main", "build_snapshot", "run_case"]),

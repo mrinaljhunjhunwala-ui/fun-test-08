@@ -1,0 +1,152 @@
+"""Daily NSE market breadth from bhavcopy sessions — PURE (no Streamlit, no I/O).
+
+Input is the parsed NSE ``sec_bhavdata_full`` data for many sessions, either a
+``{date: frame}`` dict or one long frame. Each frame needs the columns
+``SYMBOL, Close, Volume`` and ideally ``SERIES, PREV_CLOSE, DATE``.
+
+Why PREV_CLOSE matters: NSE adjusts ``PREV_CLOSE`` for splits and bonuses on
+the ex-date, so ``Close / PREV_CLOSE`` is the true one-day return even across
+corporate actions. Chaining those returns gives a split-consistent price index,
+which is what the moving-average and 52-week tests run on. Without PREV_CLOSE
+the raw close is used (a 1:1 bonus then reads as a -50% day).
+
+Output (``compute_breadth``): one row per session with
+  advances, declines, unchanged, n, ad_ratio, ad_line,
+  pct_above_20dma / 50dma / 200dma (among stocks with that much history),
+  new_52w_highs, new_52w_lows (close-based, stocks with >= 250 sessions),
+  up_volume, down_volume, up_volume_ratio.
+
+``breadth_regime`` turns that into a smoothed bull/bear/neutral read; the
+regime study (research/regime_breadth_study.py) is where its thresholds come from.
+"""
+from __future__ import annotations
+
+from typing import Dict, Iterable, Mapping, Optional, Union
+
+import numpy as np
+import pandas as pd
+
+SERIES_DEFAULT = ("EQ",)
+_RET_CLIP = 0.5          # |1-day return| > 50% on NSE EQ is almost always a data artefact
+
+
+def to_long(sessions: Union[Mapping, pd.DataFrame]) -> pd.DataFrame:
+    """Normalise a ``{date: frame}`` dict or a long frame to one long frame with DATE."""
+    if isinstance(sessions, pd.DataFrame):
+        out = sessions.copy()
+    else:
+        parts = []
+        for d, f in sessions.items():
+            if f is None or len(f) == 0:
+                continue
+            f = f.copy()
+            if "DATE" not in f.columns:
+                f["DATE"] = d
+            parts.append(f)
+        if not parts:
+            return pd.DataFrame(columns=["DATE", "SYMBOL", "Close", "Volume"])
+        out = pd.concat(parts, ignore_index=True)
+    out["DATE"] = pd.to_datetime(out["DATE"]).dt.normalize()
+    return out
+
+
+def build_panels(sessions: Union[Mapping, pd.DataFrame],
+                 series: Iterable[str] = SERIES_DEFAULT,
+                 universe: Optional[Iterable[str]] = None) -> Dict[str, pd.DataFrame]:
+    """Wide (date x symbol) panels: close, ret (1-day), adj (split-consistent index), volume."""
+    df = to_long(sessions)
+    if "SERIES" in df.columns and series:
+        df = df[df["SERIES"].astype(str).str.upper().isin({s.upper() for s in series})]
+    df = df.assign(SYMBOL=df["SYMBOL"].astype(str).str.upper())
+    if universe is not None:
+        uni = {str(u).upper().removesuffix(".NS") for u in universe}
+        df = df[df["SYMBOL"].isin(uni)]
+    df = df.drop_duplicates(["DATE", "SYMBOL"], keep="first")
+    close = df.pivot(index="DATE", columns="SYMBOL", values="Close").sort_index().astype(float)
+    vol = (df.pivot(index="DATE", columns="SYMBOL", values="Volume").sort_index().astype(float)
+           .reindex_like(close))
+    if "PREV_CLOSE" in df.columns:
+        prev = (df.pivot(index="DATE", columns="SYMBOL", values="PREV_CLOSE").sort_index()
+                .astype(float).reindex_like(close))
+        ret = close / prev.where(prev > 0) - 1.0
+    else:
+        ret = close.pct_change(fill_method=None)
+    ret = ret.where(ret.abs() <= _RET_CLIP)
+    # Chain returns into an index; a missing day leaves the index flat (NaN return -> 0).
+    adj = (1.0 + ret.fillna(0.0)).cumprod().where(close.notna())
+    return {"close": close, "ret": ret, "adj": adj, "volume": vol}
+
+
+def compute_breadth(sessions: Union[Mapping, pd.DataFrame, Dict[str, pd.DataFrame]],
+                    series: Iterable[str] = SERIES_DEFAULT,
+                    universe: Optional[Iterable[str]] = None,
+                    flat_tol: float = 0.0) -> pd.DataFrame:
+    """Daily breadth table (see module docstring). ``sessions`` may also be ``build_panels`` output."""
+    if isinstance(sessions, dict) and {"close", "ret", "adj"} <= set(sessions):
+        p = sessions
+    else:
+        p = build_panels(sessions, series=series, universe=universe)
+    ret, adj, vol = p["ret"], p["adj"], p["volume"]
+    if ret.empty:
+        return pd.DataFrame()
+
+    adv = (ret > flat_tol).sum(axis=1)
+    dec = (ret < -flat_tol).sum(axis=1)
+    unch = (ret.abs() <= flat_tol).sum(axis=1)
+    out = pd.DataFrame({"advances": adv, "declines": dec, "unchanged": unch,
+                        "n": adv + dec + unch})
+    out["ad_ratio"] = adv / dec.where(dec > 0)
+    out["ad_line"] = (adv - dec).cumsum()
+
+    present = adj.notna()
+    hist = present.cumsum()                      # sessions of history per stock
+    for w in (20, 50, 200):
+        ma = adj.rolling(w, min_periods=w).mean()
+        ok = ma.notna() & present
+        above = (adj > ma) & ok
+        out[f"pct_above_{w}dma"] = 100.0 * above.sum(axis=1) / ok.sum(axis=1).where(ok.sum(axis=1) > 0)
+
+    ok252 = (hist >= 250) & present
+    hi = adj.rolling(252, min_periods=250).max()
+    lo = adj.rolling(252, min_periods=250).min()
+    out["new_52w_highs"] = ((adj >= hi) & ok252).sum(axis=1)
+    out["new_52w_lows"] = ((adj <= lo) & ok252).sum(axis=1)
+    out.loc[ok252.sum(axis=1) == 0, ["new_52w_highs", "new_52w_lows"]] = np.nan
+
+    if vol is not None:
+        v = vol.where(ret.notna())
+        out["up_volume"] = v.where(ret > flat_tol).sum(axis=1)
+        out["down_volume"] = v.where(ret < -flat_tol).sum(axis=1)
+        tot = out["up_volume"] + out["down_volume"]
+        out["up_volume_ratio"] = out["up_volume"] / tot.where(tot > 0)
+    out.index.name = "date"
+    return out
+
+
+def smoothed(breadth: pd.DataFrame, window: int = 10) -> pd.DataFrame:
+    """10-session smoothing: mean of %-above columns, A/D ratio as sum(adv)/sum(dec)."""
+    b = breadth
+    out = pd.DataFrame(index=b.index)
+    for c in ("pct_above_20dma", "pct_above_50dma", "pct_above_200dma", "up_volume_ratio"):
+        if c in b:
+            out[c] = b[c].rolling(window, min_periods=max(1, window // 2)).mean()
+    a = b["advances"].rolling(window, min_periods=max(1, window // 2)).sum()
+    d = b["declines"].rolling(window, min_periods=max(1, window // 2)).sum()
+    out["ad_ratio"] = a / d.where(d > 0)
+    return out
+
+
+def breadth_regime(breadth: pd.DataFrame, window: int = 10,
+                   bear_pct50: float = 40.0, bull_pct50: float = 60.0,
+                   bear_ad: float = 1.0) -> pd.Series:
+    """bear / bull / neutral per session from smoothed breadth.
+
+    bear : smoothed %-above-50DMA < bear_pct50 AND smoothed A/D ratio < bear_ad
+    bull : smoothed %-above-50DMA > bull_pct50
+    """
+    s = smoothed(breadth, window)
+    lab = pd.Series("neutral", index=s.index, dtype=object)
+    lab[s["pct_above_50dma"] > bull_pct50] = "bull"
+    lab[(s["pct_above_50dma"] < bear_pct50) & (s["ad_ratio"] < bear_ad)] = "bear"
+    lab[s["pct_above_50dma"].isna()] = "unknown"
+    return lab
