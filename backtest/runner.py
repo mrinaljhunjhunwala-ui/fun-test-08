@@ -40,6 +40,15 @@ BT_KWARGS      = _costs.backtest_extra_kwargs()
 TOTAL_COST     = _costs.representative_round_trip_pct()      # disclosure figure
 PER_SIDE_COST  = TOTAL_COST / 2
 
+def numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Numeric OHLCV + indicator columns only, for Backtest / bt.optimize.
+
+    bt.optimize copies every column into shared memory, which crashes on a
+    pandas string dtype ('StringDtype' object has no attribute 'base').
+    """
+    return df.select_dtypes(include="number")
+
+
 # run_backtest(optimize=True) single-ticker grid (unchanged values).
 _RUNNER_GRID = {"rsi_oversold": range(25, 45, 5), "rsi_overbought": range(55, 75, 5)}
 
@@ -98,7 +107,7 @@ def run_backtest(
             # Only require OHLCV present — dropping rows with ANY indicator NaN can punch
             # mid-series gaps and distort bar timing. OHLCV is never NaN so bars stay
             # contiguous; the strategy handles its own indicator warm-up.
-            df = df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+            df = numeric_frame(df.dropna(subset=["Open", "High", "Low", "Close", "Volume"]))
 
             if len(df) < 60:
                 print(f"SKIP (only {len(df)} rows after indicator warmup)")

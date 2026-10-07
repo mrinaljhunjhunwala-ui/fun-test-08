@@ -18,6 +18,7 @@ from utils.indicators import add_all_indicators
 
 # Indian market costs — same model as backtest/runner.py (trading/costs.py).
 from backtest.runner import BT_KWARGS, COMMISSION, PER_SIDE_COST, TOTAL_COST  # noqa: E402,F401
+from backtest.runner import numeric_frame  # noqa: E402
 
 
 def run_portfolio_backtest(
@@ -65,7 +66,7 @@ def run_portfolio_backtest(
         print(f"  [{i:>2}/{n}] {ticker:<20}", end="  ", flush=True)
         try:
             df = fetch_single(ticker, period=period)
-            df = add_all_indicators(df)
+            df = numeric_frame(add_all_indicators(df))
             df.dropna(inplace=True)
 
             if len(df) < 60:

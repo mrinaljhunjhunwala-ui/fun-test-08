@@ -94,3 +94,43 @@ def test_runner_holdout_zero_unchanged(monkeypatch, tmp_path):
     CALLS.clear()
     rep = runner.run_backtest(["TOY.NS"], _Toy, optimize=True, plot=False, holdout=0.3)
     assert CALLS[-1][3] == 90 and "Window" in rep.columns
+
+
+def _string_frame(n=300):
+    df = _frame(n)
+    df["Sector"] = pd.Series(["Energy"] * n, index=df.index, dtype="string")
+    return df
+
+
+def test_optimize_strategy_survives_string_column(monkeypatch, tmp_path):
+    """Regression: a pandas StringDtype column crashed bt.optimize's shm copy."""
+    monkeypatch.chdir(tmp_path)  # writes best_params.json
+    monkeypatch.setattr(opt, "fetch_single", lambda t, period: _string_frame())
+    monkeypatch.setattr(opt, "add_all_indicators", lambda d: d)
+    monkeypatch.setitem(opt.PARAM_GRIDS, "_Toy", {"k": [1, 2]})
+    assert opt.optimize_strategy(["TOY.NS"], _Toy, sample_size=1) != {}
+
+
+def test_runner_optimize_survives_string_column(monkeypatch, tmp_path):
+    from backtest import runner
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runner, "fetch_single", lambda t, period: _string_frame())
+    monkeypatch.setattr(runner, "add_all_indicators", lambda d: d)
+    monkeypatch.setattr(runner, "_RUNNER_GRID", {"k": [1, 2]})
+    monkeypatch.setattr(runner, "_RUNNER_CONSTRAINT", None)
+    assert not runner.run_backtest(["TOY.NS"], _Toy, optimize=True, plot=False).empty
+
+
+def test_numeric_frame_drops_strings_only():
+    from backtest.runner import numeric_frame
+    out = numeric_frame(_string_frame(10))
+    assert "Sector" not in out and list(out.columns) == ["Open", "High", "Low", "Close", "Volume"]
+
+
+def test_oos_nan_prints_na_zero_trades():
+    res = {"best": {"k": 1}, "fit_range": "a", "test_range": "b", "n_fit": 1, "n_test": 1,
+           "in_sample": {"Sharpe": 1.0, "Win Rate (%)": 50.0, "# Trades": 2},
+           "out_of_sample": {"Sharpe": float("nan"), "Win Rate (%)": float("nan"), "# Trades": 0},
+           "skipped": None}
+    text = opt.format_holdout_report("TOY.NS", res)
+    assert text.count("n/a (0 trades)") == 2 and "nan" not in text

@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 PARAMS_FILE = "best_params.json"
 
 # Indian market costs — same model as backtest/runner.py (trading/costs.py).
-from backtest.runner import BT_KWARGS, COMMISSION  # noqa: E402
+from backtest.runner import BT_KWARGS, COMMISSION, numeric_frame  # noqa: E402
 
 # ── Parameter grids ────────────────────────────────────────────────────────────
 PARAM_GRIDS = {
@@ -140,7 +140,7 @@ def optimize_strategy(
         print(f"  Optimising {ticker}...", end="  ", flush=True)
         try:
             df = fetch_single(ticker, period=period)
-            df = add_all_indicators(df)
+            df = numeric_frame(add_all_indicators(df))
             df.dropna(inplace=True)
 
             if len(df) < 100:
@@ -267,9 +267,7 @@ def fit_and_test(df: pd.DataFrame, strategy_cls: Type, grid: Dict, frac: float,
     skipped}; out_of_sample is None (and `skipped` says why) when the holdout
     has fewer than MIN_HOLDOUT_BARS bars.
     """
-    # backtesting's optimiser copies columns into shared memory, which fails on
-    # pandas string dtypes ('StringDtype' has no .base) — keep numeric columns.
-    df = df.select_dtypes(include="number")
+    df = numeric_frame(df)
     fit_df, test_df = split_holdout(df, frac)
     out = {"best": {}, "fit_range": _range(fit_df), "test_range": _range(test_df),
            "n_fit": len(fit_df), "n_test": len(test_df),
@@ -301,8 +299,13 @@ def format_holdout_report(ticker: str, res: Dict) -> str:
              f"    {'Window':<14}{res['fit_range']:>34}   {res['test_range']:>30}",
              f"    {'Bars':<14}{res['n_fit']:>34}   {res['n_test']:>30}"]
     oos = res["out_of_sample"] or {}
-    for k, v in (res["in_sample"] or {}).items():
-        lines.append(f"    {k:<14}{v:>34}   {oos.get(k, 'n/a'):>30}")
+
+    def cell(stats, k):
+        v = stats.get(k, "n/a")
+        return "n/a (0 trades)" if isinstance(v, float) and np.isnan(v) else v
+
+    for k in (res["in_sample"] or {}):
+        lines.append(f"    {k:<14}{cell(res['in_sample'], k):>34}   {cell(oos, k):>30}")
     if res["skipped"]:
         lines.append(f"    NOTE: {res['skipped']}")
     else:
