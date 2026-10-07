@@ -17,7 +17,7 @@ from data.fetcher import fetch_single
 from utils.indicators import add_all_indicators
 
 # Indian market costs — same model as backtest/runner.py (trading/costs.py).
-from backtest.runner import COMMISSION, PER_SIDE_COST, TOTAL_COST  # noqa: E402,F401
+from backtest.runner import BT_KWARGS, COMMISSION, PER_SIDE_COST, TOTAL_COST  # noqa: E402,F401
 
 
 def run_portfolio_backtest(
@@ -74,7 +74,7 @@ def run_portfolio_backtest(
                 continue
 
             bt = Backtest(df, strategy_cls, cash=per_ticker_cash,
-                          commission=commission, exclusive_orders=True)
+                          commission=commission, exclusive_orders=True, **BT_KWARGS)
 
             stats = bt.run(**(strategy_params or {}))
 

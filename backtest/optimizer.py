@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 PARAMS_FILE = "best_params.json"
 
 # Indian market costs — same model as backtest/runner.py (trading/costs.py).
-from backtest.runner import COMMISSION  # noqa: E402
+from backtest.runner import BT_KWARGS, COMMISSION  # noqa: E402
 
 # ── Parameter grids ────────────────────────────────────────────────────────────
 PARAM_GRIDS = {
@@ -148,7 +148,7 @@ def optimize_strategy(
                 continue
 
             bt = Backtest(df, strategy_cls, cash=cash,
-                          commission=COMMISSION, exclusive_orders=True)
+                          commission=COMMISSION, exclusive_orders=True, **BT_KWARGS)
 
             opt_kwargs: Dict = {k: v for k, v in grid.items()}
             opt_kwargs["maximize"]       = "Sharpe Ratio"

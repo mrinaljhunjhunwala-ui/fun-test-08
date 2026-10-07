@@ -160,6 +160,13 @@ def backtest_commission_arg():
     return representative_round_trip_pct()
 
 
+def backtest_extra_kwargs() -> dict:
+    """Extra backtesting.Backtest kwargs that keep stats comparable across
+    versions. 0.5.x closed a position still open at the end and counted it in
+    # Trades / Win Rate; 0.6 leaves it open unless finalize_trades=True."""
+    return {"finalize_trades": True} if supports_callable_commission() else {}
+
+
 def supports_callable_commission() -> bool:
     """backtesting.py accepts a per-fill commission callable from 0.6 on
     (0.5.0 accepts only a float)."""
