@@ -75,7 +75,8 @@ def test_rows_with_only_unreached_gaps_are_skipped(monkeypatch):
     _seed([("2026-09-08T20:00:00", OLD.isoformat(), "OLD.NS", 100.0, "WATCH", "medium", "x")])
     assert vl.backfill_returns()["updated"] == 1
     # 1d/5d now filled; 20d/60d/250d are the only gaps and none is reached
-    assert vl.backfill_returns() == {"scanned": 0, "updated": 0, "tickers_fetched": 0}
+    assert vl.backfill_returns() == {"scanned": 0, "updated": 0, "tickers_fetched": 0,
+                                       "skipped_no_entry_bar": 0}
 
 
 def test_max_rows_still_caps_the_batch(monkeypatch):

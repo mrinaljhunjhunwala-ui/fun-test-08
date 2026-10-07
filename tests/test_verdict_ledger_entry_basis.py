@@ -155,3 +155,92 @@ def test_shadow_pnl_labels_the_logged_price(monkeypatch):
     exp = _pct(_close("SH.NS", vl.horizon_target_date(dt.date(2026, 8, 10), 5)),
                _close("SH.NS", dt.date(2026, 8, 10)))
     assert sh["return_5d_pct"].iloc[0] == exp
+
+
+def _late(start, end=None):
+    def f(t):
+        h = _history(t)
+        if t == vl.NIFTY_BENCH:
+            return h
+        return h.loc[pd.Timestamp(start):(pd.Timestamp(end) if end else None)]
+    return f
+
+
+def test_no_entry_bar_skips_row_instead_of_mixing_bases(monkeypatch):
+    _patch(monkeypatch)
+    # History starts after the entry session: no close for the stock's entry.
+    monkeypatch.setattr(vl, "_fetch_history", _late("2026-09-17"))
+    _seed([(LOGGED.isoformat(), "LATE.NS", 101.0, "WATCH")])
+    stats = vl.backfill_returns()
+    assert stats["skipped_no_entry_bar"] == 1 and stats["updated"] == 0
+    assert _rets("LATE.NS") is None                  # no ret on a mixed basis
+    with sqlite3.connect(trade_store._SQLITE_PATH) as con:   # ticker alive: no miss
+        assert (con.execute("SELECT backfill_misses FROM verdict_log").fetchone()[0] or 0) == 0
+
+
+def test_no_entry_bar_on_dead_ticker_counts_a_miss(monkeypatch):
+    _patch(monkeypatch)
+    monkeypatch.setattr(vl, "_fetch_history", _late("2026-09-16", "2026-09-17"))
+    _seed([(LOGGED.isoformat(), "GONE.NS", 101.0, "WATCH")])
+    stats = vl.backfill_returns()
+    assert stats["skipped_no_entry_bar"] == 1
+    with sqlite3.connect(trade_store._SQLITE_PATH) as con:
+        assert con.execute("SELECT backfill_misses FROM verdict_log").fetchone()[0] == 1
+
+
+def _seed_old_basis():
+    close = _close("OLD.NS", LOGGED)
+    _seed([(LOGGED.isoformat(), "OLD.NS", close * 1.02, "WATCH")])
+    vl.backfill_returns()
+    p1 = _close("OLD.NS", vl.horizon_target_date(LOGGED, 1))
+    p5 = _close("OLD.NS", vl.horizon_target_date(LOGGED, 5))
+    with sqlite3.connect(trade_store._SQLITE_PATH) as con:
+        con.execute("UPDATE verdict_forward_returns SET ret_1d=?, ret_5d=?",
+                    (_pct(p1, close * 1.02), _pct(p5, close * 1.02)))
+    return close, p1
+
+
+def test_repair_dry_run_lists_every_row_and_writes_csv(monkeypatch, capsys, tmp_path):
+    _patch(monkeypatch)
+    close, p1 = _seed_old_basis()
+    out_csv = tmp_path / "plan.csv"
+    assert repair.main(["--dry-run", "--csv", str(out_csv)]) == 0
+    out = capsys.readouterr().out
+    assert "old_implied_entry" in out and "session_close" in out and "OLD.NS" in out
+    df = pd.read_csv(out_csv)
+    assert list(df.columns) == repair._FIELDS
+    assert sorted(df["horizon"]) == [1, 5]
+    r1 = df.set_index("horizon").loc[1]
+    assert r1["old_ret"] == _pct(p1, close * 1.02) and r1["new_ret"] == _pct(p1, close)
+    assert abs(r1["old_implied_entry"] - close * 1.02) < 1e-2 and r1["session_close"] == close
+    assert _rets("OLD.NS")[0] == _pct(p1, close * 1.02)       # dry run wrote nothing
+
+
+def test_repair_fetches_with_no_connection_held(monkeypatch, capsys):
+    from contextlib import contextmanager
+
+    _patch(monkeypatch)
+    _seed_old_basis()
+    held = {"n": 0, "max_during_fetch": 0}
+    real = trade_store._get_conn
+
+    @contextmanager
+    def counting():
+        held["n"] += 1
+        try:
+            with real() as c:
+                yield c
+        finally:
+            held["n"] -= 1
+
+    def fetch(t):
+        held["max_during_fetch"] = max(held["max_during_fetch"], held["n"])
+        return _history(t)
+
+    monkeypatch.setattr(trade_store, "_get_conn", counting)
+    monkeypatch.setattr(vl, "_fetch_history", fetch)
+    assert repair.main(["--apply"]) == 0
+    assert held["max_during_fetch"] == 0
+    capsys.readouterr()
+    assert repair.main([]) == 0
+    assert "rows to update: 0" in capsys.readouterr().out     # idempotent

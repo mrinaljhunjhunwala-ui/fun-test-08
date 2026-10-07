@@ -597,9 +597,10 @@ def backfill_returns(*, max_rows: int = 200,
     instead of holding a batch slot on every pass and burning its whole
     _MAX_BACKFILL_MISSES budget in one run.
 
-    Returns {"scanned": n, "updated": n, "tickers_fetched": n}.
+    Returns {"scanned": n, "updated": n, "tickers_fetched": n,
+    "skipped_no_entry_bar": n}.
     """
-    stats = {"scanned": 0, "updated": 0, "tickers_fetched": 0}
+    stats = {"scanned": 0, "updated": 0, "tickers_fetched": 0, "skipped_no_entry_bar": 0}
     try:
         ensure_schema()
         today = last_closed_session()
@@ -678,7 +679,6 @@ def backfill_returns(*, max_rows: int = 200,
                 log_id = int(r["id"])
                 ticker = str(r["ticker"])
                 logged = _dt.date.fromisoformat(str(r["logged_date"]))
-                entry = r["entry_price"]
 
                 tdf = hist.get(ticker)
                 if tdf is None:
@@ -697,13 +697,14 @@ def backfill_returns(*, max_rows: int = 200,
                 # #304), while NIFTY was always anchored on the session
                 # close — mixing the two made "edge vs Nifty" partly an
                 # intraday-vs-close artefact. entry_price stays in
-                # verdict_log for display; it is only the fallback when the
-                # history no longer reaches back to the entry session.
-                close_entry = _session_close(tdf, anchor)
-                if close_entry is not None:
-                    entry = close_entry
+                # verdict_log for display only. When the history no longer
+                # reaches the entry session the row is skipped (no return is
+                # written): falling back to the logged price would put the
+                # stock leg on a different basis from NIFTY's.
+                entry = _session_close(tdf, anchor)
                 if entry is None or pd.isna(entry) or entry <= 0:
-                    if nifty_last is not None:
+                    stats["skipped_no_entry_bar"] += 1
+                    if _ticker_dead(tdf, nifty_last):
                         misses.append(log_id)
                     continue
 
@@ -733,9 +734,7 @@ def backfill_returns(*, max_rows: int = 200,
                 if not updates:
                     # A reached horizon with no bar: dead only if this ticker's
                     # history stops before NIFTY's (not just the EOD lag).
-                    t_last = _last_bar_date(tdf)
-                    if (nifty_last is not None and t_last is not None
-                            and horizon_target_date(t_last, _STALE_BEHIND_NIFTY_SESSIONS) <= nifty_last):
+                    if _ticker_dead(tdf, nifty_last):
                         misses.append(log_id)
                     continue
                 _upsert_returns(log_id, updates)
@@ -750,6 +749,13 @@ def backfill_returns(*, max_rows: int = 200,
     except Exception as e:
         _log.warning("backfill_returns failed: %s: %s", type(e).__name__, e)
     return stats
+
+
+def _ticker_dead(tdf: Optional[pd.DataFrame], nifty_last: Optional[_dt.date]) -> bool:
+    """A ticker's history stops well before NIFTY's (not just the EOD lag)."""
+    t_last = _last_bar_date(tdf)
+    return (nifty_last is not None and t_last is not None
+            and horizon_target_date(t_last, _STALE_BEHIND_NIFTY_SESSIONS) <= nifty_last)
 
 
 def _last_bar_date(df: Optional[pd.DataFrame]) -> Optional[_dt.date]:
