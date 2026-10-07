@@ -207,6 +207,22 @@ def test_revenue_cagr_negative_start_undefined():
     assert not r.available and r.value is None and "non-positive" in r.reason
 
 
+def test_revenue_yoy_uses_last_two_statements_only():
+    # 5y CAGR here is ~10%, but the latest year grew 25%: YoY must say 25.
+    incs = [_inc(2024, revenue=1500), _inc(2023, revenue=1200),
+            _inc(2022, revenue=1100), _inc(2021, revenue=1000)]
+    r = A.revenue_yoy(_cf(incs=incs))
+    assert r.available and r.value == pytest.approx(25.0, abs=0.01) and r.unit == "%"
+
+
+def test_revenue_yoy_missing_or_gapped_is_unavailable():
+    assert not A.revenue_yoy(_cf(incs=[_inc(2024, revenue=1000)])).available
+    gapped = A.revenue_yoy(_cf(incs=[_inc(2024, revenue=1300), _inc(2021, revenue=1000)]))
+    assert not gapped.available and gapped.value is None
+    neg = A.revenue_yoy(_cf(incs=[_inc(2024, revenue=1000), _inc(2023, revenue=-5)]))
+    assert not neg.available
+
+
 def test_eps_cagr_basic():
     incs = [_inc(2024, eps=13.31), _inc(2023, eps=12.1),
             _inc(2022, eps=11.0), _inc(2021, eps=10.0)]

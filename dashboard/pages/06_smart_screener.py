@@ -92,7 +92,10 @@ with _left:
         # informs without filtering; missing data is included by default.
         rg_filter = st.selectbox(
             "Revenue growth", list(_RG_THRESH), index=0, key="scr_rg_filter",
-            help="Filters results by annualised revenue growth (audited statements). "
+            help="Filters results by revenue growth, latest fiscal year vs the year before "
+                 "(YoY, audited annual statements). YoY is the definition the research "
+                 "supports (weak positive, IC about +0.07, docs/REVENUE_GROWTH_RECONCILE_2026-10-07.md); "
+                 "5-10y CAGR showed no signal. Display/filter only, never changes the score order. "
                  "Capped at 15%: higher thresholds were shown to distort discovery.")
         rg_excl_missing = st.toggle(
             "Hide missing growth data", value=False, key="scr_rg_excl",
@@ -177,10 +180,10 @@ def _run_scan() -> None:
         def _rg_for(sig):
             try:
                 from analysis.fundamentals.service import default_service
-                from analysis.fundamentals.analytics import revenue_cagr
+                from analysis.fundamentals.analytics import revenue_yoy
                 cf = default_service().get_fundamentals(sig["ticker"])
                 if cf is not None:
-                    r = revenue_cagr(cf, years=5)
+                    r = revenue_yoy(cf)  # YoY: the research-backed window
                     if getattr(r, "available", False) and r.value is not None:
                         return float(r.value)
             except Exception as _rg_thr_e:
@@ -290,7 +293,7 @@ def _render_detail(sig: dict, rank: int, enriched: bool) -> None:
             ("Target", _px(tp) if tp else "Trail SMA20", "scenario, not a call"),
             ("R:R", f'<span style="color:var(--{_rr_tone})">{rr:.1f}x</span>' if rr else "–",
              "reward per unit of risk"),
-            ("Rev growth /yr", f"{rg:+.1f}%" if rg is not None else "–", "audited statements"),
+            ("Rev growth (YoY)", f"{rg:+.1f}%" if rg is not None else "–", "latest FY vs prior FY"),
         ]), unsafe_allow_html=True)
         if sig.get("reason"):
             st.caption(f"📌 {sig['reason']}")
@@ -373,12 +376,12 @@ with _right:
                 "Price": s.get("price", 0) or 0,
                 "22d": s.get("_spark", []),
                 "R:R": s.get("_rr"),
-                "Rev Growth /yr": s.get("rev_growth"),
+                "Rev Growth (YoY)": s.get("rev_growth"),
             } for i, s in enumerate(_top, start=1)])
             # Coerce numeric columns so a missing value renders as an empty
             # cell — an all-None leading run left R:R as object dtype and the
             # grid printed the literal string "None".
-            for _nc in ("Score", "Price", "R:R", "Rev Growth /yr"):
+            for _nc in ("Score", "Price", "R:R", "Rev Growth (YoY)"):
                 _sig_df[_nc] = pd.to_numeric(_sig_df[_nc], errors="coerce")
             if not _enriched:
                 _sig_df = _sig_df.drop(columns=["Score"])
@@ -392,7 +395,7 @@ with _right:
                         "Score", min_value=0, max_value=90, format="%d"),
                     "Price": st.column_config.NumberColumn(format="₹%.2f"),
                     "R:R": st.column_config.NumberColumn(format="%.1fx"),
-                    "Rev Growth /yr": st.column_config.NumberColumn(format="%+.1f%%"),
+                    "Rev Growth (YoY)": st.column_config.NumberColumn(format="%+.1f%%"),
                     "22d": st.column_config.LineChartColumn(
                         "22d", width="small",
                         help="Last 22 daily closes (shape only — each row is self-scaled)."),

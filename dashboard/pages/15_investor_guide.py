@@ -169,12 +169,12 @@ with tab_g1, st.container(key="guide_ch_1"):
         "signal quality."
     )
     _callout(
-        "**Revenue growth** has been the strongest return-predictive signal identified in platform "
-        "research (2022–2025 validation: the highest rank-correlation with 6–12-month forward "
-        "returns of any metric tested, with returns rising across growth quintiles in both bull and "
-        "bear regimes). It is a measured, research-backed observation, not a recommendation, and "
-        "historical relationships may not persist. High growth alone says nothing about valuation, "
-        "risk or timing."
+        "**Revenue growth** (YoY, latest fiscal year vs the prior one) is a weak positive signal in "
+        "platform research: a per-date rank IC of about +0.07 against 6-month forward returns in "
+        "2023–25, fading in 2025–26; long 5–10-year CAGR showed no signal (revenue-growth reconcile, "
+        "Oct 2026, which superseded an earlier +0.14 headline). It is a measured observation, not a "
+        "recommendation, and historical relationships may not persist. High growth alone says "
+        "nothing about valuation, risk or timing."
     )
 
     _h3(1, 4, "VIX regime, the market fear gauge")

@@ -236,10 +236,10 @@ def render_revenue_growth_evidence() -> None:
     """Brief evidence disclosure for revenue growth (Revenue Growth Visibility
     Phase 1, R4). Same honesty discipline as the trend-quality components:
     states the research finding, avoids recommendation/forecast/certainty.
-    Source: docs/FUNDAMENTAL_QUALITY_REPORT.md (4,266 point-in-time observations)."""
+    Source: docs/REVENUE_GROWTH_RECONCILE_2026-10-07.md (supersedes the +0.14 headline)."""
     st.caption(
-        "🔬 Revenue growth has been the **strongest return-predictive signal** "
-        "identified in platform research (2022–2025 validation). Historical "
-        "relationships may not persist in future market environments — a "
-        "measured observation, not a buy signal."
+        "🔬 Revenue growth (YoY, latest fiscal year) is a **weak positive** signal in "
+        "platform research: per-date IC about +0.07 in 2023–25, fading in 2025–26; "
+        "long 5–10y CAGR showed none (docs/REVENUE_GROWTH_RECONCILE_2026-10-07.md). "
+        "Historical relationships may not persist — a measured observation, not a buy signal."
     )
