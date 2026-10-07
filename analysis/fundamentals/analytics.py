@@ -97,6 +97,33 @@ def revenue_cagr(cf: CompanyFundamentals, years: int = 5) -> AnalyticResult:
     return _growth_cagr(cf, cf.income_statements, "revenue", "Revenue CAGR", years)
 
 
+def revenue_yoy(cf: CompanyFundamentals) -> AnalyticResult:
+    """Latest annual revenue vs the annual statement before it (YoY, %).
+
+    This is the definition the revenue-growth research supports
+    (docs/REVENUE_GROWTH_RECONCILE_2026-10-07.md: "YoY (last 2)", per-date IC
+    about +0.07 in the original window). Long CAGRs (5-10y) showed no signal.
+    The two statements must be 9-15 months apart so a gap year is not
+    silently annualised as YoY.
+    """
+    metric = "Revenue growth (YoY)"
+    pts = _series(cf.income_statements, "revenue")
+    if len(pts) < 2:
+        return _na(metric, "%", f"need >=2 annual data points; have {len(pts)}")
+    (d0, v0), (d1, v1) = pts[-2], pts[-1]
+    gap = (d1 - d0).days
+    if not 270 <= gap <= 460:
+        return _na(metric, "%", f"last two statements are {gap} days apart, not a year")
+    if v0 <= 0:
+        return _na(metric, "%", f"prior-year revenue non-positive ({v0:.0f})")
+    return AnalyticResult(
+        metric=metric, value=round((v1 / v0 - 1.0) * 100, 2), unit="%", available=True,
+        confidence="medium", reason="",
+        detail={"start_date": str(d0), "end_date": str(d1), "start_value": v0,
+                "end_value": v1, "source": cf.provider_name},
+    )
+
+
 def eps_cagr(cf: CompanyFundamentals, years: int = 5) -> AnalyticResult:
     pts = _series(cf.income_statements, "eps_diluted")
     if len(pts) < 2:
