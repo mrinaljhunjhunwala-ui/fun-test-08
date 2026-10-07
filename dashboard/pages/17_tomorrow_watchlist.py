@@ -906,6 +906,16 @@ with _t4:
         import logging
         logging.getLogger("dashboard.tomorrow_watchlist").debug("past results failed: %s", _pr_err)
 
+# Momentum leaders: separate from the composite buckets above. Prefer the
+# list this scan carried; fall back to the persisted Top Picks scan's list.
+try:
+    from dashboard.shared.cache import get_momentum_leaders as _get_mom
+    from dashboard.shared.momentum_leaders_ui import render_momentum_leaders as _render_mom
+    _mom = _wl.get("momentum_leaders") if isinstance(_wl, dict) else None
+    _render_mom(_mom if (_mom or {}).get("leaders") else _get_mom())
+except Exception as _mom_e:
+    st.caption(f"Momentum leaders unavailable ({type(_mom_e).__name__}).")
+
 # FIX SCR-XREF — see the matching note in 06_smart_screener.py.
 with st.expander("↔️ Also see: Smart Screener · TQS Scanner", expanded=False):
     st.markdown(

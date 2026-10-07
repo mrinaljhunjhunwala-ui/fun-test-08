@@ -63,6 +63,7 @@ def main() -> int:
             _TOP_PICKS_KV_KEY,
             _TOP_PICKS_KV_USER,
             _ALL_SCORES_KV_KEY,   # FIX WL-SNAP1
+            _MOMENTUM_KV_KEY,
             get_vix_info,
             _sector_ranks_tuple,
         )
@@ -143,6 +144,7 @@ def main() -> int:
     # top-picks readers (called every render on Command Centre) don't drag
     # this larger payload around.
     _all_scored = result.pop("all_scored", {}) if isinstance(result, dict) else {}
+    _momentum = result.pop("momentum_leaders", None) if isinstance(result, dict) else None
 
     snapshot = {
         "data": result,
@@ -173,6 +175,14 @@ def main() -> int:
         _log.error("warm_top_picks: all-scored kv_set FAILED — watchlist page will fall "
                    "back to live per-ticker scoring this cycle")
 
+    # Third write: momentum leaders (regime-independent ranking, same frames).
+    if isinstance(_momentum, dict):
+        ok3 = store.kv_set(_MOMENTUM_KV_KEY, {"data": _momentum, "generated_at": _gen_at},
+                           user_id=_TOP_PICKS_KV_USER)
+        _log.info("warm_top_picks: momentum leaders (%d) persisted=%s, ledger rows sent=%d",
+                  len(_momentum.get("leaders", [])), ok3,
+                  log_momentum_leaders(_momentum.get("leaders", [])))
+
     _n_sent = log_shadow_picks(result.get("buys", []) if isinstance(result, dict) else [])
     _log.info("warm_top_picks: shadow ledger — %d pick(s) sent (repeats in a session are no-ops)",
               _n_sent)
@@ -195,6 +205,33 @@ def log_shadow_picks(buys) -> int:
             n += 1
         except Exception as e:
             _log.debug("shadow log skipped %s: %s", b.get("ticker"), e)
+    return n
+
+
+
+def log_momentum_leaders(leaders) -> int:
+    """Log each momentum leader to verdict_log under its OWN source,
+    "momentum_leaders" (never "shadow_auto"), so the list's follow-through can
+    be measured separately without touching the composite track record. The
+    posture logged is the composite's; the momentum rank rides as a tag.
+    Deduped per (session, ticker, horizon, source) by log_verdict."""
+    from analysis.final_verdict import combine
+    from analysis.verdict_ledger import log_verdict
+
+    n = 0
+    for r in leaders or []:
+        try:
+            fv = combine(composite_score=r.get("composite_score"),
+                         composite_action=r.get("composite_action"))
+            log_verdict(ticker=r["ticker"], final_verdict=fv,
+                        entry_price=r.get("price"),
+                        composite_score=r.get("composite_score"),
+                        signal_tags=[f"momentum:rank{r.get('rank')}",
+                                     f"momentum:score{int(r.get('momentum_score') or 0)}"],
+                        source="momentum_leaders")
+            n += 1
+        except Exception as e:
+            _log.debug("momentum ledger skipped %s: %s", r.get("ticker"), e)
     return n
 
 
