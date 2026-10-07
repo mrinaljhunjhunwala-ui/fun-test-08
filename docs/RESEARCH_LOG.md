@@ -29,6 +29,7 @@ the most useful entries for avoiding repeat work.
 
 | date | study | answer | decision | report |
 |---|---|---|---|---|
+| 2026-10-07 | Revenue-growth reconcile (#306) | Original +0.14 was overstated, not fake: recent growth reproduces at about +0.07 (NW t 2.6, 8 dates) in its own window, about +0.02 to +0.05 over 2022-10→2026-04. #301's −0.02 was mostly definition drift: after Screener.in (a5b607c, 2026-08-30) the research CAGR became 5–10y, which has no signal. | Weak positive signal, not the 'strongest'. Pin growth to YoY or a fixed lookback; #301's regime result applies to long CAGR only | [REVENUE_GROWTH_RECONCILE_2026-10-07](REVENUE_GROWTH_RECONCILE_2026-10-07.md) |
 | 2026-10-06 | Revenue growth by live regime (#301) | Too thin and not reproduced: 42 monthly dates (range 10, trend_down 2, risk_off 1); rev-growth per-date IC −0.02 overall (6m t −0.8), trend_up −0.05, range +0.02 with sign flip train→holdout; earlier +0.14 headline did NOT reproduce on nifty500 2022-10→2026-04 | Not a candidate; next: reconcile the +0.14 with fundamental_quality on its own universe/window, per-date IC | [REVENUE_GROWTH_BY_REGIME_2026-10-06](REVENUE_GROWTH_BY_REGIME_2026-10-06.md) |
 | 2026-10-06 | Sector-neutral reversal (#299) | Range reversal is within-sector selection: rev20 minus sector median IC20 +0.051 (t 3.75, 71% weeks +, 8/9 years); sector part −0.022 (laggard sectors don't bounce; sector-level IC −0.053, t −1.5); still fails #235 rule (A t 1.97, B t 1.00) | Production unchanged; any future reversal re-test should use the sector-neutral form | [REVERSAL_SECTOR_NEUTRAL_2026-10-06](REVERSAL_SECTOR_NEUTRAL_2026-10-06.md) |
 | 2026-10-06 | Range-regime reversal variant: costs, blend, liquidity, #235 rule | Direction consistent in both folds but no variant reaches t>2 in both; net-of-cost edge not significant (rev20 top-decile +0.51 pts/20s, t 1.6; liquid half +0.29, t 0.8); composite top decile lags range weeks net (−0.56, t −2.1) | Production unchanged, keep disclaimer; re-run after ~50 more range weeks | [REVERSAL_VARIANT_2026-10-06](REVERSAL_VARIANT_2026-10-06.md) |
@@ -42,6 +43,14 @@ the most useful entries for avoiding repeat work.
 | earlier | Fundamental quality | Revenue growth strongest signal (ρ ≈ +0.14 at 6m); ROE/leverage counter-productive 2022–25 | Revenue growth shown as observation, not blended into the score | [FUNDAMENTAL_QUALITY_REPORT](FUNDAMENTAL_QUALITY_REPORT.md) |
 | earlier | 5-year regime study | Score measures trend quality (+0.40), not returns (+0.02–0.03) | Framing | [REGIME_STUDY_REPORT](REGIME_STUDY_REPORT.md) |
 | earlier | Score variants: pattern / oversold-RSI | Pattern is dead weight; oversold-RSI is a trade-off | Pattern removed | [RESEARCH_SCORE_VARIANTS](RESEARCH_SCORE_VARIANTS.md) |
+
+## Ledger and data notes
+
+- **2026-10-07 (#304):** the verdict ledger's `shadow_auto` rows now cover EVERY scheduled
+  Top Picks scan, not only picks someone viewed in Command Centre. Split live_scorecard
+  results at this date.
+- **2026-10-07 (#303):** Yahoo's null last-session close is filled from meta. Before this,
+  daily histories, VIX and the ledger backfill could be one session stale.
 
 ## Reference numbers (10y production-mode efficacy, origin/main @ 701a6b9, 2026-10-06)
 
@@ -59,12 +68,13 @@ the most useful entries for avoiding repeat work.
 - **Point-in-time universe.** No historical index-membership list exists in the
   repo, so every study carries survivorship bias. Sourcing NSE's historical
   constituent files would make every result above more trustworthy.
-- **Reconcile the revenue-growth headline.** FUNDAMENTAL_QUALITY_REPORT's ρ ≈ +0.14
-  did not reproduce in #301 (per-date IC about −0.02 on nifty500, 2022-10 → 2026-04).
-  Re-run research/fundamental_quality.py on its own universe and window, and report
-  per-date IC, to find whether the cause is the universe, the window, the statement
-  source (Screener.in now ahead of yfinance) or pooled vs per-date IC. Until then,
-  treat the +0.14 as unconfirmed.
+- **Revenue growth by regime, short window.** Re-run #301 with YoY growth (the definition
+  that carries signal) instead of long CAGR. Evidence will stay thin: 41 dates, and few
+  outside trend_up.
+- **Screener "Revenue Growth" filter basis.** `dashboard/pages/06_smart_screener.py` uses a
+  5y `revenue_cagr`. The research that justified the filter measured 1–3y growth (Yahoo-only
+  history), and 5–10y CAGR shows no signal (#306). Consider a shorter or YoY definition, or
+  stop calling it a research-backed signal. That's a display decision for the dashboard owner.
 - **Range-regime reversal, prospective re-test.** Re-run `research/score_variants_reversal.py`
   after about 50 more range weeks have accumulated (roughly late 2027), using the same rule and
   no tuning. Test the sector-neutral form (`research/score_reversal_sector_neutral.py`) as
