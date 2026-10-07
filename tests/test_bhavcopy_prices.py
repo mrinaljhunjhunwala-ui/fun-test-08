@@ -152,3 +152,89 @@ def test_fetch_single_bhavcopy_not_used_for_intraday(monkeypatch):
     with pytest.raises(ValueError):
         fetcher.fetch_single("RELIANCE.NS", period="5d", interval="15m")
     assert called == []
+
+
+# ── Review fixes (PR #305) ───────────────────────────────────────────────────
+
+_IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+
+
+def test_last_published_session_skips_today_before_evening():
+    # 2026-10-07 is a Wednesday trading day.
+    assert bp.last_published_session(dt.datetime(2026, 10, 7, 12, 0, tzinfo=_IST)) == dt.date(2026, 10, 6)
+    assert bp.last_published_session(dt.datetime(2026, 10, 7, 19, 0, tzinfo=_IST)) == dt.date(2026, 10, 7)
+    # Monday morning -> previous Thursday (Fri 2026-10-02 is Gandhi Jayanti).
+    got = bp.last_published_session(dt.datetime(2026, 10, 5, 9, 0, tzinfo=_IST))
+    assert got == dt.date(2026, 10, 1)
+
+
+def test_negative_cache_stops_rerequests(tmp_path):
+    calls = []
+    good = _downloader(lambda d: 100.0)
+    missing = _sessions(1)[0]
+
+    def dl(d):
+        calls.append(d)
+        if d == missing:
+            raise ValueError("404")
+        return good(d)
+    for _ in range(3):
+        bp.fetch_bhavcopy_history("RELIANCE.NS", period="5d", download=dl,
+                                  today=TODAY, cache_dir=str(tmp_path))
+    assert calls.count(missing) == 1
+
+
+def test_bonus_like_drop_truncates_only_when_nifty_calm(tmp_path):
+    sess = _sessions(25)
+    ex = sess[-6]
+    dl = _downloader(lambda d: 300.0 if d < ex else 200.0)        # -33%, 1:2 bonus
+    calm = pd.Series(0.01, index=pd.DatetimeIndex([pd.Timestamp(d) for d in sess]))
+    df = bp.fetch_bhavcopy_history("RELIANCE.NS", period="1mo", download=dl, today=TODAY,
+                                   cache_dir=str(tmp_path), nifty=calm)
+    assert df.index[0].date() == ex
+    crash = calm.copy()
+    crash[pd.Timestamp(ex)] = 0.08
+    df = bp.fetch_bhavcopy_history("RELIANCE.NS", period="1mo", download=dl, today=TODAY,
+                                   cache_dir=str(tmp_path), nifty=crash)
+    assert len(df) == 21
+
+
+def _bhav_frame(tmp_path):
+    return bp.fetch_bhavcopy_history("RELIANCE.NS", period="2y", download=_downloader(lambda d: 100.0),
+                                     today=TODAY, cache_dir=str(tmp_path))
+
+
+def test_frame_attrs_tagged(tmp_path):
+    df = _bhav_frame(tmp_path)
+    assert df.attrs == {"source": "NSE-bhavcopy", "unadjusted": True,
+                        "truncated": True, "sessions": bp.MAX_SESSIONS}
+
+
+def test_degraded_source_flag_and_list_exclusion(tmp_path):
+    from analysis.edge_flags import edge_flags, list_exclusion
+    df = _bhav_frame(tmp_path)
+    flags = edge_flags(df, {}, today=TODAY)
+    f = next(f for f in flags if f.key == "degraded_source")
+    assert f.tone == "red" and f.label == "Degraded price data" and "60 sessions" in f.detail
+    assert list_exclusion(df, {}, today=TODAY) == "degraded price data (backup source)"
+    plain = df.copy()
+    plain.attrs = {}
+    assert all(f.key != "degraded_source" for f in edge_flags(plain, {}, today=TODAY))
+
+
+def test_attrs_survive_fetch_cache_and_indicators(monkeypatch):
+    from utils.indicators import add_all_indicators
+    monkeypatch.setattr(fetcher, "_FETCH_CACHE", {}, raising=False)
+    monkeypatch.setitem(__import__("sys").modules, "data.angel_fetcher",
+                        type("X", (), {"is_configured": lambda: False}))
+    monkeypatch.setattr(fetcher, "_fetch_yahoo_direct",
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError("down")))
+    monkeypatch.setattr(bp, "_default_download", _downloader(lambda d: 100.0))
+    real = bp.fetch_bhavcopy_history
+    monkeypatch.setattr(bp, "fetch_bhavcopy_history",
+                        lambda t, period="2y": real(t, period=period, today=TODAY))
+    first = fetcher.fetch_single("RELIANCE.NS", period="2y")
+    again = fetcher.fetch_single("RELIANCE.NS", period="2y")          # cache hit (.copy())
+    peek = fetcher.peek_cached("RELIANCE.NS", period="2y")
+    for d in (first, again, peek, add_all_indicators(again)):
+        assert d.attrs.get("source") == "NSE-bhavcopy"

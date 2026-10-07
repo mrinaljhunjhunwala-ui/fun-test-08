@@ -176,6 +176,7 @@ def _offline_bhavcopy_tier(request, monkeypatch, tmp_path):
 
     monkeypatch.setattr(_bp, "_CACHE_DIR", str(tmp_path / "bhavcopy"))
     monkeypatch.setattr(_bp, "_default_download", _offline)
+    monkeypatch.setattr(_bp, "_NEG_CACHE", {})
     yield
 
 

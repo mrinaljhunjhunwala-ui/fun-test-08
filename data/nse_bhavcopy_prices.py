@@ -17,9 +17,17 @@ Design
 
 Caveat — prices are NOT split/bonus adjusted. A raw bhavcopy series shows a
 fake gap on the ex-date. We do not serve that: if any one-day close move
-exceeds ``JUMP_THRESHOLD`` (40%), the frame is truncated to start AFTER the
-jump, with a WARNING. (Nifty has never moved 40% in a session, so such a move
-in a single stock is treated as a corporate action, not a market move.)
+exceeds ``JUMP_THRESHOLD`` (30%; a 1:2 bonus is about -33%) while NIFTY moved
+under 5% that day (checked against the fetcher's cached ^NSEI when present;
+bhavcopy has no index rows), the frame is truncated to start at the jump,
+with a WARNING.
+
+Load: the walk starts at the last session whose file can exist (today only
+after 18:30 IST), and missing dates are negatively cached in-process for
+30 min, so a universe scan on this tier doesn't hammer nsearchives.
+
+The returned frame carries ``attrs`` source/truncated/unadjusted/sessions,
+which analysis.edge_flags turns into a red "degraded_source" flag.
 """
 from __future__ import annotations
 
@@ -28,6 +36,8 @@ import datetime as _dt
 import io
 import logging
 import os
+import threading
+import time
 from typing import Callable, Dict, List, Optional
 
 import pandas as pd
@@ -35,7 +45,10 @@ import pandas as pd
 _log = logging.getLogger("data.nse_bhavcopy_prices")
 
 MAX_SESSIONS = 60
-JUMP_THRESHOLD = 0.40
+JUMP_THRESHOLD = 0.30            # a 1:2 bonus is about -33%
+NIFTY_CALM = 0.05               # only a corp action if NIFTY moved less than this
+NEG_TTL_S = 30 * 60             # don't re-request a missing session for 30 min
+_PUBLISH_IST = _dt.time(18, 30)  # bhavcopy is published in the evening
 _MAX_CONSEC_MISSES = 5          # stop walking back after this many failed downloads
 _SERIES = {"EQ", "BE"}
 _REQUIRED = {"SYMBOL", "SERIES", "DATE1", "OPEN_PRICE", "HIGH_PRICE",
@@ -93,6 +106,43 @@ def _default_download(d: _dt.date) -> str:
     return _fetch_bhavcopy(d)
 
 
+_NEG_CACHE: Dict[_dt.date, float] = {}
+_NEG_LOCK = threading.Lock()
+
+
+def _neg_cached(d: _dt.date) -> bool:
+    with _NEG_LOCK:
+        exp = _NEG_CACHE.get(d)
+        if exp is None:
+            return False
+        if exp < time.monotonic():
+            del _NEG_CACHE[d]
+            return False
+        return True
+
+
+def _neg_put(d: _dt.date) -> None:
+    with _NEG_LOCK:
+        _NEG_CACHE[d] = time.monotonic() + NEG_TTL_S
+
+
+def _now_ist() -> _dt.datetime:
+    return _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=5, minutes=30)))
+
+
+def last_published_session(now: Optional[_dt.datetime] = None) -> _dt.date:
+    """Latest session whose bhavcopy can exist: today only after 18:30 IST."""
+    from utils.nse_holidays import is_trading_day
+    n = now or _now_ist()
+    d = n.date()
+    if is_trading_day(d) and n.time() >= _PUBLISH_IST:
+        return d
+    d -= _dt.timedelta(days=1)
+    while not is_trading_day(d):
+        d -= _dt.timedelta(days=1)
+    return d
+
+
 def _recent_sessions(n: int, today: _dt.date) -> List[_dt.date]:
     from utils.nse_holidays import is_trading_day
     out: List[_dt.date] = []
@@ -112,9 +162,12 @@ def _load_session(d: _dt.date, download: Callable[[_dt.date], str],
             return pd.read_csv(path)
         except Exception as e:
             _log.debug("bhavcopy cache unreadable %s: %s — refetching", path, e)
+    if _neg_cached(d):
+        return None
     try:
         frame = parse_ohlcv(download(d))
     except Exception as e:
+        _neg_put(d)
         _log.debug("bhavcopy session %s unavailable: %s: %s", d, type(e).__name__, e)
         return None
     try:
@@ -125,10 +178,32 @@ def _load_session(d: _dt.date, download: Callable[[_dt.date], str],
     return frame
 
 
-def _truncate_at_jump(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+def _nifty_moves() -> Optional[pd.Series]:
+    """Abs daily NIFTY moves from the fetcher's cache, or None (check skipped)."""
+    try:
+        from data.fetcher import peek_cached
+        for p in ("2y", "1y", "5y"):
+            nd = peek_cached("^NSEI", period=p)
+            if nd is not None and not nd.empty:
+                s = nd["Close"].pct_change().abs()
+                s.index = pd.DatetimeIndex(s.index).normalize()
+                return s
+    except Exception as e:
+        _log.debug("NIFTY cross-check unavailable: %s", e)
+    return None
+
+
+def _truncate_at_jump(df: pd.DataFrame, symbol: str,
+                      nifty: Optional[pd.Series] = None) -> pd.DataFrame:
     """Drop everything up to an unadjusted split/bonus-like close jump."""
     chg = df["Close"].pct_change().abs()
     jumps = chg[chg > JUMP_THRESHOLD]
+    if not jumps.empty:
+        nifty = nifty if nifty is not None else _nifty_moves()
+        if nifty is not None:
+            calm = [ts for ts in jumps.index
+                    if ts not in nifty.index or not (nifty.get(ts, 0) >= NIFTY_CALM)]
+            jumps = jumps.loc[calm]
     if jumps.empty:
         return df
     cut = jumps.index[-1]
@@ -141,7 +216,8 @@ def _truncate_at_jump(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
 def fetch_bhavcopy_history(ticker: str, period: str = "2y", *,
                            download: Optional[Callable[[_dt.date], str]] = None,
                            today: Optional[_dt.date] = None,
-                           cache_dir: Optional[str] = None) -> pd.DataFrame:
+                           cache_dir: Optional[str] = None,
+                           nifty: Optional[pd.Series] = None) -> pd.DataFrame:
     """OHLCV frame (DatetimeIndex 'Date', Open/High/Low/Close/Volume) for one symbol.
 
     Raises ValueError when no session yields a row for the symbol.
@@ -155,7 +231,7 @@ def fetch_bhavcopy_history(ticker: str, period: str = "2y", *,
     cache_dir = cache_dir or _CACHE_DIR
 
     rows, misses = [], 0
-    for d in _recent_sessions(n, today or _dt.date.today()):
+    for d in _recent_sessions(n, today or last_published_session()):
         frame = _load_session(d, download, cache_dir)
         if frame is None:
             misses += 1
@@ -176,7 +252,9 @@ def fetch_bhavcopy_history(ticker: str, period: str = "2y", *,
     df.index = pd.DatetimeIndex(pd.to_datetime(df["DATE"]), name="Date")
     df = df[_COLS].astype(float).sort_index()
     df = df[~df.index.duplicated(keep="last")].dropna(subset=["Close"])
-    df = _truncate_at_jump(df, symbol)
+    df = _truncate_at_jump(df, symbol, nifty)
+    df.attrs.update({"source": "NSE-bhavcopy", "unadjusted": True,
+                     "truncated": want > len(df), "sessions": len(df)})
     if want > MAX_SESSIONS:
         _log.warning("bhavcopy: history truncated for %s — served %d sessions of %d "
                      "requested (period=%s); prices are NOT split/bonus adjusted",

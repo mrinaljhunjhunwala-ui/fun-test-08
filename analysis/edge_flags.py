@@ -72,6 +72,7 @@ def edge_flags(df: Optional[pd.DataFrame], info: Optional[Dict] = None,
                       + _dt.timedelta(hours=5, minutes=30)).date()
     flags: List[EdgeFlag] = []
     try:
+        flags += _source_flags(df)
         flags += _series_flags(info)
         flags += _history_flags(df, info, today)
         flags += _stale_flags(df, today)
@@ -86,6 +87,7 @@ def edge_flags(df: Optional[pd.DataFrame], info: Optional[Dict] = None,
 # screener ranking). The score still shows on Analyze Stock beside the red
 # flag. A circuit only excludes when locked (high == low) on the latest bar.
 _LIST_EXCLUDED = {
+    "degraded_source": "degraded price data (backup source)",
     "new_listing": "new listing (under 60 sessions)",
     "series_bz": "BZ series",
     "upper_circuit": "locked at upper circuit",
@@ -102,6 +104,15 @@ def list_exclusion(df: Optional[pd.DataFrame], info: Optional[Dict] = None,
         if f.key in _LIST_EXCLUDED:
             return _LIST_EXCLUDED[f.key]
     return None
+
+
+def _source_flags(df) -> List[EdgeFlag]:
+    attrs = getattr(df, "attrs", None) or {}
+    if attrs.get("source") != "NSE-bhavcopy":
+        return []
+    return [EdgeFlag("degraded_source", "red", "Degraded price data",
+                     f"Backup source (NSE end-of-day files): {attrs.get('sessions', len(df))} sessions, "
+                     "not split/bonus adjusted; the score rests on partial history.")]
 
 
 def _series_flags(info: Dict) -> List[EdgeFlag]:

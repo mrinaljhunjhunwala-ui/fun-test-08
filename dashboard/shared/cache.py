@@ -460,7 +460,9 @@ def load_ticker_df(ticker: str, period: str = "2y") -> pd.DataFrame:
     from data.fetcher import fetch_single
     from utils.indicators import add_all_indicators
     df = fetch_single(ticker, period=period)
+    _attrs = dict(df.attrs)
     df = add_all_indicators(df)
+    df.attrs.update(_attrs)   # provenance tag (e.g. NSE-bhavcopy) must reach edge flags
     _pre_drop_len = len(df)
     # Drop warm-up rows where core indicators are NaN so iloc[-1] is always valid
     df.dropna(subset=["RSI", "ATR", "SMA_200"], inplace=True)
