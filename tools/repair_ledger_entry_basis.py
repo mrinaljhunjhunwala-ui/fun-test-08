@@ -92,7 +92,7 @@ def plan_from_candidates(cands: list, fetch=None) -> Dict[str, list]:
 
     fetch = fetch or vl._fetch_history
     plan: Dict[str, list] = {"update": [], "detail": [], "no_history": [],
-                             "candidates": len(cands)}
+                             "candidates": len(cands), "changed_since_plan": 0}
     hist: Dict[str, object] = {}
     for rid, ticker, logged, pairs in cands:
         if ticker not in hist:
@@ -102,18 +102,19 @@ def plan_from_candidates(cands: list, fetch=None) -> Dict[str, list]:
         if close is None or close <= 0:
             plan["no_history"].append((rid, ticker))
             continue
-        upd = {}
+        upd, old_vals = {}, {}
         for h, (price, old, imp) in sorted(pairs.items()):
             if _same(imp, close):
                 continue
             new = round((price / close - 1.0) * 100.0, 4)
             upd[f"ret_{h}d"] = new
+            old_vals[f"ret_{h}d"] = old
             plan["detail"].append({
                 "id": rid, "ticker": ticker, "logged_date": logged, "horizon": h,
                 "old_ret": round(old, 4), "new_ret": new,
                 "old_implied_entry": round(imp, 4), "session_close": round(float(close), 4)})
         if upd:
-            plan["update"].append((rid, ticker, upd))
+            plan["update"].append((rid, ticker, upd, old_vals))
     return plan
 
 
@@ -122,14 +123,27 @@ def find_plan(cur, store, fetch=None) -> Dict[str, list]:
     return plan_from_candidates(load_candidates(cur, store), fetch)
 
 
-def apply_plan(conn, store, plan: Dict[str, list]) -> None:
-    """Apply every update in ONE transaction."""
+# A stored ret still "is" the planned old value within this tolerance.
+_OLD_TOL = 1e-6
+
+
+def apply_plan(conn, store, plan: Dict[str, list]) -> int:
+    """Apply every update in ONE transaction. Each UPDATE only fires while every
+    column it rewrites still holds the value seen at planning time, so a row
+    re-filled in between is left alone. Returns rows actually updated and sets
+    plan["changed_since_plan"]."""
     cur = conn.cursor()
-    for rid, _ticker, upd in plan["update"]:
+    done = 0
+    for rid, _ticker, upd, old in plan["update"]:
         sets = ", ".join(f"{k} = ?" for k in upd)
+        guard = " AND ".join(f"ABS({k} - ?) < {_OLD_TOL}" for k in upd)
         cur.execute(store._q(f"UPDATE verdict_forward_returns SET {sets} "
-                             "WHERE verdict_log_id = ?"), (*upd.values(), rid))
+                             f"WHERE verdict_log_id = ? AND {guard}"),
+                    (*upd.values(), rid, *(old[k] for k in upd)))
+        done += 1 if (cur.rowcount or 0) > 0 else 0
     conn.commit()
+    plan["changed_since_plan"] = len(plan["update"]) - done
+    return done
 
 
 _FIELDS = ["id", "ticker", "logged_date", "horizon", "old_ret", "new_ret",
@@ -150,10 +164,20 @@ def write_csv(path: str, detail: list) -> None:
 
 
 def _summary(plan: Dict[str, list]) -> str:
-    n_cols = sum(len(u) for _, _, u in plan["update"])
+    n_cols = sum(len(u) for _, _, u, _ in plan["update"])
     return (f"candidates (stored ret based on logged entry): {plan['candidates']}\n"
             f"rows to update: {len(plan['update'])} ({n_cols} ret column(s))\n"
             f"skipped, history no longer reaches entry session: {len(plan['no_history'])}")
+
+
+def _tables_exist(cur, store) -> bool:
+    """Both ledger tables exist (a fresh DB has none: 0 candidates, no DDL)."""
+    names = ("verdict_log", "verdict_forward_returns")
+    if store._is_pg():
+        cur.execute("SELECT to_regclass(%s), to_regclass(%s)", names)
+        return all(cur.fetchone())
+    cur.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN (?, ?)", names)
+    return cur.fetchone()[0] == 2
 
 
 def _read_candidates(store) -> list:
@@ -164,6 +188,8 @@ def _read_candidates(store) -> list:
             cur = conn.cursor()
             if store._is_pg():
                 cur.execute("SET TRANSACTION READ ONLY")
+            if not _tables_exist(cur, store):
+                return []
             return load_candidates(cur, store)
         finally:
             conn.rollback()
@@ -199,11 +225,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     # 3. apply: one short write transaction.
     with store._get_conn() as conn:
         try:
-            apply_plan(conn, store, plan)
+            done = apply_plan(conn, store, plan)
         except Exception:
             conn.rollback()
             raise
-    print(f"applied: {len(plan['update'])} row(s) updated.")
+    print(f"applied: {done} of {len(plan['update'])} planned row(s) updated.")
+    print(f"skipped {plan['changed_since_plan']} rows changed since planning")
     return 0
 
 

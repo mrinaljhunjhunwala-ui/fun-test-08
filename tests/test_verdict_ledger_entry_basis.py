@@ -244,3 +244,27 @@ def test_repair_fetches_with_no_connection_held(monkeypatch, capsys):
     capsys.readouterr()
     assert repair.main([]) == 0
     assert "rows to update: 0" in capsys.readouterr().out     # idempotent
+
+
+def test_repair_leaves_rows_changed_since_planning(monkeypatch, capsys):
+    _patch(monkeypatch)
+    close, p1 = _seed_old_basis()
+    real_plan = repair.plan_from_candidates
+
+    def plan_then_refill(cands, fetch=None):
+        plan = real_plan(cands, fetch)
+        with sqlite3.connect(trade_store._SQLITE_PATH) as con:   # concurrent re-fill
+            con.execute("UPDATE verdict_forward_returns SET ret_1d = 42.0")
+        return plan
+
+    monkeypatch.setattr(repair, "plan_from_candidates", plan_then_refill)
+    assert repair.main(["--apply"]) == 0
+    out = capsys.readouterr().out
+    assert "applied: 0 of 1" in out and "skipped 1 rows changed since planning" in out
+    assert _rets("OLD.NS")[0] == 42.0                       # left alone
+
+
+def test_repair_dry_run_on_missing_tables_finds_nothing(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(trade_store, "_SQLITE_PATH", str(tmp_path / "empty.db"))
+    assert repair.main(["--dry-run"]) == 0
+    assert "candidates (stored ret based on logged entry): 0" in capsys.readouterr().out
