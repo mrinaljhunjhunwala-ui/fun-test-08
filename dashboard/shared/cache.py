@@ -1594,11 +1594,13 @@ def get_regime_snapshot() -> "dict | None":
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_market_breadth() -> "dict | None":
     """Latest NSE-wide breadth (A/D, % above 20/50/200 DMA, 52w highs/lows,
-    breadth label) from the bhavcopy cache. Fetches at most 5 missing recent
-    sessions per run so the cache fills gradually; None when data is short."""
+    breadth label). Order: the snapshot persisted by the Tomorrow's Watchlist
+    warm scan when its as-of date is <= 4 days old, then the local bhavcopy
+    cache (fetching at most 5 missing sessions per run), then None. The dict's
+    "source" says which one served it."""
     try:
-        from data.market_breadth_loader import breadth_snapshot
-        return breadth_snapshot(max_downloads=5)
+        from data.market_breadth_loader import latest_snapshot
+        return latest_snapshot(max_downloads=5)
     except Exception as _e:
         _log.debug("cache.get_market_breadth failed: %s", _e)
         return None

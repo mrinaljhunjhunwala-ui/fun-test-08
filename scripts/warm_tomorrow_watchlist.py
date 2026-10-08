@@ -92,7 +92,26 @@ def main() -> int:
     else:
         _log.error("warm_tomorrow_watchlist: kv_set FAILED — snapshot not persisted this run "
                    "(app will fall back to a live scan)")
+    _persist_breadth()
     return 0
+
+
+def _persist_breadth() -> None:
+    """Market-breadth snapshot from the price frames the scan just fetched
+    (fetcher cache only, no network), persisted for the Command Centre panel
+    and the verdict-ledger shadow label. Best-effort; never raises."""
+    try:
+        from data.market_breadth_loader import persist_snapshot, snapshot_from_scan
+        from data.universe import get_universe
+        _t0 = datetime.datetime.now()
+        snap = snapshot_from_scan(get_universe("niftytotalmarket"), "niftytotalmarket")
+        ok = persist_snapshot(snap)
+        _log.info("warm_tomorrow_watchlist: breadth snapshot %s in %.1fs (%s)",
+                  "persisted" if ok else "NOT persisted",
+                  (datetime.datetime.now() - _t0).total_seconds(),
+                  {k: (snap or {}).get(k) for k in ("date", "universe_size", "breadth_label")})
+    except Exception as e:
+        _log.error("warm_tomorrow_watchlist: breadth snapshot failed: %s", e)
 
 
 if __name__ == "__main__":

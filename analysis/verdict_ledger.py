@@ -267,9 +267,11 @@ _breadth_shadow_cache: Dict[str, Any] = {"t": 0.0, "val": (None, None)}
 
 
 def _breadth_shadow() -> Tuple[Optional[str], Optional[float]]:
-    """(breadth_label, pct_above_50dma) from the on-disk bhavcopy cache, or (None, None).
+    """(breadth_label, pct_above_50dma) from the persisted scan snapshot, else the on-disk
+    bhavcopy cache, or (None, None).
 
-    Disk only (no downloads), memoised for 15 minutes, never raises. SHADOW
+    No downloads; the persisted snapshot is one KV read (a DB SELECT on Postgres),
+    memoised for 15 minutes so at most one read per window; never raises. SHADOW
     data: logged next to the verdict, with no effect on it.
     """
     c = _breadth_shadow_cache
@@ -277,8 +279,8 @@ def _breadth_shadow() -> Tuple[Optional[str], Optional[float]]:
         return c["val"]
     val: Tuple[Optional[str], Optional[float]] = (None, None)
     try:
-        from data.market_breadth_loader import breadth_snapshot
-        snap = breadth_snapshot(max_downloads=0)
+        from data.market_breadth_loader import latest_snapshot   # persisted KV, then disk
+        snap = latest_snapshot(max_downloads=0)
         if snap and snap.get("breadth_label") not in (None, "unknown"):
             pct = snap.get("pct_above_50dma")
             val = (str(snap["breadth_label"]), round(float(pct), 2) if pct is not None else None)

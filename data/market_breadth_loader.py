@@ -24,9 +24,24 @@ MIN_SESSIONS = 2                # A/D needs one prior close
 
 
 def _fill_prev_close(df: pd.DataFrame) -> pd.DataFrame:
-    """Files cached by the production reader lack PREV_CLOSE; use the prior session's close."""
+    """Files cached by the production reader lack PREV_CLOSE; use the prior cached
+    session's close, but only when that session is the immediately previous NSE
+    trading day. Across a gap in the cache the 'return' would span several days,
+    so PREV_CLOSE stays null there (the stock has no 1-day return that session)."""
+    from utils.nse_holidays import is_trading_day
+
     df = df.sort_values(["SYMBOL", "DATE"])
     prior = df.groupby("SYMBOL")["Close"].shift(1)
+    prior_date = df.groupby("SYMBOL")["DATE"].shift(1).astype(str).str[:10]
+    expected = {}
+    for ds in df["DATE"].dropna().unique():
+        d = _dt.date.fromisoformat(str(ds)[:10]) - _dt.timedelta(days=1)
+        for _ in range(30):
+            if is_trading_day(d):
+                break
+            d -= _dt.timedelta(days=1)
+        expected[ds] = d.isoformat()
+    prior = prior.where(prior_date == df["DATE"].map(expected))
     if "PREV_CLOSE" in df.columns:
         df["PREV_CLOSE"] = pd.to_numeric(df["PREV_CLOSE"], errors="coerce").fillna(prior)
     else:
@@ -67,42 +82,121 @@ def load_sessions(n: int = DEFAULT_SESSIONS, *, cache_dir: Optional[str] = None,
     return _fill_prev_close(pd.concat(parts, ignore_index=True))
 
 
-def _num(v) -> Optional[float]:
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return None
-    return None if f != f else f
-
-
 def breadth_snapshot(n: int = DEFAULT_SESSIONS, **kw) -> Optional[dict]:
     """Latest-session breadth as a plain dict, or None when there is too little data."""
     try:
-        from analysis.market_breadth import breadth_regime, compute_breadth
+        from analysis.market_breadth import compute_breadth, snapshot_from_breadth
         sessions = load_sessions(n, **kw)
         if sessions.empty or sessions["DATE"].nunique() < MIN_SESSIONS:
             return None
-        b = compute_breadth(sessions)
-        if b.empty:
-            return None
-        last = b.iloc[-1]
-        if not (last.get("advances", 0) + last.get("declines", 0)):
-            return None
-        label = str(breadth_regime(b).iloc[-1])
-        return {
-            "date": pd.Timestamp(b.index[-1]).date().isoformat(),
-            "sessions": int(len(b)),
-            "advances": int(last["advances"]),
-            "declines": int(last["declines"]),
-            "unchanged": int(last["unchanged"]),
-            "ad_ratio": _num(last.get("ad_ratio")),
-            "pct_above_20dma": _num(last.get("pct_above_20dma")),
-            "pct_above_50dma": _num(last.get("pct_above_50dma")),
-            "pct_above_200dma": _num(last.get("pct_above_200dma")),
-            "new_52w_highs": _num(last.get("new_52w_highs")),
-            "new_52w_lows": _num(last.get("new_52w_lows")),
-            "breadth_label": label,
-        }
+        snap = snapshot_from_breadth(compute_breadth(sessions))
+        if snap:
+            snap["source"] = "bhavcopy"
+            snap["universe"] = "all EQ"
+            snap["universe_size"] = int(sessions["SYMBOL"].nunique())
+        return snap
     except Exception as e:
         _log.debug("breadth_snapshot failed: %s: %s", type(e).__name__, e)
         return None
+
+
+# -- Persisted snapshot (written by scripts/warm_tomorrow_watchlist.py) -------
+KV_KEY = "market_breadth"
+KV_USER = "_system"
+MAX_AGE_DAYS = 4                # covers a weekend plus a holiday
+
+
+def _today_ist() -> _dt.date:
+    try:
+        from zoneinfo import ZoneInfo
+        return _dt.datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    except Exception:
+        return _dt.date.today()
+
+
+_MIN_SCAN_COVERAGE = 0.6
+
+
+def snapshot_from_scan(tickers, universe: str, period: str = "2y",
+                       peek: Optional[Callable] = None) -> Optional[dict]:
+    """Breadth from the price frames a scan ALREADY fetched (data.fetcher.peek_cached).
+    Never fetches; None when too few frames are cached, or when fewer than
+    _MIN_SCAN_COVERAGE of the universe is still cached (the fetch cache expires
+    after 5 min, so a slow scan would otherwise persist a partial "breadth")."""
+    try:
+        from analysis.market_breadth import breadth_from_price_frames
+        if peek is None:
+            from data.fetcher import peek_cached as peek
+        tickers = list(tickers)
+        frames = {}
+        for tk in tickers:
+            df = peek(tk, period=period)
+            if df is None:   # score_stock caches under the resolved symbol
+                try:
+                    from data.universe import resolve_ticker
+                    alias = resolve_ticker(tk.replace(".NS", ""))
+                    df = peek(alias, period=period) if alias and alias != tk else None
+                except Exception:
+                    df = None
+            if df is not None:
+                frames[tk] = df
+        if tickers and len(frames) < _MIN_SCAN_COVERAGE * len(tickers):
+            _log.warning("breadth snapshot skipped: only %d/%d frames cached",
+                         len(frames), len(tickers))
+            return None
+        snap = breadth_from_price_frames(frames)
+        if snap:
+            snap["source"] = "scan"
+            snap["universe"] = universe
+        return snap
+    except Exception as e:
+        _log.debug("snapshot_from_scan failed: %s: %s", type(e).__name__, e)
+        return None
+
+
+def persist_snapshot(snap: Optional[dict], kv_set: Optional[Callable] = None) -> bool:
+    """Write ``snap`` to the shared trade_store KV. False on any failure."""
+    if not snap:
+        return False
+    try:
+        if kv_set is None:
+            import trade_store
+            kv_set = trade_store.kv_set
+        payload = {"data": dict(snap),
+                   "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+        return bool(kv_set(KV_KEY, payload, user_id=KV_USER))
+    except Exception as e:
+        _log.debug("persist_snapshot failed: %s: %s", type(e).__name__, e)
+        return False
+
+
+def persisted_snapshot(max_age_days: int = MAX_AGE_DAYS, *, today: Optional[_dt.date] = None,
+                       kv_get: Optional[Callable] = None) -> Optional[dict]:
+    """The KV snapshot when its as-of date is at most ``max_age_days`` calendar days old."""
+    try:
+        if kv_get is None:
+            import trade_store
+            kv_get = trade_store.kv_get
+        raw = kv_get(KV_KEY, user_id=KV_USER)
+        data = raw.get("data") if isinstance(raw, dict) else None
+        if not (isinstance(data, dict) and data.get("date")):
+            return None
+        age = ((today or _today_ist()) - _dt.date.fromisoformat(str(data["date"])[:10])).days
+        if age < 0 or age > max_age_days:
+            return None
+        out = dict(data)
+        out.setdefault("source", "scan")
+        out["generated_at"] = raw.get("generated_at")
+        return out
+    except Exception as e:
+        _log.debug("persisted_snapshot failed: %s: %s", type(e).__name__, e)
+        return None
+
+
+def latest_snapshot(max_downloads: int = 0, *, today: Optional[_dt.date] = None,
+                    kv_get: Optional[Callable] = None, **kw) -> Optional[dict]:
+    """Fresh persisted snapshot, else the local bhavcopy computation, else None."""
+    snap = persisted_snapshot(today=today, kv_get=kv_get)
+    if snap:
+        return snap
+    return breadth_snapshot(max_downloads=max_downloads, **kw)
