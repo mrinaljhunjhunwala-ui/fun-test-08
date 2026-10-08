@@ -1591,6 +1591,19 @@ def get_regime_snapshot() -> "dict | None":
         return None
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_market_breadth() -> "dict | None":
+    """Latest NSE-wide breadth (A/D, % above 20/50/200 DMA, 52w highs/lows,
+    breadth label) from the bhavcopy cache. Fetches at most 5 missing recent
+    sessions per run so the cache fills gradually; None when data is short."""
+    try:
+        from data.market_breadth_loader import breadth_snapshot
+        return breadth_snapshot(max_downloads=5)
+    except Exception as _e:
+        _log.debug("cache.get_market_breadth failed: %s", _e)
+        return None
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_fii_dii_recent(days: int = 10) -> "dict | None":
     """Latest FII/DII cash-market day plus 5-session FII sum, from the
