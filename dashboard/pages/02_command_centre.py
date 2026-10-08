@@ -215,6 +215,19 @@ def _fmt_pct(v) -> str:
     return f"{v:.0f}%" if isinstance(v, (int, float)) else "–"
 
 
+def _breadth_provenance(b: dict) -> str:
+    """'as of 08 Oct · niftytotalmarket, 825 stocks' (escaped, small header text)."""
+    try:
+        asof = _mb_dt.date.fromisoformat(str(b.get("date"))[:10]).strftime("%d %b")
+    except Exception:
+        asof = str(b.get("date") or "?")
+    uni = b.get("universe") or ("all EQ" if b.get("source") == "bhavcopy" else "?")
+    size = b.get("universe_size")
+    tail = f", {int(size):,} stocks" if isinstance(size, (int, float)) else ""
+    src = "bhavcopy" if b.get("source") == "bhavcopy" else "scan"
+    return _html.escape(f"as of {asof} · {uni}{tail} · {src}")
+
+
 def _render_breadth_panel() -> None:
     from analysis.market_breadth import breadth_agreement
     from dashboard.shared.cache import get_market_breadth
@@ -227,8 +240,7 @@ def _render_breadth_panel() -> None:
         st.markdown(section_header("NSE breadth", "all EQ stocks · bhavcopy"), unsafe_allow_html=True)
         st.caption("Breadth unavailable: not enough bhavcopy sessions cached yet.")
         return
-    st.markdown(section_header("NSE breadth", f"all EQ stocks · bhavcopy {_html.escape(b['date'])}"
-                               f" · {b['sessions']} sessions"), unsafe_allow_html=True)
+    st.markdown(section_header("NSE breadth", _breadth_provenance(b)), unsafe_allow_html=True)
     _ad = b.get("ad_ratio")
     _hi, _lo = b.get("new_52w_highs"), b.get("new_52w_lows")
     cells = [

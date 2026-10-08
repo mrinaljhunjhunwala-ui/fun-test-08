@@ -180,3 +180,88 @@ def breadth_agreement(app_label: Optional[str], breadth_label: Optional[str],
     if fam == br:
         return {"status": "MATCH", "text": f"{head}: breadth agrees"}
     return {"status": "MISMATCH", "text": f"{head}: breadth disagrees (reads {br})"}
+
+
+# -- Snapshot helpers (shared by the bhavcopy loader and the scan warmer) --
+def _num(v) -> Optional[float]:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f
+
+
+def snapshot_from_breadth(b: pd.DataFrame) -> Optional[dict]:
+    """Latest row of a ``compute_breadth`` table as a plain dict; None when empty."""
+    if b is None or b.empty:
+        return None
+    last = b.iloc[-1]
+    if not (last.get("advances", 0) + last.get("declines", 0)):
+        return None
+    return {
+        "date": pd.Timestamp(b.index[-1]).date().isoformat(),
+        "sessions": int(len(b)),
+        "advances": int(last["advances"]),
+        "declines": int(last["declines"]),
+        "unchanged": int(last["unchanged"]),
+        "ad_ratio": _num(last.get("ad_ratio")),
+        "pct_above_20dma": _num(last.get("pct_above_20dma")),
+        "pct_above_50dma": _num(last.get("pct_above_50dma")),
+        "pct_above_200dma": _num(last.get("pct_above_200dma")),
+        "new_52w_highs": _num(last.get("new_52w_highs")),
+        "new_52w_lows": _num(last.get("new_52w_lows")),
+        "breadth_label": str(breadth_regime(b).iloc[-1]),
+    }
+
+
+def frames_to_long(frames: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """``{ticker: OHLC frame (DatetimeIndex)}`` -> long (DATE, SYMBOL, Close, Volume).
+
+    Frames whose last bar is older than the most common last date are cut to
+    that date, so a single stale or early-printing ticker cannot make the
+    latest "session" a near-empty row.
+    """
+    parts, last_dates = [], []
+    for tk, df in (frames or {}).items():
+        if df is None or len(df) == 0:
+            continue
+        cols = {str(c).lower(): c for c in df.columns}
+        if "close" not in cols:
+            continue
+        idx = pd.to_datetime(df.index, errors="coerce")
+        if getattr(idx, "tz", None) is not None:
+            idx = idx.tz_localize(None)
+        part = pd.DataFrame({
+            "DATE": idx.normalize(),
+            "SYMBOL": str(tk).upper().removesuffix(".NS").removesuffix(".BO"),
+            "Close": pd.to_numeric(df[cols["close"]], errors="coerce").to_numpy(),
+            "Volume": (pd.to_numeric(df[cols["volume"]], errors="coerce").to_numpy()
+                       if "volume" in cols else np.nan),
+        }).dropna(subset=["DATE", "Close"])
+        if part.empty:
+            continue
+        parts.append(part)
+        last_dates.append(part["DATE"].max())
+    if not parts:
+        return pd.DataFrame(columns=["DATE", "SYMBOL", "Close", "Volume"])
+    cutoff = pd.Series(last_dates).mode().max()
+    out = pd.concat(parts, ignore_index=True)
+    return out[out["DATE"] <= cutoff]
+
+
+def breadth_from_price_frames(frames: Mapping[str, pd.DataFrame],
+                              min_stocks: int = 20) -> Optional[dict]:
+    """Breadth snapshot from per-ticker daily price frames (e.g. a scan's ~1-2y history).
+
+    Same fields as the bhavcopy snapshot plus ``universe_size`` (tickers with
+    data). Closes come from the frames as-is (Yahoo's are split-adjusted), so
+    there is no PREV_CLOSE. None when fewer than ``min_stocks`` usable frames.
+    """
+    long = frames_to_long(frames)
+    n = int(long["SYMBOL"].nunique()) if not long.empty else 0
+    if n < min_stocks or long["DATE"].nunique() < 2:
+        return None
+    snap = snapshot_from_breadth(compute_breadth(long, series=()))
+    if snap:
+        snap["universe_size"] = n
+    return snap
