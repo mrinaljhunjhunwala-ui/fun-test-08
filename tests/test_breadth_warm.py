@@ -106,3 +106,11 @@ def test_fill_prev_close_nulls_across_gaps():
     assert out["2026-10-06"] == 100.0
     assert pd.isna(out["2026-10-08"])        # previous cached session is not 10-07
     assert pd.isna(out["2026-10-05"])
+
+
+def test_snapshot_from_scan_skips_partial_universe():
+    # Fetch cache expired for most tickers (slow scan): must not persist partial breadth.
+    import data.market_breadth_loader as mbl
+    tickers = [f"T{i}.NS" for i in range(100)]
+    frames = {tk: None for tk in tickers}
+    assert mbl.snapshot_from_scan(tickers, "niftytotalmarket", peek=lambda tk, period=None: frames[tk]) is None

@@ -114,16 +114,37 @@ def _today_ist() -> _dt.date:
         return _dt.date.today()
 
 
+_MIN_SCAN_COVERAGE = 0.6
+
+
 def snapshot_from_scan(tickers, universe: str, period: str = "2y",
                        peek: Optional[Callable] = None) -> Optional[dict]:
     """Breadth from the price frames a scan ALREADY fetched (data.fetcher.peek_cached).
-    Never fetches; None when too few frames are cached."""
+    Never fetches; None when too few frames are cached, or when fewer than
+    _MIN_SCAN_COVERAGE of the universe is still cached (the fetch cache expires
+    after 5 min, so a slow scan would otherwise persist a partial "breadth")."""
     try:
         from analysis.market_breadth import breadth_from_price_frames
         if peek is None:
             from data.fetcher import peek_cached as peek
-        frames = {tk: peek(tk, period=period) for tk in tickers}
-        snap = breadth_from_price_frames({k: v for k, v in frames.items() if v is not None})
+        tickers = list(tickers)
+        frames = {}
+        for tk in tickers:
+            df = peek(tk, period=period)
+            if df is None:   # score_stock caches under the resolved symbol
+                try:
+                    from data.universe import resolve_ticker
+                    alias = resolve_ticker(tk.replace(".NS", ""))
+                    df = peek(alias, period=period) if alias and alias != tk else None
+                except Exception:
+                    df = None
+            if df is not None:
+                frames[tk] = df
+        if tickers and len(frames) < _MIN_SCAN_COVERAGE * len(tickers):
+            _log.warning("breadth snapshot skipped: only %d/%d frames cached",
+                         len(frames), len(tickers))
+            return None
+        snap = breadth_from_price_frames(frames)
         if snap:
             snap["source"] = "scan"
             snap["universe"] = universe

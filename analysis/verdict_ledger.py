@@ -270,7 +270,8 @@ def _breadth_shadow() -> Tuple[Optional[str], Optional[float]]:
     """(breadth_label, pct_above_50dma) from the persisted scan snapshot, else the on-disk
     bhavcopy cache, or (None, None).
 
-    Disk only (no downloads), memoised for 15 minutes, never raises. SHADOW
+    No downloads; the persisted snapshot is one KV read (a DB SELECT on Postgres),
+    memoised for 15 minutes so at most one read per window; never raises. SHADOW
     data: logged next to the verdict, with no effect on it.
     """
     c = _breadth_shadow_cache
