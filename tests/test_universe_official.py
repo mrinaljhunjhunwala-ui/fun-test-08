@@ -94,3 +94,34 @@ def test_import_does_no_network():
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                        cwd=u.__file__.rsplit("data", 1)[0])
     assert r.returncode == 0, r.stderr[-2000:]
+
+
+def test_fetcher_nifty50_matches_official_csv():
+    from data.fetcher import NIFTY50_TICKERS
+    assert len(NIFTY50_TICKERS) == 50 and len(set(NIFTY50_TICKERS)) == 50
+    assert set(NIFTY50_TICKERS) == set(u.NIFTY50_OFFICIAL)
+    from dashboard.shared.chart_helpers import _NIFTY50_TICKERS
+    assert set(_NIFTY50_TICKERS) == set(NIFTY50_TICKERS)
+
+
+# Former constituents that still have rows in the production verdict ledger /
+# trades / snapshot caches (read-only prod check, 2026-10-08). Ledger
+# forward-return sector baskets use SECTOR_MAP, and lookups use resolve_ticker,
+# so both must keep resolving after the names left the scan universe.
+_LEDGER_FORMER = ["BIKAJI.NS", "SOLARA.NS", "SKFINDUS.NS", "APLLTD.NS", "MAHSEAMLES.NS",
+                  "HEG.NS", "NOCIL.NS", "AARTIDRUGS.NS", "BBTC.NS", "ALIVUS.NS"]
+
+
+@pytest.mark.parametrize("tk", _LEDGER_FORMER)
+def test_former_ledger_tickers_still_resolve(tk):
+    assert tk in u.FORMER_CONSTITUENTS
+    assert u.resolve_ticker(tk.replace(".NS", "")) == tk
+    assert tk not in u.get_universe("niftytotalmarket")
+
+
+# Of those, the ones that had a sector before the rebuild must keep it (the
+# others -- SKFINDUS, APLLTD, MAHSEAMLES -- were already unmapped).
+@pytest.mark.parametrize("tk", ["BIKAJI.NS", "SOLARA.NS", "HEG.NS", "NOCIL.NS",
+                                "AARTIDRUGS.NS", "BBTC.NS", "ALIVUS.NS"])
+def test_former_ledger_tickers_keep_sector(tk):
+    assert u.SECTOR_MAP.get(tk) not in (None, "", "Other")
