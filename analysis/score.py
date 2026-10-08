@@ -200,6 +200,10 @@ def _get_flows_cached() -> Optional[Dict]:
             _cut = (pd.Timestamp(_expected_last_session())
                     - pd.Timedelta(days=_FLOWS_MAX_AGE_DAYS))
             _fd = _fd[pd.to_datetime(_fd["date"], errors="coerce") >= _cut]
+            # FIX FLOWS-NAN (audit #28): a row missing either net used to be
+            # summed as 0 (fillna) — a fabricated "flat" day. Drop it instead,
+            # so too few real rows means flows are missing, not neutral-zero.
+            _fd = _fd.dropna(subset=["fii_net", "dii_net"])
         if _fd is not None and not _fd.empty and len(_fd) >= 3:
             v: Optional[Dict] = {
                 "fii_5d": float(_fd["fii_net"].fillna(0).sum()),

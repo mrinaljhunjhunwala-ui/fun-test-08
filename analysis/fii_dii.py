@@ -15,14 +15,19 @@ Nifty moves:
 
 WHERE THE DATA COMES FROM (all FREE)
 ────────────────────────────────────
-Two sources, tried in order:
+Tried in order (FIX FIIDII-FALLBACK, audit #28):
 
-  1. NSE India `/api/fiidiiTradeReact` — official, current-day + prior day.
-     Cloud IPs often blocked (403 / rate-limit) so this is only tried when
-     we're not already sitting on a fresh cache row for today.
-  2. Moneycontrol `stocks/marketstats/fii_dii_activity/index.php` — HTML
-     table scrape (requires beautifulsoup4, already installed for the
-     Screener fundamentals provider). Historical coverage is deep.
+  1. NSE `/api/fiidiiTradeReact` — official, all-exchange (NSE+BSE+MSEI)
+     cash figures for the latest session. Called directly first (as of
+     2026-10-08 the API answers 200 while the homepage cookie-prime gets
+     403), then once more after a best-effort cookie prime.
+  2. NSE `/api/fiidiiTradeNse` — same JSON shape, NSE-exchange-only figures.
+     Same sign almost always, smaller magnitude; stored with source
+     "nse_exchange_only" and never overwrites a date already stored.
+
+The old moneycontrol scrape was removed: the page is now client-rendered
+(no FII/DII table in the HTML; earlier 403s), so it could never return rows
+and only added a 12 s timeout to every failed refresh.
 
 Everything successfully fetched is persisted to the same DB trade_store
 manages (SQLite/Postgres), one row per date. On a fetch failure we surface
@@ -148,93 +153,68 @@ def _parse_num(txt: str) -> Optional[float]:
         return None
 
 
-def _fetch_nse() -> List[Dict]:
-    """Primary source: NSE's own JSON. Often 403 from cloud IPs — that's fine."""
+_NSE_HOME = "https://www.nseindia.com/"
+_NSE_REACT = "https://www.nseindia.com/api/fiidiiTradeReact"
+_NSE_EXCH_ONLY = "https://www.nseindia.com/api/fiidiiTradeNse"
+
+
+def _parse_nse_payload(payload) -> List[Dict]:
+    """NSE fiidiiTrade* JSON -> [{date, fii_buy/sell/net, dii_buy/sell/net}]."""
+    # payload is a list of {"category":"FII/FPI *","date":"04-Sep-2026",
+    # "buyValue":"12345.67","sellValue":"11111.11","netValue":"1234.56"}
+    latest: Dict[str, Dict] = {}
+    for entry in payload if isinstance(payload, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        cat = str(entry.get("category", "")).upper()
+        try:
+            d = _dt.datetime.strptime(str(entry.get("date", "")), "%d-%b-%Y").date().isoformat()
+        except ValueError:
+            continue
+        side = "fii" if "FII" in cat or "FPI" in cat else ("dii" if "DII" in cat else None)
+        if not side:
+            continue
+        row = latest.setdefault(d, {"date": d})
+        row[f"{side}_buy"] = _parse_num(entry.get("buyValue"))
+        row[f"{side}_sell"] = _parse_num(entry.get("sellValue"))
+        row[f"{side}_net"] = _parse_num(entry.get("netValue"))
+    # A row is only usable when BOTH nets parsed — a half row would be
+    # summed as 0 by the score's 5-day flow sum.
+    return [r for r in latest.values()
+            if r.get("fii_net") is not None and r.get("dii_net") is not None]
+
+
+def _nse_get_json(url: str):
+    """GET an NSE API: direct first, then once more after a cookie prime."""
     session = requests.Session()
     session.headers.update({
-        "User-Agent": _UA, "Accept": "application/json",
-        "Referer": "https://www.nseindia.com/",
+        "User-Agent": _UA, "Accept": "application/json, text/plain, */*",
+        "Referer": _NSE_HOME,
     })
-    try:
-        # Prime cookie
-        session.get("https://www.nseindia.com/", timeout=_TIMEOUT)
-        r = session.get("https://www.nseindia.com/api/fiidiiTradeReact",
-                        timeout=_TIMEOUT)
-        if r.status_code != 200:
-            _log.info("NSE fii/dii returned %s — falling back to moneycontrol", r.status_code)
-            return []
-        payload = r.json()
-        rows: List[Dict] = []
-        # payload is a list of {"category":"FII/FPI *","date":"04-Sep-2026",
-        # "buyValue":"12345.67","sellValue":"11111.11","netValue":"1234.56"}
-        latest: Dict[str, Dict] = {}
-        for entry in payload:
-            cat = str(entry.get("category", "")).upper()
-            date_raw = entry.get("date", "")
+    for attempt in (0, 1):
+        if attempt:
             try:
-                d = _dt.datetime.strptime(date_raw, "%d-%b-%Y").date().isoformat()
-            except Exception:
-                continue
-            side = "fii" if "FII" in cat or "FPI" in cat else ("dii" if "DII" in cat else None)
-            if not side:
-                continue
-            row = latest.setdefault(d, {"date": d})
-            row[f"{side}_buy"]  = _parse_num(entry.get("buyValue"))
-            row[f"{side}_sell"] = _parse_num(entry.get("sellValue"))
-            row[f"{side}_net"]  = _parse_num(entry.get("netValue"))
-        rows = list(latest.values())
-        return rows
-    except Exception as e:
-        _log.info("NSE fii/dii fetch failed: %s: %s", type(e).__name__, e)
-        return []
+                session.get(_NSE_HOME, timeout=_TIMEOUT)   # best effort
+            except requests.RequestException as e:
+                _log.debug("NSE cookie prime failed: %s", e)
+        try:
+            r = session.get(url, timeout=_TIMEOUT)
+            if r.status_code == 200:
+                return r.json()
+            _log.info("NSE %s returned %s (attempt %d)", url, r.status_code, attempt + 1)
+        except (requests.RequestException, ValueError) as e:
+            _log.info("NSE %s failed: %s: %s", url, type(e).__name__, e)
+    return None
 
 
-_MC_URL = "https://www.moneycontrol.com/stocks/marketstats/fii_dii_activity/index.php"
+def _fetch_nse() -> List[Dict]:
+    """Primary source: NSE all-exchange FII/DII cash figures."""
+    return _parse_nse_payload(_nse_get_json(_NSE_REACT))
 
 
-def _fetch_moneycontrol() -> List[Dict]:
-    """Fallback: scrape moneycontrol's public FII/DII activity table."""
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        _log.warning("beautifulsoup4 not available — moneycontrol scraper disabled")
-        return []
-    try:
-        r = requests.get(_MC_URL, headers={"User-Agent": _UA}, timeout=_TIMEOUT)
-        if r.status_code != 200:
-            _log.info("moneycontrol fii/dii returned %s", r.status_code)
-            return []
-        soup = BeautifulSoup(r.text, "lxml")
-        # The page lays out two tables (FII cash, DII cash) with an id or
-        # a caption containing "FII" / "DII". Find them by header text.
-        tables = soup.find_all("table")
-        parsed: Dict[str, Dict] = {}
-        for tbl in tables:
-            caption = (tbl.find("caption").get_text(" ", strip=True)
-                       if tbl.find("caption") else "")
-            heads = " ".join(th.get_text(" ", strip=True)
-                             for th in tbl.find_all("th"))
-            blob = (caption + " " + heads).upper()
-            side = "fii" if "FII" in blob else ("dii" if "DII" in blob else None)
-            if not side:
-                continue
-            for tr in tbl.find_all("tr"):
-                cells = [td.get_text(strip=True) for td in tr.find_all("td")]
-                if len(cells) < 4:
-                    continue
-                # Row shape: date, buy, sell, net
-                try:
-                    d = _dt.datetime.strptime(cells[0], "%d-%b-%Y").date().isoformat()
-                except Exception:
-                    continue
-                row = parsed.setdefault(d, {"date": d})
-                row[f"{side}_buy"]  = _parse_num(cells[1])
-                row[f"{side}_sell"] = _parse_num(cells[2])
-                row[f"{side}_net"]  = _parse_num(cells[3])
-        return list(parsed.values())
-    except Exception as e:
-        _log.info("moneycontrol fii/dii scrape failed: %s: %s", type(e).__name__, e)
-        return []
+def _fetch_nse_exchange_only() -> List[Dict]:
+    """Fallback: NSE-exchange-only FII/DII cash figures (same JSON shape)."""
+    return _parse_nse_payload(_nse_get_json(_NSE_EXCH_ONLY))
 
 
 def refresh(*, force: bool = False) -> Dict:
@@ -242,7 +222,8 @@ def refresh(*, force: bool = False) -> Dict:
     Fetch latest FII/DII, persist, and report status. Idempotent — if today's
     data is already stored (and force=False) we skip the network entirely.
 
-    Returns {"rows_written": n, "source": "nse|moneycontrol|cache", "latest_date": …}.
+    Returns {"rows_written": n, "source": "nse|nse_exchange_only|cache|unavailable",
+    "latest_date": …}.
     """
     ensure_schema()
     today = _dt.date.today().isoformat()
@@ -256,8 +237,15 @@ def refresh(*, force: bool = False) -> Dict:
     rows = _fetch_nse()
     src = "nse"
     if not rows:
-        rows = _fetch_moneycontrol()
-        src = "moneycontrol"
+        rows = _fetch_nse_exchange_only()
+        src = "nse_exchange_only"
+        if rows:
+            # Never replace an all-exchange row with the narrower basis.
+            have = set(load_history(days=10).get("date", pd.Series(dtype=str)).astype(str))
+            rows = [r for r in rows if r["date"] not in have]
+            if not rows:
+                return {"rows_written": 0, "source": "cache",
+                        "latest_date": max(have) if have else None}
     if not rows:
         latest = load_history(days=1)
         return {"rows_written": 0, "source": "unavailable",
