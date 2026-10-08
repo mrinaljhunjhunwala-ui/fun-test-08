@@ -264,6 +264,34 @@ def get_market_news(max_articles: int = 8) -> List[Dict]:
 
 # ── yfinance fallbacks ────────────────────────────────────────────────────────
 
+def _flatten_yf_news_item(item: dict) -> Dict:
+    """Return {title, publisher, link, ts} from a yfinance ``.news`` item.
+
+    yfinance 0.2.x returned flat dicts (title / publisher / link /
+    providerPublishTime epoch). yfinance >=0.2.48 and every 1.x release
+    nest everything under ``content`` (title, provider.displayName,
+    canonicalUrl.url, pubDate ISO string). Both shapes are accepted.
+    """
+    if not isinstance(item, dict):
+        return {"title": "", "publisher": "", "link": "#", "ts": 0}
+    content = item.get("content")
+    if isinstance(content, dict):
+        prov = content.get("provider") or {}
+        url = ((content.get("canonicalUrl") or {}).get("url")
+               or (content.get("clickThroughUrl") or {}).get("url") or "#")
+        ts = 0
+        pub = content.get("pubDate") or content.get("displayTime")
+        if pub:
+            try:
+                ts = datetime.fromisoformat(str(pub).replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                ts = 0
+        return {"title": content.get("title", "") or "",
+                "publisher": prov.get("displayName", "") if isinstance(prov, dict) else "",
+                "link": url, "ts": ts}
+    return {"title": item.get("title", "") or "", "publisher": item.get("publisher", ""),
+            "link": item.get("link", "#"), "ts": item.get("providerPublishTime", 0)}
+
 def _yfinance_stock_fallback(ticker: str, max_articles: int) -> List[Dict]:
     """Use yfinance .news as a last-resort fallback for a single ticker."""
     try:
@@ -271,11 +299,11 @@ def _yfinance_stock_fallback(ticker: str, max_articles: int) -> List[Dict]:
         sym = ticker if ticker.endswith(".NS") else f"{ticker}.NS"
         raw = yf.Ticker(sym).news or []
         result = []
-        for item in raw[:max_articles]:
+        for item in (_flatten_yf_news_item(i) for i in raw[:max_articles]):
             title = item.get("title", "")
             if not title:
                 continue
-            ts = item.get("providerPublishTime", 0)
+            ts = item.get("ts", 0)
             try:
                 time_str = datetime.fromtimestamp(ts).strftime("%d %b %H:%M")
             except Exception as _e:
@@ -302,12 +330,12 @@ def _yfinance_market_fallback(max_articles: int) -> List[Dict]:
         import yfinance as yf
         for sym in ["^NSEI", "RELIANCE.NS", "TCS.NS"]:
             try:
-                for item in (yf.Ticker(sym).news or [])[:3]:
+                for item in (_flatten_yf_news_item(i) for i in (yf.Ticker(sym).news or [])[:3]):
                     title = item.get("title", "")
                     if not title or title in seen:
                         continue
                     seen.add(title)
-                    ts = item.get("providerPublishTime", 0)
+                    ts = item.get("ts", 0)
                     try:
                         time_str = datetime.fromtimestamp(ts).strftime("%d %b %H:%M")
                     except Exception as _e:

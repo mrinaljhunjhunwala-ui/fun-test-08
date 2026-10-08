@@ -50,8 +50,13 @@ def fetch_data(ticker: str, period: str = "5y") -> pd.DataFrame:
         import yfinance as yf
         # Raw basis, same as data.fetcher (FIX OHLC-BASIS).
         df = yf.download(ticker, period=period, auto_adjust=False, progress=False)
+        # yfinance 1.x: MultiIndex (Price, Ticker) columns even for one ticker.
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [c[0] for c in df.columns]
+            lvl = next((i for i in range(df.columns.nlevels)
+                        if "Close" in set(df.columns.get_level_values(i))), 0)
+            df.columns = df.columns.get_level_values(lvl)
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+            df.index = df.index.tz_convert("Asia/Kolkata").tz_localize(None)
 
     if df is None or df.empty:
         raise ValueError(f"{ticker}: no data returned")

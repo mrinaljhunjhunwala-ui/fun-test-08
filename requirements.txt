@@ -11,7 +11,7 @@
 # code change to this file, not a Tuesday-morning surprise.
 
 # ── Core data ────────────────────────────────────────────────────────────────
-yfinance>=0.2.36,<0.3
+yfinance>=1.0,<2  # 1.x: MultiIndex download cols, nested .news items; code normalises both (audit #31)
 pandas>=2.0.0,<3.0
 numpy>=1.24.0,<3.0
 
