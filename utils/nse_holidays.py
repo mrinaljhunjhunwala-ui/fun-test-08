@@ -103,6 +103,18 @@ NSE_HOLIDAYS: frozenset[str] = frozenset({
     "2027-10-29",   # Diwali — Laxmi Pujan / Balipratipada (lunar — projected)
 })
 
+# Special sessions NSE ran on a weekend or a listed holiday (Muhurat trading,
+# Budget-day Saturday, DR-site live sessions). A daily bar on one of these
+# dates is real and must NOT be dropped as a holiday placeholder.
+SPECIAL_SESSIONS: frozenset[str] = frozenset({
+    "2024-01-20",   # Saturday special live session (DR switchover)
+    "2024-03-02",   # Saturday DR-site live session
+    "2024-05-18",   # Saturday DR-site live session
+    "2024-11-01",   # Muhurat trading (Diwali)
+    "2025-02-01",   # Union Budget - Saturday session
+    "2025-10-21",   # Muhurat trading (Diwali)
+})
+
 # Years the calendar above covers, and those still awaiting NSE's circular.
 # FIX HOLIDAY-YEAR (audit 2026-10-03): the list used to stop at 2026 with no
 # signal, so every 2027 holiday would have counted as a trading day.
