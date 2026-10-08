@@ -52,7 +52,7 @@ from __future__ import annotations
 import datetime as _dt
 import logging
 import time
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -242,8 +242,50 @@ def ensure_schema() -> None:
                 except Exception as e:   # another connection added it first
                     if "duplicate column" not in str(e).lower():
                         raise
+        # Additive migration (2026-10-08): SHADOW breadth regime read at log
+        # time. Recorded only for a later re-test; never read by scoring.
+        _shadow_cols = (("breadth_label", "TEXT"), ("breadth_pct_above_50dma", real))
+        if is_pg:
+            for c, t in _shadow_cols:
+                cur.execute(f"ALTER TABLE verdict_log ADD COLUMN IF NOT EXISTS {c} {t}")
+        else:
+            cur.execute("PRAGMA table_info(verdict_log)")
+            have_v = {row[1] for row in cur.fetchall()}
+            for c, t in _shadow_cols:
+                if c not in have_v:
+                    try:
+                        cur.execute(f"ALTER TABLE verdict_log ADD COLUMN {c} {t}")
+                    except Exception as e:   # another connection added it first
+                        if "duplicate column" not in str(e).lower():
+                            raise
         conn.commit()
     _schema_ready_for = key
+
+
+_BREADTH_SHADOW_TTL_S = 15 * 60
+_breadth_shadow_cache: Dict[str, Any] = {"t": 0.0, "val": (None, None)}
+
+
+def _breadth_shadow() -> Tuple[Optional[str], Optional[float]]:
+    """(breadth_label, pct_above_50dma) from the on-disk bhavcopy cache, or (None, None).
+
+    Disk only (no downloads), memoised for 15 minutes, never raises. SHADOW
+    data: logged next to the verdict, with no effect on it.
+    """
+    c = _breadth_shadow_cache
+    if c["t"] and time.monotonic() - c["t"] < _BREADTH_SHADOW_TTL_S:
+        return c["val"]
+    val: Tuple[Optional[str], Optional[float]] = (None, None)
+    try:
+        from data.market_breadth_loader import breadth_snapshot
+        snap = breadth_snapshot(max_downloads=0)
+        if snap and snap.get("breadth_label") not in (None, "unknown"):
+            pct = snap.get("pct_above_50dma")
+            val = (str(snap["breadth_label"]), round(float(pct), 2) if pct is not None else None)
+    except Exception as e:
+        _log.debug("breadth shadow unavailable: %s: %s", type(e).__name__, e)
+    c.update(t=time.monotonic(), val=val)
+    return val
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -312,12 +354,14 @@ def log_verdict(*,
             getattr(fv, "limiting_gate", None),
             (getattr(fv, "primary_reason", "") or "")[:500] or None,
             source,
+            *_breadth_shadow(),     # SHADOW: recorded only, never read by scoring
         )
         cols = ("logged_at,logged_date,ticker,entry_price,verdict,conviction,"
                 "confidence,horizon,composite_score,composite_action,tqs,"
                 "valuation_posture,thesis_verdict,thesis_score,quality_score,"
-                "quality_flags,limiting_gate,primary_reason,source")
-        placeholders = ",".join(["?"] * 19)
+                "quality_flags,limiting_gate,primary_reason,source,"
+                "breadth_label,breadth_pct_above_50dma")
+        placeholders = ",".join(["?"] * len(row))
 
         with _store._get_conn() as conn:
             cur = conn.cursor()

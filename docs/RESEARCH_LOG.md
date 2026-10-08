@@ -81,3 +81,4 @@ the most useful entries for avoiding repeat work.
   after about 50 more range weeks have accumulated (roughly late 2027), using the same rule and
   no tuning. Test the sector-neutral form (`research/score_reversal_sector_neutral.py`) as
   the primary candidate; #299 found it cleaner than raw rev20. See [REVERSAL_VARIANT_2026-10-06](REVERSAL_VARIANT_2026-10-06.md).
+- **Shadow breadth label, prospective re-test.** `verdict_log.breadth_label` and `breadth_pct_above_50dma` began logging on 2026-10-08 (bhavcopy breadth regime at log time, no effect on scoring); re-test label-vs-breadth forward returns around April 2027.

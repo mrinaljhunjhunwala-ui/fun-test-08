@@ -210,6 +210,56 @@ except Exception as _hv_err:
     logging.getLogger("dashboard.command_centre").debug("hero_verdict render failed: %s", _hv_err)
 
 
+# ── NSE-wide breadth (bhavcopy) next to the regime label ─────────────────────
+def _fmt_pct(v) -> str:
+    return f"{v:.0f}%" if isinstance(v, (int, float)) else "–"
+
+
+def _render_breadth_panel() -> None:
+    from analysis.market_breadth import breadth_agreement
+    from dashboard.shared.cache import get_market_breadth
+    from dashboard.shared.ui_components import chip_pill
+    try:
+        b = get_market_breadth()
+    except Exception:
+        b = None
+    if not b:
+        st.markdown(section_header("NSE breadth", "all EQ stocks · bhavcopy"), unsafe_allow_html=True)
+        st.caption("Breadth unavailable: not enough bhavcopy sessions cached yet.")
+        return
+    st.markdown(section_header("NSE breadth", f"all EQ stocks · bhavcopy {_html.escape(b['date'])}"
+                               f" · {b['sessions']} sessions"), unsafe_allow_html=True)
+    _ad = b.get("ad_ratio")
+    _hi, _lo = b.get("new_52w_highs"), b.get("new_52w_lows")
+    cells = [
+        ("Adv / Dec", f"{b['advances']:,} / {b['declines']:,}",
+         f"A/D {_ad:.2f}" if isinstance(_ad, (int, float)) else "A/D –"),
+        ("Above 20DMA", _fmt_pct(b.get("pct_above_20dma")), "share of stocks"),
+        ("Above 50DMA", _fmt_pct(b.get("pct_above_50dma")), "share of stocks"),
+        ("Above 200DMA", _fmt_pct(b.get("pct_above_200dma")), "share of stocks"),
+        ("52W highs / lows",
+         f"{int(_hi)} / {int(_lo)}" if isinstance(_hi, (int, float)) and isinstance(_lo, (int, float)) else "–",
+         "close-based"),
+    ]
+    st.markdown(gate_strip(cells), unsafe_allow_html=True)
+    agree = breadth_agreement(_cc_label, b.get("breadth_label"), b.get("pct_above_50dma"))
+    tone = {"MATCH": "good", "MISMATCH": "warn"}.get(agree["status"], "neutral")
+    st.markdown(
+        f'<div style="font-size:12px;color:var(--dim);margin:4px 0 12px">'
+        f'{chip_pill(agree["status"], tone=tone)} {_html.escape(agree["text"])}'
+        f' · breadth reads <b>{_html.escape(str(b.get("breadth_label", "unknown")))}</b></div>',
+        unsafe_allow_html=True,
+    )
+
+
+try:
+    _render_breadth_panel()
+except Exception as _bp_err:
+    import logging
+    logging.getLogger("dashboard.command_centre").debug("breadth panel failed: %s", _bp_err)
+    st.caption("Breadth unavailable.")
+
+
 # ── Sector heatmap (Nifty sectoral indices, 1-day change) ────────────────────
 _SECTOR_IDX = [("BANK NIFTY", "Bank"), ("NIFTY IT", "IT"), ("NIFTY AUTO", "Auto"),
                ("NIFTY FMCG", "FMCG"), ("NIFTY PHARMA", "Pharma"), ("NIFTY METAL", "Metal"),

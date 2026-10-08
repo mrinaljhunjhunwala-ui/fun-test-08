@@ -150,3 +150,33 @@ def breadth_regime(breadth: pd.DataFrame, window: int = 10,
     lab[(s["pct_above_50dma"] < bear_pct50) & (s["ad_ratio"] < bear_ad)] = "bear"
     lab[s["pct_above_50dma"].isna()] = "unknown"
     return lab
+
+
+# App regime labels (analysis.regime.snapshot_live) grouped the way analysis.score does.
+_APP_FAMILY = {"trend_down": "bear", "risk_off": "bear", "bear": "bear",
+               "trend_up": "bull", "bull": "bull",
+               "range": "neutral", "sideways": "neutral"}
+
+
+def breadth_agreement(app_label: Optional[str], breadth_label: Optional[str],
+                      pct_above_50dma: Optional[float] = None) -> Dict[str, str]:
+    """Plain-language check of the app's regime label against the breadth read.
+
+    Returns ``{"status": "MATCH" | "MISMATCH" | "UNKNOWN", "text": ...}``, e.g.
+    ``label trend_down; 27% above 50DMA: breadth agrees``. Descriptive only.
+    """
+    app = str(app_label or "unknown").lower()
+    br = str(breadth_label or "unknown").lower()
+    pct = None
+    try:
+        if pct_above_50dma is not None and pct_above_50dma == pct_above_50dma:
+            pct = float(pct_above_50dma)
+    except (TypeError, ValueError):
+        pct = None
+    head = f"label {app}" + (f"; {pct:.0f}% above 50DMA" if pct is not None else "")
+    fam = _APP_FAMILY.get(app)
+    if fam is None or br not in ("bull", "bear", "neutral"):
+        return {"status": "UNKNOWN", "text": f"{head}: not enough data to compare"}
+    if fam == br:
+        return {"status": "MATCH", "text": f"{head}: breadth agrees"}
+    return {"status": "MISMATCH", "text": f"{head}: breadth disagrees (reads {br})"}
