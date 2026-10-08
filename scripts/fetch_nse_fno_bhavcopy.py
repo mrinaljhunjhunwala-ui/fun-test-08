@@ -137,16 +137,16 @@ def main(argv: List[str] | None = None) -> int:
             if drift["stale"]:
                 _log.warning(
                     "fno_universe drift: %d symbol(s) in _FNO_TICKERS but NOT in "
-                    "bhavcopy %s — candidates to REMOVE from data/fno_universe.py: %s",
+                    "bhavcopy %s — re-run tools/refresh_fno_universe.py: %s",
                     len(drift["stale"]), drift["db_date"],
                     ", ".join(sorted(drift["stale"])),
                 )
             if drift["missing"]:
-                # By design _FNO_TICKERS is a small curated subset — see the
-                # file header comment. Log at DEBUG so it's visible with -v
-                # but doesn't spam the daily task log.
-                _log.debug(
-                    "fno_universe: %d F&O symbol(s) not in curated _FNO_TICKERS: %s",
+                # _FNO_TICKERS is NSE's official list (data/nse_fno_underlyings.csv);
+                # a gap means the CSV is older than the bhavcopy.
+                _log.warning(
+                    "fno_universe: %d F&O symbol(s) not in data/nse_fno_underlyings.csv "
+                    "— re-run tools/refresh_fno_universe.py: %s",
                     len(drift["missing"]),
                     ", ".join(sorted(drift["missing"])),
                 )

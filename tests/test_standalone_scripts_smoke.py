@@ -83,6 +83,8 @@ _STANDALONE_SCRIPTS = [
      ["main", "find_plan", "apply_plan"]),
     ("tools.refresh_universe",              "tools/refresh_universe.py",
      ["main", "parse_index_csv", "build", "diff"]),
+    ("tools.refresh_fno_universe",          "tools/refresh_fno_universe.py",
+     ["main", "parse_mktlots", "parse_underlying_api", "diff"]),
 ]
 _IDS = [mod for mod, _, _ in _STANDALONE_SCRIPTS]
 

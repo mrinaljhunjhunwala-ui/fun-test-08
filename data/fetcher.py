@@ -425,13 +425,86 @@ def _parse_yahoo_chart(data: dict, ticker: str, yf_interval: str) -> pd.DataFram
     df = df[df["Close"] > 0]
     if not _intraday:
         # Yahoo pads daily history with flat zero-volume bars on exchange
-        # holidays (and occasionally a lost session). They are not sessions:
-        # keeping them drags Volume_SMA_20 and fakes "no movement" days.
-        # Indices always report Volume 0, so the bar must also be flat.
-        _flat = (df["Open"] == df["High"]) & (df["High"] == df["Low"]) & (df["Low"] == df["Close"])
-        _novol = df["Volume"].fillna(0) == 0
-        df = df[~(_flat & _novol)]
+        # holidays (and occasionally a lost session); clean_daily_bars() drops
+        # them (keeping a trailing suspension run) and holiday/weekend dates.
+        df = clean_daily_bars(df)
     df.sort_index(inplace=True)
+    return df
+
+
+# -- Daily-frame normalisation (FIX YF-1X / HOLIDAY-BARS, audit #31 / #29) ----
+_OHLCV = ("Open", "High", "Low", "Close", "Adj Close", "Volume")
+_SUSPENSION_RUN = 5     # trailing flat zero-volume bars kept as a real suspension
+
+
+def normalize_ohlcv_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce a yfinance-shaped OHLCV frame to flat columns + naive date index.
+
+    yfinance 1.x ``download()`` returns MultiIndex columns (Price, Ticker) even
+    for one ticker, ``Ticker.history()`` returns a tz-aware Asia/Kolkata index,
+    and older builds used (Ticker, Price) order. All collapse to plain
+    Open/High/Low/Close/Volume columns on a tz-naive DatetimeIndex (IST dates),
+    sorted, without duplicate dates. Single-ticker frames only.
+    """
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        lvl = next((i for i in range(df.columns.nlevels)
+                    if set(df.columns.get_level_values(i)) & {"Close", "Open"}), 0)
+        df.columns = df.columns.get_level_values(lvl)
+        df = df.loc[:, ~df.columns.duplicated()]
+    df = df.rename(columns={c: c.title() for c in df.columns
+                            if isinstance(c, str) and c.title() in _OHLCV})
+    if isinstance(df.index, pd.DatetimeIndex):
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert("Asia/Kolkata").tz_localize(None)
+        df = df[~df.index.duplicated(keep="last")].sort_index()
+    return df
+
+
+def clean_daily_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop non-session daily bars and record missing sessions in ``df.attrs``.
+
+    - bars dated on a weekend or NSE holiday (utils.nse_holidays) are dropped,
+      except NSE's special sessions (Muhurat, Budget Saturday);
+    - flat zero-volume placeholders (O=H=L=C, Volume 0) are dropped, but a
+      trailing run of >= 5 of them is kept: that is a real suspension and
+      analysis.edge_flags must still see it;
+    - ``attrs["missing_sessions"]`` lists trading days (calendar-covered years
+      only) between the first and last bar that have no bar.
+    """
+    if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
+        return df
+    from utils.nse_holidays import COVERED_YEARS, NSE_HOLIDAYS, SPECIAL_SESSIONS
+
+    days = df.index.normalize()
+    iso = pd.Index(days.strftime("%Y-%m-%d"))
+    non_session = (((days.weekday >= 5) | iso.isin(list(NSE_HOLIDAYS)))
+                   & ~iso.isin(list(SPECIAL_SESSIONS)))
+    df = df[~non_session]
+
+    if {"Open", "High", "Low", "Close"}.issubset(df.columns) and len(df):
+        vol = df["Volume"].fillna(0) if "Volume" in df.columns else pd.Series(0, index=df.index)
+        flat = (df["Open"] == df["High"]) & (df["High"] == df["Low"]) & (df["Low"] == df["Close"])
+        placeholder = (flat & (vol == 0)).to_numpy().copy()
+        trail = 0
+        for p in placeholder[::-1]:
+            if not p:
+                break
+            trail += 1
+        if trail >= _SUSPENSION_RUN:
+            placeholder[len(placeholder) - trail:] = False
+        df = df[~placeholder]
+
+    missing: list = []
+    if len(df) >= 2:
+        have = set(df.index.normalize())
+        for d in pd.bdate_range(df.index[0].normalize(), df.index[-1].normalize()):
+            ds = d.strftime("%Y-%m-%d")
+            if d.year in COVERED_YEARS and ds not in NSE_HOLIDAYS and d not in have:
+                missing.append(ds)
+    df.attrs["missing_sessions"] = missing
     return df
 
 
@@ -755,6 +828,11 @@ def fetch_single(ticker: str, period: str = "2y", interval: str = "1d") -> pd.Da
         _log.error("data fetch FAILED: symbol=%s — all providers failed: %s",
                    ticker, failures)
         raise ValueError(f"No data for {ticker}. All sources failed: {failures}")
+
+    if interval == "1d":
+        df = clean_daily_bars(normalize_ohlcv_frame(df))
+        if df is None or df.empty:
+            raise ValueError(f"No session bars for {ticker} after cleaning ({served})")
 
     # Log the provider that ultimately succeeded — INFO when a fallback was needed
     # (a degraded path worth noticing), DEBUG on a clean first-tier hit.

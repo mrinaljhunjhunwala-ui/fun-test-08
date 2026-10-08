@@ -8,7 +8,7 @@ the 5-day and 20-day cumulative flow trend, and the classic
 buy/sell-side combinations traders read as regime hints.
 
 Data is FREE — pulled from NSE India's own JSON when possible, falls back
-to a moneycontrol scrape if NSE blocks the cloud IP. Every successful
+to NSE's exchange-only endpoint if the all-exchange one fails. Every successful
 fetch is persisted, so the page renders even on a day when both sources
 are unreachable (we just show a "last known" banner).
 """
@@ -62,14 +62,14 @@ _c1, _c2 = st.columns([1, 4])
 with _c1:
     _do_force = st.button("🔄 Refresh from source", type="secondary",
                           help="Bypass the same-day cache and re-fetch from "
-                               "NSE / moneycontrol. Usually not needed.")
+                               "NSE. Usually not needed.")
 
 with st.spinner("Fetching latest FII/DII data…"):
     _status = _fd.refresh(force=_do_force)
 
 _src_labels = {
     "nse":          "NSE India (live)",
-    "moneycontrol": "Moneycontrol (fallback)",
+    "nse_exchange_only": "NSE exchange-only figures (fallback)",
     "cache":        "Local cache (today already stored)",
     "unavailable":  "⚠️ Both sources unreachable — showing last known data",
 }
@@ -94,7 +94,7 @@ _df = _fd.load_history(days=_days_choice)
 if _df.empty:
     st.info(
         "No FII/DII history yet. Click **🔄 Refresh from source** to fetch. "
-        "If both NSE and moneycontrol are blocked from Streamlit Cloud's IP "
+        "If both NSE endpoints are blocked from Streamlit Cloud's IP "
         "range, the fetch will fail silently — the ledger will still populate "
         "on the days it succeeds."
     )
@@ -277,7 +277,7 @@ with st.expander("🗄 Full data table", expanded=False):
     st.dataframe(_tbl, hide_index=True, width="stretch")
 
 st.caption(
-    "**Sources:** NSE India `/api/fiidiiTradeReact` (primary), moneycontrol.com "
-    "`fii_dii_activity` (fallback). All values in ₹ Crore, cash segment only. "
+    "**Sources:** NSE India `/api/fiidiiTradeReact` (primary, all exchanges), "
+    "`/api/fiidiiTradeNse` (fallback, NSE only). All values in ₹ Crore, cash segment only. "
     "F&O positioning not included in this view."
 )

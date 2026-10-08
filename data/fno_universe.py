@@ -11,21 +11,30 @@ This module is the source of truth for that eligibility check.
 
 DATA
 ────
-NSE publishes the F&O eligibility list in monthly circulars. This starter
-list is the Nifty-50 + Bank-Nifty + top mid-caps that have been F&O-eligible
-continuously through 2025-26. It intentionally errs SMALL (~60 names) so
-Recommendation 6 activates on the tickers where the data quality is best.
+FIX FNO-UNIVERSE (audit #30/#22): the set is NSE's official list of stock
+F&O underlyings, stored in data/nse_fno_underlyings.csv (Symbol, Company,
+LotSize) and read here at import with no network. Regenerate it with
+``py tools/refresh_fno_universe.py`` (dry-run diff) / ``--apply``.
+If the CSV is missing or unreadable, the old curated ~120-name list below
+(a strict subset of the 2026-10-08 official list) is used instead.
 
-FOLLOW-UP: refresh from the most recent NSE circular (typically monthly).
-See docs/POSITIONING_INTEGRATION_2026-09.md for the process.
+Scores: eligibility only matters when the Positioning pillar is enabled
+(NSE_USE_POSITIONING_PILLAR, default OFF). With the flag off, is_fno only
+drives the "F&O" badge, so the larger list changes no score.
 """
 from __future__ import annotations
 
-from typing import Iterable, Set
+import csv
+import logging
+import os
+from typing import Dict, Iterable, Optional, Set
 
-# ── F&O-eligible starter list (Nifty-50 + high-volume mid-caps) ─────────────
+_log = logging.getLogger("data.fno_universe")
+_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nse_fno_underlyings.csv")
+
+# ── Fallback: curated list used only when the CSV can't be read ────────────
 # Tickers stored WITHOUT the .NS suffix; the checker normalises both forms.
-_FNO_TICKERS: Set[str] = frozenset({
+_FALLBACK_TICKERS: Set[str] = frozenset({
     # Nifty 50 (core)
     "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
     "BAJAJ-AUTO", "BAJAJFINSV", "BAJFINANCE", "BEL", "BHARTIARTL",
@@ -59,6 +68,34 @@ _FNO_TICKERS: Set[str] = frozenset({
 })
 
 
+
+def _load_csv(path: str = _CSV_PATH) -> Dict[str, Optional[int]]:
+    """Symbol -> lot size (None when blank) from the official-list CSV."""
+    out: Dict[str, Optional[int]] = {}
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            sym = (row.get("Symbol") or "").strip().upper()
+            if not sym:
+                continue
+            try:
+                out[sym] = int(str(row.get("LotSize") or "").strip())
+            except ValueError:
+                out[sym] = None
+    return out
+
+
+try:
+    _LOT_SIZES: Dict[str, Optional[int]] = _load_csv()
+    if len(_LOT_SIZES) < 100:
+        raise ValueError(f"only {len(_LOT_SIZES)} rows")
+    _FNO_TICKERS: Set[str] = frozenset(_LOT_SIZES)
+    FNO_SOURCE = "csv"
+except (OSError, ValueError, csv.Error) as _e:
+    _log.warning("nse_fno_underlyings.csv unusable (%s) — using the curated fallback list", _e)
+    _LOT_SIZES = {}
+    _FNO_TICKERS = _FALLBACK_TICKERS
+    FNO_SOURCE = "fallback"
+
 def _normalize(ticker: str) -> str:
     """Strip .NS suffix and uppercase. Handles either shape safely."""
     if not ticker:
@@ -70,12 +107,17 @@ def _normalize(ticker: str) -> str:
 
 
 def is_fno_eligible(ticker: str) -> bool:
-    """True when the ticker is F&O-eligible per the starter universe.
+    """True when the ticker is an NSE F&O stock underlying.
 
     Non-F&O names skip Recommendation 6's Positioning pillar entirely
     and keep the legacy 4-pillar 40+25+15+10=90 shape.
     """
     return _normalize(ticker) in _FNO_TICKERS
+
+
+def fno_lot_size(ticker: str) -> Optional[int]:
+    """Near-month lot size from NSE's market-lot file, or None if unknown."""
+    return _LOT_SIZES.get(_normalize(ticker))
 
 
 def list_fno_tickers() -> Set[str]:
@@ -86,8 +128,7 @@ def list_fno_tickers() -> Set[str]:
 def add_fno_tickers(extra: Iterable[str]) -> None:
     """Extend the in-process F&O set — for tests and one-off overrides.
 
-    Persistent additions should edit _FNO_TICKERS above and land as a
-    commit with the source NSE circular referenced in the message.
+    Persistent changes come from ``tools/refresh_fno_universe.py --apply``.
     """
     global _FNO_TICKERS
     _FNO_TICKERS = frozenset(_FNO_TICKERS | {_normalize(t) for t in extra if t})

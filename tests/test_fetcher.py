@@ -5,7 +5,7 @@ import pytest
 import data.fetcher as fetcher
 
 
-def _sample_df_dates(start_date="2026-07-01", periods=5, freq="D"):
+def _sample_df_dates(start_date="2026-07-01", periods=5, freq="B"):
     idx = pd.date_range(start=start_date, periods=periods, freq=freq)
     df = pd.DataFrame({
         "Open": [100 + i for i in range(periods)],
