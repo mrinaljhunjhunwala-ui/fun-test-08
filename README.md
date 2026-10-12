@@ -1,6 +1,6 @@
-# 📈 NSE Smart Investor
+Fun test
 
-An AI-powered **Streamlit dashboard for NSE/BSE (Indian) equity analysis** — composite scoring,
+An AI-powered **Streamlit dashboard for N (Indian) equity analysis** — composite scoring,
 portfolio risk, paper trading, sector-aware fundamentals, a rules-based valuation/thesis engine,
 intraday tools, and optional live broker integration via Angel One SmartAPI.
 
